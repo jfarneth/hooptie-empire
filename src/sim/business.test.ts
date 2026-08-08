@@ -31,7 +31,7 @@ import type { GameState, Note } from './types';
 /** A stage-2 state with a listed car and a buyer standing in front of it. */
 function lotWithProspect(seed = 4242): GameState {
   const s = cloneState(createInitialState(seed, 0));
-  s.stage = 'bhph';
+  s.stage = 'smallUsed';
   s.cash = 500_000;
 
   const car = generateCar(s, s.rng, getModel('civet'), s.t);
@@ -285,7 +285,7 @@ describe('the repo trigger', () => {
   it('is what the engine actually repossesses on', () => {
     const build = (trigger: number) => {
       const s = cloneState(createInitialState(606, 0));
-      s.stage = 'bhph';
+      s.stage = 'smallUsed';
       s.business = { ...businessDefaults(), repoAfterMissedPayments: trigger };
       // Eight deep-subprime borrowers. Any single miss inside the window ends a
       // contract at a trigger of 1; at a trigger of 6 there are not enough weeks

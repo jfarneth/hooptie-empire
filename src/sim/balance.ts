@@ -241,8 +241,20 @@ export const BALANCE = {
    * Still load-bearing even though the cap is hard now: a save written before
    * the cap, or one whose desk shrank, can sit over the line, and it should
    * degrade rather than break.
+   *
+   * Moving up a dealership made that the normal case rather than the legacy one.
+   * The collections desk is staff, so it resets on a move, and a player carrying
+   * a full book lands at the new store with capacity for eight. Uncapped that is
+   * a 4.6x multiplier — the entire portfolio defaults inside a game month, which
+   * turns a strategic decision into a trap.
    */
   overCapacityMissPenalty: 0.9,
+  /**
+   * Ceiling on that multiplier. A desk this buried is as buried as it gets; past
+   * here the player is already rehiring as fast as they can and there is nothing
+   * left for more punishment to teach.
+   */
+  overCapacityMissPenaltyCap: 2.2,
 
   // ------------------------------------------------------- business management
   /**
@@ -267,8 +279,11 @@ export const BALANCE = {
   },
 
   // -------------------------------------------------------------- progression
-  /** Cash required to buy the lot and enter stage 2. */
-  lotPurchaseCost: 18_000,
+  // Entry costs, staff cost multipliers, per-stage capacities and per-stage
+  // sourcing all live in the STAGES table in stages.ts, following the precedent
+  // upgrades.ts sets for a definition table that carries its own costs. They are
+  // meaningless apart from the stage they belong to, and splitting them across
+  // two files would mean every tuning pass had to edit both.
 
   // -------------------------------------------------------------------- skills
   /**

@@ -2,14 +2,10 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { portfolioValue } from '../../sim/economy';
 import { activeNotes } from '../../sim/notes';
+import { getStage } from '../../sim/stages';
 import { carCapacity, collectionsCapacity } from '../../sim/upgrades';
 import type { GameState } from '../../sim/types';
 import { money, moneyShort, theme } from '../theme';
-
-const STAGE_NAME: Record<string, string> = {
-  curbstoner: 'Curbstoning',
-  bhph: 'Buy Here Pay Here',
-};
 
 /** Always-visible top bar. Cash and the book, because those are the two scores. */
 export function Hud({ state }: { state: GameState }) {
@@ -17,6 +13,7 @@ export function Hud({ state }: { state: GameState }) {
   const capacity = carCapacity(state);
   const active = activeNotes(state.notes);
   const portfolio = portfolioValue(state.notes);
+  const stage = getStage(state.stage);
   const deskCapacity = collectionsCapacity(state);
   const overCapacity = active.length > deskCapacity;
 
@@ -24,11 +21,11 @@ export function Hud({ state }: { state: GameState }) {
     <View style={styles.hud}>
       <View style={styles.left}>
         <Text style={styles.cash}>{money(state.cash)}</Text>
-        <Text style={styles.stage}>{STAGE_NAME[state.stage] ?? state.stage}</Text>
+        <Text style={styles.stage}>{stage.shortName}</Text>
       </View>
 
       <View style={styles.right}>
-        {state.stage === 'bhph' ? (
+        {stage.financing ? (
           <View style={styles.stat}>
             <Text style={styles.statLabel}>BOOK</Text>
             <Text style={[styles.statValue, { color: theme.colors.accent }]}>

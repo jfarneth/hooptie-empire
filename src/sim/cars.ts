@@ -21,17 +21,35 @@ const TIER_PROFILE: Record<
   luxury: { mileage: [26_000, 112_000], condition: [0.44, 0.88] },
 };
 
+/**
+ * Overrides the tier profile when the car did not come off the open market.
+ *
+ * A franchise stage takes delivery of new cars, so mileage and condition come
+ * from the manufacturer rather than from what tier of used metal this is. See
+ * `STAGES[].sourcing` in stages.ts.
+ */
+export interface StockProfile {
+  mileage: [number, number];
+  condition: [number, number];
+}
+
 export function generateCar(
   state: Pick<GameState, 'nextId'>,
   rng: RngState,
   model: CarModel,
   now: Millis,
+  override?: StockProfile,
 ): Car {
-  const profile = TIER_PROFILE[model.tier];
+  const profile = override ?? TIER_PROFILE[model.tier];
   const [mMin, mMax] = profile.mileage;
   const [cMin, cMax] = profile.condition;
 
-  const mileage = Math.round(normalish(rng, (mMin + mMax) / 2, (mMax - mMin) / 2, mMin, mMax) / 500) * 500;
+  // Used metal lands on a 500-mile grid, the way an odometer gets quoted. That
+  // grid would round every delivery mileage to a flat zero, so a narrow range
+  // gets a correspondingly fine one.
+  const grain = mMax - mMin >= 5_000 ? 500 : 5;
+  const mileage =
+    Math.round(normalish(rng, (mMin + mMax) / 2, (mMax - mMin) / 2, mMin, mMax) / grain) * grain;
   const condition = Math.round(normalish(rng, (cMin + cMax) / 2, (cMax - cMin) / 2, cMin, cMax) * 100) / 100;
 
   return {
@@ -130,5 +148,8 @@ export function applyRepoDamage(car: Car, conditionLoss: number): void {
 
 export function carLabel(car: Car): string {
   const model = getModel(car.modelId);
-  return `${model.name} · ${Math.round(car.mileage / 1000)}k`;
+  // A car off the transporter reads "· new", not "· 0k", which looks like a
+  // rendering bug rather than a fact about the car.
+  const odometer = car.mileage < 1_000 ? 'new' : `${Math.round(car.mileage / 1000)}k`;
+  return `${model.name} · ${odometer}`;
 }

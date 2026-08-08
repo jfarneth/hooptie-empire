@@ -1,6 +1,7 @@
 import { BALANCE } from './balance';
 import { bhphPrice, retailValue } from './economy';
 import { openNegotiation, type HaggleSkill } from './haggle';
+import { getStage } from './stages';
 import { mintId } from './ids';
 import { customerName } from './models';
 import { buildTerms } from './notes';
@@ -37,7 +38,12 @@ export function generateProspect(
   haggle: HaggleSkill,
   now: Millis,
 ): Prospect {
-  const weights = tierWeights(underwritingLevel);
+  const stage = getStage(state.stage);
+  // An upmarket store draws better credit through the door before anyone
+  // screens anybody, so the stage's shift stacks onto whatever underwriting
+  // buys. Expressed in equivalent underwriting levels so there is one curve
+  // rather than two that have to be kept in agreement.
+  const weights = tierWeights(underwritingLevel + stage.creditShift);
   const tier = pickWeighted(rng, TIERS, weights);
   const name = customerName(intRange(rng, 0, 999), intRange(rng, 0, 999));
 
@@ -53,7 +59,7 @@ export function generateProspect(
   const overpricing = retail > 0 ? car.askPrice / retail : 1;
   const negotiation = openNegotiation(rng, cashCeiling, overpricing, haggle);
 
-  const price = bhphPrice(car);
+  const price = bhphPrice(car, stage.bhphMultiplier);
   const weeks = BALANCE.termWeeks[intRange(rng, 0, BALANCE.termWeeks.length - 1)];
   const terms = buildTerms(tier, price, weeks, range(rng, 0.85, 1.15));
   const downPayment = price - terms.amountFinanced;

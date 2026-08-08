@@ -1,5 +1,6 @@
 import { BALANCE } from './balance';
 import { repoDamageMultiplier, repoThreshold } from './business';
+import { getStage, hasReached } from './stages';
 import type { GameState, StageId } from './types';
 
 export type UpgradeCategory = 'capacity' | 'speed' | 'automation' | 'finance';
@@ -16,6 +17,20 @@ export interface UpgradeDef {
   baseCost: number;
   /** Cost multiplier per level already owned. */
   costGrowth: number;
+  /**
+   * Is this a person on the payroll?
+   *
+   * Staff do not move with you. Every one of these resets to zero when you take
+   * on a bigger store and costs `staffCostMultiplier` more to hire there — you
+   * are staffing a franchise service department, not rehiring the guy with the
+   * socket set. Everything else is property, contracts or process, and carries
+   * over untouched.
+   *
+   * The line is "would this person have to be hired again at the new store".
+   * `scout` is a book of auction contacts and stays yours. `advertising` is a
+   * spend, not a hire. `autoList` is you agreeing to do the listings.
+   */
+  staff?: boolean;
 }
 
 /**
@@ -29,7 +44,7 @@ export const UPGRADES: readonly UpgradeDef[] = [
     name: 'Driveway space',
     description: '+1 car you can hold at once.',
     category: 'capacity',
-    stage: 'curbstoner',
+    stage: 'curbstone',
     maxLevel: 3,
     baseCost: 1_400,
     costGrowth: 2.3,
@@ -39,7 +54,7 @@ export const UPGRADES: readonly UpgradeDef[] = [
     name: 'Auction contacts',
     description: 'More cars on the feed, and they turn up faster.',
     category: 'speed',
-    stage: 'curbstoner',
+    stage: 'curbstone',
     maxLevel: 4,
     baseCost: 900,
     costGrowth: 2.6,
@@ -49,17 +64,18 @@ export const UPGRADES: readonly UpgradeDef[] = [
     name: 'Mechanic',
     description: 'Reconditioning finishes faster.',
     category: 'speed',
-    stage: 'curbstoner',
+    stage: 'curbstone',
     maxLevel: 4,
     baseCost: 1_100,
     costGrowth: 2.5,
+    staff: true,
   },
   {
     id: 'advertising',
     name: 'Advertising',
     description: 'More buyers come look at what you have listed.',
     category: 'speed',
-    stage: 'curbstoner',
+    stage: 'curbstone',
     maxLevel: 5,
     baseCost: 1_600,
     costGrowth: 2.4,
@@ -69,7 +85,7 @@ export const UPGRADES: readonly UpgradeDef[] = [
     name: 'Post them yourself',
     description: 'Cars are listed automatically as soon as they are ready.',
     category: 'automation',
-    stage: 'curbstoner',
+    stage: 'curbstone',
     maxLevel: 1,
     baseCost: 2_200,
     costGrowth: 1,
@@ -79,7 +95,7 @@ export const UPGRADES: readonly UpgradeDef[] = [
     name: 'Standing shop order',
     description: 'Cars go straight into recon when you can afford the work.',
     category: 'automation',
-    stage: 'curbstoner',
+    stage: 'curbstone',
     maxLevel: 1,
     baseCost: 4_500,
     costGrowth: 1,
@@ -89,20 +105,22 @@ export const UPGRADES: readonly UpgradeDef[] = [
     name: 'Buyer on retainer',
     description: 'Buys anything that still looks cheap at the worst it could be.',
     category: 'automation',
-    stage: 'curbstoner',
+    stage: 'curbstone',
     maxLevel: 1,
     baseCost: 9_000,
     costGrowth: 1,
+    staff: true,
   },
   {
     id: 'salesDesk',
     name: 'Sales manager',
     description: 'Closes walk-ups for you according to a standing policy you set.',
     category: 'automation',
-    stage: 'curbstoner',
+    stage: 'curbstone',
     maxLevel: 1,
     baseCost: 6_000,
     costGrowth: 1,
+    staff: true,
   },
 
   // ---- stage 2 -------------------------------------------------------------
@@ -111,7 +129,7 @@ export const UPGRADES: readonly UpgradeDef[] = [
     name: 'Pave another row',
     description: '+4 spaces on the lot.',
     category: 'capacity',
-    stage: 'bhph',
+    stage: 'smallUsed',
     maxLevel: 5,
     baseCost: 8_000,
     costGrowth: 2.1,
@@ -121,40 +139,44 @@ export const UPGRADES: readonly UpgradeDef[] = [
     name: 'Collections desk',
     description: 'Raises the hard limit on how many contracts you can carry at once.',
     category: 'finance',
-    stage: 'bhph',
+    stage: 'smallUsed',
     maxLevel: 5,
     baseCost: 6_500,
     costGrowth: 2.2,
+    staff: true,
   },
   {
     id: 'underwriting',
     name: 'Underwriting',
     description: 'Screen applicants harder. Fewer D-tier walk-ins, more B and C.',
     category: 'finance',
-    stage: 'bhph',
+    stage: 'smallUsed',
     maxLevel: 3,
     baseCost: 12_000,
     costGrowth: 2.6,
+    staff: true,
   },
   {
     id: 'repoMan',
     name: 'Recovery agent on call',
     description: 'Repossessions cost less and bring the car back in better shape.',
     category: 'finance',
-    stage: 'bhph',
+    stage: 'smallUsed',
     maxLevel: 3,
     baseCost: 7_500,
     costGrowth: 2.4,
+    staff: true,
   },
   {
     id: 'nightManager',
     name: 'Night manager',
     description: '+4 hours of business that keeps running while the app is closed.',
     category: 'automation',
-    stage: 'bhph',
+    stage: 'smallUsed',
     maxLevel: 4,
     baseCost: 15_000,
     costGrowth: 2.2,
+    staff: true,
   },
 ];
 
@@ -175,26 +197,50 @@ export function has(state: Pick<GameState, 'upgrades'>, id: string): boolean {
   return level(state, id) > 0;
 }
 
-export function upgradeCost(def: UpgradeDef, currentLevel: number): number {
-  return Math.round(def.baseCost * Math.pow(def.costGrowth, currentLevel));
+/**
+ * What the next level costs.
+ *
+ * `stage` is optional so the pure cost curve stays callable without a game
+ * state, but every player-facing caller should pass it: at a franchise store a
+ * mechanic is an order of magnitude dearer than the same line item was on the
+ * driveway, and a cost quoted without the stage is a lie on five stages out of
+ * six.
+ */
+export function upgradeCost(def: UpgradeDef, currentLevel: number, stage?: StageId): number {
+  const wageScale = def.staff && stage ? getStage(stage).staffCostMultiplier : 1;
+  return Math.round(def.baseCost * Math.pow(def.costGrowth, currentLevel) * wageScale);
+}
+
+/** True once the store is big enough for this line item to exist at all. */
+export function upgradeUnlocked(state: Pick<GameState, 'stage'>, def: UpgradeDef): boolean {
+  return hasReached(state.stage, def.stage);
 }
 
 export function canBuyUpgrade(state: GameState, id: string): boolean {
   const def = getUpgrade(id);
   const lvl = level(state, id);
   if (lvl >= def.maxLevel) return false;
-  if (def.stage === 'bhph' && state.stage !== 'bhph') return false;
-  return state.cash >= upgradeCost(def, lvl);
+  if (!upgradeUnlocked(state, def)) return false;
+  return state.cash >= upgradeCost(def, lvl, state.stage);
 }
 
 // ---------------------------------------------------------------- derived stats
 
-/** How many cars the player can hold at once, driveway or lot depending on stage. */
+/**
+ * How many cars the player can hold at once.
+ *
+ * Base comes from the store, extra rows come from the capacity upgrade that
+ * store uses. Property carries across a move, so a maxed-out `lot` keeps paying
+ * at every stage above the one it was bought at — which is the intended reward
+ * for buying space early.
+ */
 export function carCapacity(state: GameState): number {
-  if (state.stage === 'curbstoner') {
-    return BALANCE.drivewayCapacity + level(state, 'driveway') * BALANCE.capacityPerDrivewayLevel;
-  }
-  return BALANCE.lotCapacity + level(state, 'lot') * BALANCE.capacityPerLotLevel;
+  const stage = getStage(state.stage);
+  const perLevel =
+    stage.capacityUpgradeId === 'driveway'
+      ? BALANCE.capacityPerDrivewayLevel
+      : BALANCE.capacityPerLotLevel;
+  return stage.baseCarCapacity + level(state, stage.capacityUpgradeId) * perLevel;
 }
 
 // Sourcing throughput moved to `sourcingModsFor` in skills.ts, where the scout

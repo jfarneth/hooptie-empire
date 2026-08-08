@@ -13,8 +13,9 @@ import {
 } from './engine';
 import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
+import { nextStage, type StageDef } from './stages';
 import { haggleSkillFor, reconModsFor } from './skills';
-import { collectionsCapacity, getUpgrade, level, upgradeCost } from './upgrades';
+import { UPGRADES, collectionsCapacity, getUpgrade, level, upgradeCost, upgradeUnlocked } from './upgrades';
 import type { BusinessPolicy, DealPolicy, GameState } from './types';
 
 /**
@@ -131,8 +132,8 @@ export function purchaseUpgrade(state: GameState, id: string): GameState {
     const def = getUpgrade(id);
     const lvl = level(s, id);
     if (lvl >= def.maxLevel) return false;
-    if (def.stage === 'bhph' && s.stage !== 'bhph') return false;
-    const cost = upgradeCost(def, lvl);
+    if (!upgradeUnlocked(s, def)) return false;
+    const cost = upgradeCost(def, lvl, s.stage);
     if (s.cash < cost) return false;
     s.cash -= cost;
     s.upgrades[id] = lvl + 1;
@@ -174,24 +175,105 @@ export function setBusinessPolicy(state: GameState, patch: Partial<BusinessPolic
 }
 
 /**
- * Stage gate: buy the lot. This is the moment the game changes shape — the
- * finance desk opens and every sale becomes a choice rather than a transaction.
+ * Everything moving up costs you, beyond the cheque. Computed before the move so
+ * the UI can put it in front of the player, and computed from the same data the
+ * move itself uses so the warning cannot drift from what actually happens.
  */
-export function canBuyLot(state: GameState): boolean {
-  return state.stage === 'curbstoner' && state.cash >= BALANCE.lotPurchaseCost;
+export interface StageMovePreview {
+  next: StageDef | null;
+  cost: number;
+  affordable: boolean;
+  /** Employees who do not come with you, by name, at their current level. */
+  staffLost: { name: string; level: number }[];
+  /** Contracts on the book against the collections desk you would be left with. */
+  bookAfter: { active: number; capacity: number };
 }
 
-export function buyLot(state: GameState): GameState {
+export function stageMovePreview(state: GameState): StageMovePreview {
+  const next = nextStage(state.stage);
+  const staffLost = UPGRADES.filter((u) => u.staff && level(state, u.id) > 0).map((u) => ({
+    name: u.name,
+    level: level(state, u.id),
+  }));
+
+  // The collections desk is staff, so it resets too — and the book does not.
+  // A player carrying 40 contracts into a new store lands there with capacity
+  // for 8 until they rehire, which is the single sharpest edge in the move.
+  const withoutStaff = { upgrades: { ...state.upgrades } };
+  for (const u of UPGRADES) if (u.staff) delete withoutStaff.upgrades[u.id];
+
+  return {
+    next,
+    cost: next?.entryCost ?? 0,
+    affordable: next ? state.cash >= next.entryCost : false,
+    staffLost,
+    bookAfter: {
+      active: activeNotes(state.notes).length,
+      capacity: collectionsCapacity(withoutStaff),
+    },
+  };
+}
+
+export function canAdvanceStage(state: GameState): boolean {
+  return stageMovePreview(state).affordable;
+}
+
+/**
+ * Take on the next dealership up.
+ *
+ * The moment the game changes shape, five times over. What survives is
+ * deliberate and is the whole design of the progression: cash, inventory, the
+ * loan book, property, contracts, process and — above all — skills. What does
+ * not survive is the payroll. You are hiring into a bigger operation and you are
+ * hiring from scratch, at that operation's prices.
+ *
+ * Inventory is deliberately NOT liquidated. Beaters bought at a small lot are
+ * still yours at a franchise store even though nothing like them will ever come
+ * across the feed again; selling them off is the player's problem and their
+ * first taste of what the new store's traffic wants.
+ */
+export function advanceStage(state: GameState): GameState {
   return act(state, (s) => {
-    if (s.stage !== 'curbstoner' || s.cash < BALANCE.lotPurchaseCost) return false;
-    s.cash -= BALANCE.lotPurchaseCost;
-    s.stage = 'bhph';
+    const next = nextStage(s.stage);
+    if (!next || s.cash < next.entryCost) return false;
+
+    s.cash -= next.entryCost;
+    s.stage = next.id;
+
+    // Staff do not come with you. Deleted rather than set to zero so a save
+    // never carries a key the player has not bought at this store.
+    const released: string[] = [];
+    for (const def of UPGRADES) {
+      if (!def.staff || level(s, def.id) === 0) continue;
+      released.push(def.name);
+      delete s.upgrades[def.id];
+    }
+
+    // The sales manager was staff, so the standing order has nobody to carry it
+    // out. Left set, the policy would silently do nothing and the player would
+    // think the desk was still running.
+    if (s.dealPolicy !== 'manual') s.dealPolicy = 'manual';
+
+    // The feed belonged to the old store. Left alone, a brand new franchise
+    // spends its first two minutes showing auction beaters on a feed that has
+    // just promised one make and factory pricing — which reads as a bug and, on
+    // the used stages, quietly lets a big lot buy the small lot's inventory.
+    // Cars already bought are yours; leads are not.
+    s.listings = [];
+
     logEvent(s, {
       t: s.t,
       kind: 'stage-up',
-      label: 'Bought the lot. The finance desk is open.',
-      amount: -BALANCE.lotPurchaseCost,
+      label: `Took on the ${next.name.toLowerCase()}.`,
+      amount: -next.entryCost,
     });
+    if (released.length > 0) {
+      logEvent(s, {
+        t: s.t,
+        kind: 'stage-up',
+        label: `Payroll reset — rehiring ${released.length} at the new store.`,
+      });
+    }
     return true;
   });
 }

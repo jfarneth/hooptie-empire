@@ -40,10 +40,16 @@ import {
 } from './skills';
 import type { Car, GameState, Listing, Negotiation, SkillId } from './types';
 
-function stateAt(levels: Partial<Record<SkillId, number>>): Pick<GameState, 'skills'> {
+/**
+ * Carries a stage as well as skills. `appraisalSigma` multiplies the skill's
+ * error by the stage's, and 'curbstone' is the 1.0 case — the franchise stages
+ * zero it out entirely, which is a stage fact rather than a skill fact and is
+ * tested in stages.test.ts.
+ */
+function stateAt(levels: Partial<Record<SkillId, number>>): Pick<GameState, 'skills' | 'stage'> {
   const skills = blankSkills();
   for (const id of SKILL_IDS) skills[id].level = levels[id] ?? 1;
-  return { skills };
+  return { skills, stage: 'curbstone' };
 }
 
 /**
@@ -144,8 +150,8 @@ describe('Buying', () => {
 
   it('stacks with the scout upgrade rather than replacing it', () => {
     const skills = stateAt({ buy: maxLevel }).skills;
-    const bare = sourcingModsFor({ skills, upgrades: {} });
-    const scouted = sourcingModsFor({ skills, upgrades: { scout: 2 } });
+    const bare = sourcingModsFor({ skills, upgrades: {}, stage: 'curbstone' });
+    const scouted = sourcingModsFor({ skills, upgrades: { scout: 2 }, stage: 'curbstone' });
 
     expect(scouted.slots).toBe(bare.slots + 2 * BALANCE.listingSlotsPerScoutLevel);
     // Contacts and practice stack on the interval, the same way the mechanic

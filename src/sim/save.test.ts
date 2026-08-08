@@ -3,6 +3,7 @@ import { SAVE_VERSION, advance, createInitialState } from './engine';
 import { activeNotes, bookRoom } from './notes';
 import { deserialize, migrate, serialize } from './save';
 import { SKILL_IDS } from './skills';
+import { STAGE_ORDER, getStage } from './stages';
 
 /**
  * Save compatibility is not a nice-to-have in this genre. A player can be hours
@@ -96,7 +97,9 @@ describe('migration chain', () => {
     expect(migrated.version).toBe(SAVE_VERSION);
     // The things a player would be upset to lose survive.
     expect(migrated.cash).toBe(41_234);
-    expect(migrated.stage).toBe('bhph');
+    // 'bhph' is 'smallUsed' now — same lot, same finance desk, new name. The
+    // player's position on the ladder survives; only the id changed.
+    expect(migrated.stage).toBe('smallUsed');
     // The thing that cannot survive is dropped rather than half-converted.
     expect(migrated.prospects).toEqual([]);
     expect(migrated.stats.negotiationsWon).toBe(0);
@@ -126,7 +129,7 @@ describe('migration chain', () => {
     }
     // Everything a player would notice is untouched.
     expect(migrated.cash).toBe(96_500);
-    expect(migrated.stage).toBe('bhph');
+    expect(migrated.stage).toBe('smallUsed');
     expect(migrated.upgrades).toEqual({ lot: 2, collections: 1 });
 
     expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
@@ -194,6 +197,50 @@ describe('migration chain', () => {
     expect(migrated.notes.length).toBe(120);
     expect(activeNotes(migrated.notes).length).toBe(120);
     expect(bookRoom(migrated)).toBe(0);
+  });
+
+  /**
+   * v5 -> v6: two stages became six, and both old ids were renamed. `getStage`
+   * throws on an id it does not know and runs on the first tick, so getting this
+   * wrong is not a subtle bug — it is every existing save failing to load.
+   */
+  it('renames a v5 stage onto the new ladder without moving the player', () => {
+    const build = (stage: string) => {
+      const v5: any = JSON.parse(JSON.stringify(createInitialState(66, 0)));
+      v5.version = 5;
+      v5.stage = stage;
+      v5.cash = 55_500;
+      v5.upgrades = { lot: 2, mechanic: 3 };
+      return migrate(v5, 5);
+    };
+
+    expect(build('curbstoner').stage).toBe('curbstone');
+    expect(build('bhph').stage).toBe('smallUsed');
+
+    // The small lot they were running is the same business on the new ladder.
+    const moved = build('bhph');
+    expect(getStage(moved.stage).financing).toBe(true);
+    expect(moved.cash).toBe(55_500);
+    // Nothing is treated as a stage move, so the payroll survives the update.
+    expect(moved.upgrades).toEqual({ lot: 2, mechanic: 3 });
+    expect(() => advance(moved, 5 * 60 * 1000)).not.toThrow();
+  });
+
+  /**
+   * A stage id this build has never heard of would take the game down on the
+   * first tick. Landing such a save at the bottom of a ladder it can climb again
+   * beats a crash, and everything the player earned survives regardless.
+   */
+  it('lands a save with an unrecognised stage somewhere the engine can run', () => {
+    const weird: any = JSON.parse(JSON.stringify(createInitialState(67, 0)));
+    weird.version = 5;
+    weird.stage = 'dealerGroup';
+    weird.cash = 900_000;
+
+    const migrated = migrate(weird, 5);
+    expect(STAGE_ORDER).toContain(migrated.stage);
+    expect(migrated.cash).toBe(900_000);
+    expect(() => advance(migrated, 60_000)).not.toThrow();
   });
 
   it('preserves counters a v2 save already had', () => {

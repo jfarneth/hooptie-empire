@@ -4,6 +4,7 @@ import { setBusinessPolicy, setDealPolicy } from '../../sim/actions';
 import { BALANCE } from '../../sim/balance';
 import { businessPolicy, repoDamageMultiplier } from '../../sim/business';
 import { activeNotes } from '../../sim/notes';
+import { getStage } from '../../sim/stages';
 import { collectionsCapacity, level } from '../../sim/upgrades';
 import type { DealPolicy, GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
@@ -165,7 +166,7 @@ export function BusinessPanel({ state }: { state: GameState }) {
       </View>
 
       {/* ------------------------------------------------------------ the book */}
-      {state.stage === 'bhph' ? (
+      {getStage(state.stage).financing ? (
         <View style={{ gap: 8 }}>
           <Label>The book</Label>
           <Card style={{ gap: 8 }}>

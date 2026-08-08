@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MS_PER_GAME_WEEK } from '../../sim/balance';
 import { portfolioValue } from '../../sim/economy';
 import { activeNotes, remainingScheduled } from '../../sim/notes';
+import { getStage } from '../../sim/stages';
 import { collectionsCapacity } from '../../sim/upgrades';
 import type { GameState, Note } from '../../sim/types';
 import { TIER_COLOR, duration, money, moneyShort, theme } from '../theme';
@@ -14,7 +15,7 @@ import { Card, Chip, EmptyState, Label, Meter, Row } from '../components/ui';
  * arc of the business.
  */
 export function NotesScreen({ state }: { state: GameState }) {
-  if (state.stage !== 'bhph') {
+  if (!getStage(state.stage).financing) {
     return (
       <EmptyState
         title="No finance desk yet"

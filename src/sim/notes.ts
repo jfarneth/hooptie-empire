@@ -80,7 +80,10 @@ export function canWriteNote(state: GameState): boolean {
 export function overCapacityFactor(activeCount: number, capacity: number): number {
   if (activeCount <= capacity || capacity <= 0) return 1;
   const overage = (activeCount - capacity) / capacity;
-  return 1 + overage * BALANCE.overCapacityMissPenalty;
+  return Math.min(
+    BALANCE.overCapacityMissPenaltyCap,
+    1 + overage * BALANCE.overCapacityMissPenalty,
+  );
 }
 
 /** Odds this borrower misses the payment that is due right now. */
