@@ -1,5 +1,6 @@
 import { TICK_MS } from './balance';
 import { advance, createInitialState } from './engine';
+import { SKILL_IDS } from './skills';
 import type { GameState } from './types';
 
 /**
@@ -34,6 +35,9 @@ function fingerprint(s: GameState) {
         `${p.id}:${p.negotiation.currentOffer}:${p.negotiation.status}:` +
         `${p.negotiation.countersMade}:${p.negotiation.reservation.toFixed(2)}`,
     ),
+    // Skills are a record of nested objects, so like prospects they are what
+    // would catch a missed clone in cloneState.
+    skills: SKILL_IDS.map((id) => `${id}:${s.skills[id].level}:${s.skills[id].xp}`),
     stats: s.stats,
   };
 }

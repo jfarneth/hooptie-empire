@@ -85,7 +85,7 @@ Most have a guarding test; check before "simplifying" the code around them.
 - **`humanizePrice` floors on both branches.** Rounding to nearest let an offer
   land above the price it was derived from.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently v2. Saves are long-lived and local to the device; "we wiped saves" is
+  Currently v3. Saves are long-lived and local to the device; "we wiped saves" is
   the thing that ends an idle game. `src/state/persistence.ts` also carries
   legacy storage-key fallback for the same reason.
 
@@ -115,9 +115,9 @@ Pushing to `master` builds and publishes to GitHub Pages via
 derives from the repo name. Without it the deployed page 404s its own bundle and
 renders blank with no error.
 
-Known wart: the workflow currently triggers on feature branches as well as
-`master`. Pages serves one site, so a branch push overwrites what `master`
-deployed. Worth removing now that work merges via PR.
+Only `master` triggers it. Pages serves one site, so a feature branch in that
+trigger list silently republishes over whatever `master` deployed — if you ever
+need a branch preview, build it somewhere that is not the live site.
 
 ## Open questions
 

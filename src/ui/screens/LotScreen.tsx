@@ -141,7 +141,11 @@ function RecentActivity({ state }: { state: GameState }) {
       ? theme.colors.danger
       : kind === 'payment' || kind === 'sale-cash' || kind === 'sale-finance'
         ? theme.colors.money
-        : theme.colors.textDim;
+        : kind === 'skill-up' || kind === 'stage-up'
+          ? theme.colors.accent
+          : kind === 'appraisal'
+            ? theme.colors.warn
+            : theme.colors.textDim;
 
   return (
     <View style={{ gap: 6, marginTop: 8 }}>

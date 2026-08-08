@@ -50,9 +50,26 @@ export const BALANCE = {
   listingIntervalMs: 22_000,
   listingIntervalPerScoutLevel: 0.78,
   listingLifetimeMs: 150_000,
-  /** Seller ask relative to wholesale. Below 1.0 is a genuine deal. */
-  listingAskMin: 0.86,
-  listingAskMax: 1.14,
+  /**
+   * Seller ask relative to wholesale. Below 1.0 is a genuine deal.
+   *
+   * Wider than it was, and load-bearing rather than flavour. The ask is derived
+   * from the car's *true* condition, so a narrow band lets a sharp player
+   * back-solve the condition from the price and defeat the appraisal. Width is
+   * what blunts that, not position — at ±0.20 the price signal is noisy enough
+   * against 0.18 of condition noise that back-solving stops paying.
+   *
+   * Do not widen this further without re-running the harness. The economy is
+   * violently sensitive to it, because the band sets both the share of listings
+   * worth buying and the margin on the ones that are, and an idle economy
+   * compounds margin over four hours. The originally planned 0.72-1.30 measured
+   * +23% end cash; nudging the same width up to 0.84-1.42 measured -98%. This
+   * pair is where throughput and margin land closest to where they were.
+   */
+  listingAskMin: 0.8,
+  listingAskMax: 1.2,
+  /** Condition points of appraisal miss worth telling the player about. */
+  appraisalSurpriseThreshold: 0.08,
 
   // --------------------------------------------------------------------- recon
   /** Sim ms to raise condition by a full 1.0 point. */
@@ -161,6 +178,127 @@ export const BALANCE = {
   // -------------------------------------------------------------- progression
   /** Cash required to buy the lot and enter stage 2. */
   lotPurchaseCost: 18_000,
+
+  // -------------------------------------------------------------------- skills
+  /**
+   * Player proficiencies: Buying, Closing, Wrenching.
+   *
+   * Every effect is declared as its value at level 1 and at max level, with an
+   * easing exponent applied to normalized progress. `ease < 1` front-loads the
+   * gain so the first levels are the ones a player feels.
+   *
+   * INVARIANT: every `at1` equals the constant the game used before skills
+   * existed, so a level-1 save behaves exactly like the pre-skills build. There
+   * is a test for it (skills.test.ts) and it is what makes it safe to land the
+   * substrate ahead of the effects that read it.
+   *
+   * Every `atMax` currently equals its `at1`, so the curves are flat and levels
+   * buy nothing yet. That is deliberate: the substrate ships provably inert, and
+   * each later phase turns one skill on by editing these numbers and wiring the
+   * accessor that already exists. Target values live in docs/skills-plan.md and
+   * are not committed here until the harness has argued with them.
+   */
+  skills: {
+    maxLevel: 10,
+    /** XP to go from level 1 to 2; each level costs `xpGrowth` times the last. */
+    xpBase: 100,
+    xpGrowth: 1.55,
+
+    /**
+     * XP awards. Money-driven grants scale with a square root so one expensive
+     * car cannot leapfrog a skill, and recon pays per condition point so beaters
+     * train the shop just as well as clean cars do.
+     */
+    xp: {
+      buyPerCar: 12,
+      buyPriceRef: 1_500,
+      sellPerDeal: 10,
+      sellPriceRef: 2_500,
+      /** Closing a deal you actually haggled for teaches more than taking list. */
+      sellCounterBonus: 6,
+      /** You learn from the ones who walk, too. */
+      sellWalkaway: 4,
+      repairPerPoint: 55, // Shop work is rarer than buying or selling; this keeps Wrenching roughly in step.
+    },
+
+    /**
+     * Buying. The one skill whose level 1 is deliberately NOT the old game:
+     * before this, the feed printed exact condition and exact spread, and
+     * "should I buy this" was a comparison rather than a decision.
+     *
+     * σ = 0.18 moves `conditionFactor` by about 0.10, which on a typical car is
+     * ~13% of retail — several hundred dollars against a spread of similar
+     * size. Enough to make the call real, not enough to make it a coin flip.
+     *
+     * Buying carries NO throughput at all, which is a deliberate departure from
+     * the original brief of "locate more cars as you level".
+     *
+     * Both throughput levers were built, measured and switched off, because
+     * this economy compounds throughput exponentially over four hours: the
+     * interval term measured +15% end cash on its own, and a single extra feed
+     * slot measured +21%. Against a late game already flagged as running hot,
+     * that is a great deal of money for a small perk. `scout` is how a player
+     * buys feed throughput, with cash, at a price.
+     *
+     * The machinery for both is intact and tested — raising either atMax turns
+     * it back on — so this is a balance call, not a missing feature.
+     */
+    buy: {
+      /** 1σ of appraisal error, in condition points. */
+      appraisalSigma: { at1: 0.18, atMax: 0.03, ease: 0.7 },
+      listingInterval: { at1: 1, atMax: 1, ease: 0.7 },
+      listingSlots: { at1: 0, atMax: 0, ease: 0.7 },
+    },
+    /**
+     * Closing. Shipped at the full planned strength, because measurement says
+     * it costs nothing: across 64 seeds every setting from timid to strong
+     * landed within ±3% on lifetime profit, which is inside the noise.
+     *
+     * The reason is structural, and it is worth knowing before anyone "fixes"
+     * it. The sales desk counters exactly once and takes whatever comes back,
+     * so it cannot exploit a better negotiator; and two of these five effects
+     * are invisible to the harness by construction — a bot never reads a tell,
+     * and never uses a third counter it does not ask for. Closing is a skill
+     * that pays out almost entirely to someone playing by hand, which is the
+     * intent. The corollary is that the harness cannot bound its upside for a
+     * player who does use all three counters. Watch that in playtest, not here.
+     */
+    sell: {
+      tellJitter: { at1: 0.3, atMax: 0.05, ease: 0.7 },
+      walkChanceMult: { at1: 1, atMax: 0.6, ease: 0.7 },
+      roomMean: { at1: 0.46, atMax: 0.52, ease: 0.7 },
+      deskCounterFrac: { at1: 0.55, atMax: 0.72, ease: 0.7 },
+      /** Level at which the player gets a third counter. 0 disables it. */
+      extraCounterAt: 6,
+    },
+    /**
+     * Wrenching. Caps deliberately well short of what the shop could bear.
+     *
+     * Raised in phase 5. The original caps were held low pending the ambiguity
+     * acting as a deflationary counterweight — it does not; see the appraisal
+     * note above. With that reasoning void, these were re-argued on their own
+     * merits: at 0.92/0.82/0.40 the skill was barely perceptible (cost -8%,
+     * speed -18%) which is a poor thing to make a player level for.
+     *
+     * At 64 seeds all three skills together now land +24% end cash and +13%
+     * lifetime profit against the pre-skills build. The next step up
+     * (0.85/0.72/0.45) measured +31% and was declined: the late game was
+     * already flagged as hot, and that call needs a human playing it rather
+     * than another sweep.
+     *
+     * Two things the harness genuinely cannot answer, so do not re-derive them
+     * from it: it separates the mild band from the strong band and nothing
+     * finer — end-cash medians swing ±12 points between settings that are
+     * within 0.5% of each other at the levels a 4h run actually reaches — and
+     * it cannot tell the easings apart at all. `ease: 0.7` front-loads the gain
+     * on feel alone: the first few levels are the ones a player is present for.
+     */
+    repair: {
+      costMult: { at1: 1, atMax: 0.88, ease: 0.7 },
+      speedMult: { at1: 1, atMax: 0.76, ease: 0.7 },
+      maxLift: { at1: 0.35, atMax: 0.43, ease: 0.7 },
+    },
+  },
 } as const;
 
 export type BalanceConfig = typeof BALANCE;

@@ -48,6 +48,40 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       ...s.stats,
     },
   }),
+
+  /**
+   * v2 → v3: player skills.
+   *
+   * Everyone who was already playing starts at level 1 across the board, which
+   * is exactly the behaviour their save had before skills existed — level 1
+   * reproduces every pre-skills constant. Nothing else about the save changes.
+   *
+   * Written out longhand rather than calling blankSkills(): a migration has to
+   * keep meaning what it meant when it shipped, and a shared helper is free to
+   * change underneath it.
+   */
+  2: (s) => ({
+    ...s,
+    skills: {
+      buy: { level: 1, xp: 0 },
+      sell: { level: 1, xp: 0 },
+      repair: { level: 1, xp: 0 },
+    },
+  }),
+
+  /**
+   * v3 -> v4: cars on the feed stopped advertising their true condition.
+   *
+   * A v3 listing has no noise draw, and the engine reads it on the next render.
+   * Backfilling zero means listings already on the feed appraise honestly —
+   * generous rather than punitive, and they rotate off within ~150s anyway.
+   * Rolling a real draw here would be worse: a player who had been looking at
+   * an exact condition all session would watch the number move for no reason.
+   */
+  3: (s) => ({
+    ...s,
+    listings: (s.listings ?? []).map((l: any) => ({ ...l, appraisalNoise: 0 })),
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

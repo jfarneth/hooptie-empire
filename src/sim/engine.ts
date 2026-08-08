@@ -8,6 +8,7 @@ import {
   generateCar,
   reconCost,
 } from './cars';
+import { appraisalError, pessimisticWholesale } from './appraisal';
 import { generateProspect } from './customers';
 import { deskCounter, resolveCounter } from './haggle';
 import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
@@ -20,19 +21,31 @@ import {
   openNote,
   overCapacityFactor,
 } from './notes';
-import { chance, createRng, pick, range } from './rng';
+import { chance, createRng, normalish, pick, range } from './rng';
+import {
+  blankSkills,
+  buyXp,
+  cloneSkills,
+  getSkill,
+  grantXp,
+  appraisalSigma,
+  haggleSkillFor,
+  reconModsFor,
+  sourcingModsFor,
+  repairXp,
+  sellXp,
+  walkawayXp,
+} from './skills';
 import {
   carCapacity,
   collectionsCapacity,
   level,
-  listingIntervalMs,
-  listingSlots,
   repoConditionLoss as repoConditionLossFor,
   repoFee as repoFeeFor,
 } from './upgrades';
-import type { Car, GameState, Millis, SimEvent } from './types';
+import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 4;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -65,6 +78,7 @@ function spawnStarterListing(s: GameState): void {
     price,
     expiresAt: s.t + BALANCE.listingLifetimeMs * 2,
     source: pick(s.rng, LISTING_SOURCES),
+    appraisalNoise: drawAppraisalNoise(s),
   });
 }
 
@@ -81,6 +95,7 @@ function blankState(seed: number, wallNow: number): GameState {
     prospects: [],
     notes: [],
     upgrades: {},
+    skills: blankSkills(),
     dealPolicy: 'manual',
     stats: {
       carsSold: 0,
@@ -145,7 +160,10 @@ function stepRecon(s: GameState): void {
     if (car.status !== 'recon') continue;
     car.reconRemainingMs -= TICK_MS;
     if (car.reconRemainingMs <= 0) {
+      // Captured before finishing, because finishRecon() is what closes the gap.
+      const lift = car.reconTargetCondition - car.condition;
       finishRecon(car);
+      awardXp(s, 'repair', repairXp(lift));
       logEvent(s, { t: s.t, kind: 'recon-done', label: `${carLabel(car)} out of the shop` });
     }
   }
@@ -159,10 +177,10 @@ function stepListings(s: GameState): void {
     s.listings = s.listings.filter((l) => l.expiresAt > s.t);
   }
 
-  const slots = listingSlots(s);
-  if (s.listings.length >= slots) return;
+  const sourcing = sourcingModsFor(s);
+  if (s.listings.length >= sourcing.slots) return;
 
-  const ratePerSec = 1000 / listingIntervalMs(s);
+  const ratePerSec = 1000 / sourcing.intervalMs;
   if (!chance(s.rng, arrivalChance(ratePerSec, TICK_MS))) return;
 
   spawnListing(s);
@@ -184,7 +202,19 @@ function spawnListing(s: GameState): void {
     price: ask,
     expiresAt: s.t + BALANCE.listingLifetimeMs,
     source: pick(s.rng, LISTING_SOURCES),
+    appraisalNoise: drawAppraisalNoise(s),
   });
+}
+
+/**
+ * How wrong this car will look, as a z-score with unit standard deviation.
+ *
+ * `normalish` spreads over ±spread with sd = spread/3, so spread 3 is what
+ * makes this a real z: multiplying it by σ then yields an error whose sd is σ,
+ * which is what lets the UI quote an honest ±1σ band.
+ */
+function drawAppraisalNoise(s: GameState): number {
+  return normalish(s.rng, 0, 3, -3, 3);
 }
 
 // ------------------------------------------------------------------ sales
@@ -198,6 +228,7 @@ function stepProspects(s: GameState): void {
 
   const advertising = level(s, 'advertising');
   const underwriting = level(s, 'underwriting');
+  const haggle = haggleSkillFor(s);
 
   for (const car of s.cars) {
     if (car.status !== 'listed') continue;
@@ -210,7 +241,7 @@ function stepProspects(s: GameState): void {
     const rate = prospectRate(car.askPrice, reference, advertising);
     if (!chance(s.rng, arrivalChance(rate, TICK_MS))) continue;
 
-    s.prospects.push(generateProspect(s, s.rng, car, underwriting, s.t));
+    s.prospects.push(generateProspect(s, s.rng, car, underwriting, haggle, s.t));
   }
 }
 
@@ -302,13 +333,14 @@ function repossess(s: GameState, carId: string, customer: string, label: string)
 
 function stepAutomation(s: GameState): void {
   if (level(s, 'autoRecon') > 0) {
+    const mods = reconModsFor(s);
     for (const car of s.cars) {
-      if (!canRecon(car)) continue;
-      const cost = reconCost(car);
+      if (!canRecon(car, mods)) continue;
+      const cost = reconCost(car, mods);
       if (cost > s.cash) continue;
       s.cash -= cost;
       car.costBasis += cost;
-      beginRecon(car, level(s, 'mechanic'));
+      beginRecon(car, mods);
     }
   }
 
@@ -317,16 +349,23 @@ function stepAutomation(s: GameState): void {
       if (car.status !== 'ready') continue;
       // Leave cars alone if the shop still has work to do on them and the
       // standing shop order is going to pick them up next step.
-      if (level(s, 'autoRecon') > 0 && canRecon(car) && reconCost(car) <= s.cash) continue;
+      const mods = reconModsFor(s);
+      if (level(s, 'autoRecon') > 0 && canRecon(car, mods) && reconCost(car, mods) <= s.cash) {
+        continue;
+      }
       listCar(s, car);
     }
   }
 
   if (level(s, 'autoBuy') > 0) {
     const capacity = carCapacity(s);
+    const sigma = appraisalSigma(s);
     for (const listing of [...s.listings]) {
       if (s.cars.filter((c) => c.status !== 'sold').length >= capacity) break;
-      if (listing.price > wholesaleValue(listing.car)) continue;
+      // The retainer buyer sees exactly what the player sees, and works from the
+      // bad end of it. Left on ground truth it was omniscient, which made
+      // automating strictly better than looking at the feed yourself.
+      if (listing.price > pessimisticWholesale(listing, sigma)) continue;
       // Keep a working reserve so automation cannot spend the player broke.
       if (s.cash - listing.price < 500) continue;
       buyListingInternal(s, listing.id);
@@ -365,16 +404,16 @@ function runDeskNegotiation(s: GameState, prospectId: string): void {
     return;
   }
 
-  const counter = deskCounter(neg);
+  const haggle = haggleSkillFor(s);
+  const counter = deskCounter(neg, haggle);
   if (counter <= neg.currentOffer) {
     acceptCash(s, prospectId);
     return;
   }
 
-  const outcome = resolveCounter(s.rng, neg, counter);
+  const outcome = resolveCounter(s.rng, neg, counter, haggle);
   if (outcome.kind === 'walked') {
-    s.stats.walkaways += 1;
-    logEvent(s, { t: s.t, kind: 'walkaway', label: `${prospect.name} walked` });
+    registerWalkaway(s, prospect.name);
     return; // stepProspects sweeps them out.
   }
 
@@ -412,6 +451,41 @@ export function listCar(s: GameState, car: Car, askPrice?: number): void {
   car.listedAt = s.t;
 }
 
+/**
+ * Award skill XP and announce any level-up.
+ *
+ * This lives on the shared path rather than in actions.ts on purpose. The
+ * standing shop order, the retainer buyer and the sales desk all call the
+ * engine internals directly, so XP granted in the player-facing wrapper would
+ * quietly stop accruing the moment someone automated — exactly backwards for an
+ * idle game.
+ */
+export function awardXp(s: GameState, id: SkillId, amount: number): void {
+  const gained = grantXp(s, id, amount);
+  if (gained === 0) return;
+
+  const name = getSkill(id).name;
+  const finalLevel = s.skills[id].level;
+  for (let i = gained; i > 0; i--) {
+    logEvent(s, {
+      t: s.t,
+      kind: 'skill-up',
+      label: `${name} reached level ${finalLevel - i + 1}`,
+    });
+  }
+}
+
+/**
+ * A buyer walking is bookkeeping in three places at once, and it happens on
+ * both the hand-played and the automated path. One helper so a fourth caller
+ * cannot forget one of them.
+ */
+export function registerWalkaway(s: GameState, customerName: string): void {
+  s.stats.walkaways += 1;
+  awardXp(s, 'sell', walkawayXp());
+  logEvent(s, { t: s.t, kind: 'walkaway', label: `${customerName} walked` });
+}
+
 export function logEvent(s: GameState, event: SimEvent): void {
   s.events.push(event);
   if (s.events.length > BALANCE.eventLogSize) {
@@ -437,6 +511,9 @@ export function cloneState(s: GameState): GameState {
     })),
     notes: s.notes.map((n) => ({ ...n })),
     upgrades: { ...s.upgrades },
+    // Each skill is a nested object, so the record needs cloning entry by entry
+    // for the same reason prospects do.
+    skills: cloneSkills(s.skills),
     stats: { ...s.stats },
     events: s.events.map((e) => ({ ...e })),
   };
@@ -457,8 +534,37 @@ function buyListingInternal(s: GameState, listingId: string): boolean {
   s.cash -= listing.price;
   const car = { ...listing.car, costBasis: listing.price, acquiredAt: s.t };
   s.cars.push(car);
+
+  // You own it now, so you can put it on a lift. This is where the appraisal
+  // gets marked, and where the skill teaches itself — the number was a guess
+  // and now it is not.
+  reportAppraisal(s, listing, car);
+
   s.listings.splice(idx, 1);
+  awardXp(s, 'buy', buyXp(listing.price));
   return true;
+}
+
+/**
+ * Say something when a car turns out materially different from how it looked.
+ *
+ * Only when it is worth saying: a miss inside the threshold is the appraisal
+ * working as advertised, and narrating every one of those would train players
+ * to ignore the line that matters.
+ */
+function reportAppraisal(s: GameState, listing: Listing, car: Car): void {
+  const error = appraisalError(listing, appraisalSigma(s));
+  if (Math.abs(error) < BALANCE.appraisalSurpriseThreshold) return;
+
+  const label = carLabel(car);
+  logEvent(s, {
+    t: s.t,
+    kind: 'appraisal',
+    label:
+      error > 0
+        ? `${label} is rougher than it looked on the feed`
+        : `${label} cleaned up better than it looked`,
+  });
 }
 
 function acceptCash(s: GameState, prospectId: string): boolean {
@@ -479,6 +585,7 @@ function acceptCash(s: GameState, prospectId: string): boolean {
   s.stats.lifetimeProfit += profit;
 
   if (prospect.negotiation.countersMade > 0) s.stats.negotiationsWon += 1;
+  awardXp(s, 'sell', sellXp(price, prospect.negotiation.countersMade));
 
   logEvent(s, {
     t: s.t,

@@ -192,6 +192,58 @@ Deliberately *not* included: better ask prices at higher level. Your edge should
 be your eye, not the market treating you as a favourite — and shifting the ask
 distribution is a direct money printer.
 
+### What the harness actually said, and what it reversed
+
+**Shipped:** σ 0.18 → 0.03, **no interval effect**, **+1 slot** (level 5), ask
+band **0.80–1.20**. Lands at $1.27M end cash against the phase-3 reference of
+$1.23M — near enough to neutral, with a 29% bad-buy rate.
+
+Two things in the plan above were wrong, and both cost real money before the
+harness caught them.
+
+**1. The scout "collision" was not a collision.** Giving `scout` and Buying one
+throughput axis each looked tidy. But scout's interval term is worth 2.7× at max
+level and the skill's replacement was worth 1.3×, so "no double dip" was a silent
+2.7× nerf to an upgrade players had already bought — it halved cars sold, 706 →
+355. Multiplicative terms on a shared axis are fine; that is already how
+`mechanic` and Wrenching compose. Both restored, and Buying's interval term then
+proved to be pure inflation (+15% end cash on its own) and was cut entirely.
+**Buying buys judgement; `scout` buys throughput.**
+
+**2. The ambiguity is not deflationary.** The whole plan assumed Buying's
+ambiguity would take free money out of the front end and offset Wrenching. It
+does the opposite. A selective buyer only takes listings at or below wholesale,
+so widening the ask band hands them a deeper left tail:
+
+| Ask band | Mean ask *among accepted* |
+|---|---|
+| 0.86–1.14 (original) | 0.94 × wholesale |
+| 0.72–1.30 (planned) | 0.87 × wholesale |
+
+Bad buys cost less than the deeper discounts gain: the planned band measured
+**+23% end cash** even with no throughput bonus at all.
+
+**The ask band is the sharpest knob in the game.** It sets both the share of
+listings worth buying and the margin on the ones that are, and an idle economy
+compounds margin over four hours. Holding width at 0.58 and shifting the position
+up by 0.06 took end cash from $1.52M to $282k; another 0.06 took it to $28k.
+Results track the buyable pass rate almost exactly:
+
+| Band | Pass rate | End cash |
+|---|---|---|
+| 0.80–1.20 (shipped) | 55% | $1.27M |
+| 0.86–1.14 (original) | 57% | $0.91M |
+| 0.82–1.22 | 50% | $0.68M |
+| 0.84–1.24 | 45% | $0.16M |
+
+Width still does the work against the price leak; 0.40 is 43% wider than the
+original while landing throughput and margin about where they were. **Do not
+widen it further without re-running the harness.**
+
+**Consequence for Wrenching:** its caps were held low in phase 2 explicitly
+pending this deflationary counterweight. There isn't one. That reasoning is void
+and its ceiling should be re-argued on its own merits in phase 5.
+
 ### Feedback
 
 When a purchase lands more than ~0.08 off the estimate, log an event: *"Once it
@@ -217,9 +269,38 @@ so the module stays the seam it was built to be.
 - **Desk counter fraction** 0.55 → 0.72 — the sales desk gets better as you do,
   so automating isn't strictly worse than playing.
 
+### What the harness actually said
+
+**Shipped at full planned strength**, because measurement says it costs nothing.
+Across 64 seeds, every setting from timid to strong landed within ±3% on
+lifetime profit — inside the noise band established in phase 2:
+
+| Setting (room / walk / desk) | lifetime profit | end cash |
+|---|---|---|
+| 0.47 / 0.85 / 0.60 | −3.0% | −1.5% |
+| 0.49 / 0.75 / 0.64 | +2.9% | +10.3% |
+| **0.52 / 0.60 / 0.72 (shipped)** | **−0.7%** | **+6.1%** |
+
+The reason is structural and worth knowing before someone "fixes" it: the sales
+desk counters exactly once and takes whatever comes back, so it cannot exploit a
+better negotiator. And two of the five effects are invisible to the harness by
+construction — a bot never reads a tell, and never uses a third counter it does
+not ask for.
+
+So Closing is a skill that pays out almost entirely to someone playing by hand,
+which is the intent. The corollary is the risk: **the harness cannot bound its
+upside for a player who does use all three counters.** That belongs in playtest,
+not in another sweep.
+
 ---
 
 ## 4. Wrenching — recon
+
+**Shipped:** cost ×0.92, speed ×0.82, max lift 0.35 → 0.40, `ease` 0.7 —
+considerably milder than the values below, for the reasons in *What the harness
+actually said*.
+
+Originally proposed:
 
 - **Cost** ×1.00 → ×0.80
 - **Speed** ×1.00 → ×0.60
@@ -235,9 +316,36 @@ profit = lift × CFV × 0.19  →  at lift 0.35:  0.067 × CFV
 At cap (lift 0.50, cost ×0.80): `0.50 × CFV × (0.55 − 0.288) = 0.131 × CFV` —
 roughly **2× the profit per job and 1.67× the throughput, so ~3.3× the money per
 hour from the shop**. Against a late game that already runs hot at ~$1.7M by hour
-four, that needs watching. Tune Wrenching *last*, after Buying's ambiguity has
-taken the free money out of the front end, and be willing to pull `maxLift` back
-to 0.45 and `costMult` to 0.85.
+four, that needs watching.
+
+### What the harness actually said
+
+The ~3.3× figure is a *cap* calculation, and nobody reaches the cap inside four
+hours — a 4h run levels Wrenching to about 4–6 of 10. Measured end-to-end at 64
+seeds against an identical flat baseline:
+
+| Setting | lifetime profit | end cash |
+|---|---|---|
+| 0.95 / 0.90 / 0.38 | +3.8% | +8.1% |
+| **0.92 / 0.82 / 0.40 (shipped)** | **+5.1%** | **+7.6%** |
+| 0.80 / 0.60 / 0.50 (planned) | +8.3% | +19.0% |
+| 0.85 / 0.70 / 0.45 | +13.2% | +31.0% |
+
+Two things worth carrying forward:
+
+- **The harness separates the mild band from the strong band and nothing
+  finer.** The last two rows are out of order — the weaker setting measures
+  higher — because with `ease 0.7` they sit within 0.5% of each other at the
+  levels a 4h run reaches, so the gap between them is seed noise. End-cash
+  medians swing ±12 points at 64 seeds. Don't tune against differences smaller
+  than that.
+- **Seed count moves the baseline more than this feature does.** The flat
+  baseline reads 41m to stage 2 at 6 seeds and 45m at 64. The documented targets
+  were taken at 8. Compare like with like or the reading is meaningless.
+
+Shipped values are the measurably-gentle option, chosen because the late game is
+already hot and Buying's ambiguity — the counterweight that takes free money out
+of the front end — is not built yet. Raise them once it is.
 
 ---
 
@@ -296,19 +404,50 @@ of those two is the acceptable outcome *before* reading the numbers.
 
 Each phase ships independently.
 
-1. **Substrate** — state, XP, curve, `skills.ts`, save v3, `cloneState`, events,
-   balance tables. No behaviour change. *Gate: level-1 output byte-identical to
-   today.*
-2. **Wrenching** — smallest surface (`cars.ts` + `stepRecon`), effects only.
-3. **Closing** — `haggle.ts` options object, desk fraction, extra counter.
-4. **Buying + ambiguity** — the real work. Listing noise, widened ask band,
-   `autoBuy` fix, harness bot on estimates, BuyScreen rework.
-5. **Rebalance and polish** — harness metrics, retune, skills UI, feedback events.
+1. ~~**Substrate**~~ — **done.** State, XP, curve, `skills.ts`, save v3,
+   `cloneState`, events, balance tables. Gate met: harness output byte-identical
+   before and after. Every effect spec ships with `atMax === at1`, so the curves
+   are flat and levels currently buy nothing — each phase below turns one skill
+   on by editing those numbers and wiring the accessor that already exists.
+2. ~~**Wrenching**~~ — **done.** `ReconMods` threaded through `cars.ts`, the
+   mechanic upgrade folded into it, values tuned at 64 seeds. See above.
+3. ~~**Closing**~~ — **done.** `HaggleSkill` options object threaded through
+   `haggle.ts`, desk fraction, third counter at level 6. Shipped at full planned
+   strength; see above for why that was free.
+4. ~~**Buying + ambiguity**~~ — **done.** Listing noise, widened ask band,
+   `autoBuy` fix, harness bot on estimates, BuyScreen rework. Two planned
+   decisions were reversed by measurement; see below.
+5. ~~**Rebalance and polish**~~ — **done.** Skills tab on the Office screen, XP
+   meters and plain-language effect lines, skill-ups in the away summary,
+   skill-level milestones in the harness, Wrenching re-argued upward now that
+   its "wait for the counterweight" reasoning is void.
 
 Phases 1–3 hold the existing balance targets. Phase 4 is where they move, which
 is why it's last and alone.
 
 ---
+
+## 8b. Where it landed
+
+All five phases, measured at 64 seeds against the pre-skills build:
+
+| | pre-skills | shipped | |
+|---|---|---|---|
+| end cash (4h) | $1,072,926 | $1,363,067 | +27% |
+| lifetime profit | $1,824,392 | $2,016,364 | +11% |
+| cars sold | 704 | 692 | −2% |
+| stage 2 | 45m | 48m | +3m |
+| walk-away rate | 9.2% | 8.8% | |
+| bad-buy rate | — | 28.3% | |
+| Buying / Closing / Wrenching to level 5 | — | 54m / 1h06m / 1h23m | |
+
+**Buying ships with no throughput at all**, which departs from the original
+brief of "locate more cars as you level". Both levers were built and measured
+and both are simply money: the interval term +15% end cash, one extra feed slot
++21%. This economy compounds throughput exponentially over four hours, and the
+late game was already flagged as hot. `scout` is how throughput is bought, with
+cash. The machinery is intact and tested — raising either `atMax` turns it back
+on — so it is a balance call, not a missing feature.
 
 ## 9. Open questions
 

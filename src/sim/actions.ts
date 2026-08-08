@@ -8,9 +8,11 @@ import {
   expectedFinanceValue,
   listCar,
   logEvent,
+  registerWalkaway,
 } from './engine';
 import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
+import { haggleSkillFor, reconModsFor } from './skills';
 import { collectionsCapacity, getUpgrade, level, upgradeCost } from './upgrades';
 import type { DealPolicy, GameState } from './types';
 
@@ -34,12 +36,13 @@ export function buyListing(state: GameState, listingId: string): GameState {
 export function startRecon(state: GameState, carId: string): GameState {
   return act(state, (s) => {
     const car = s.cars.find((c) => c.id === carId);
-    if (!car || !canRecon(car)) return false;
-    const cost = reconCost(car);
+    const mods = reconModsFor(s);
+    if (!car || !canRecon(car, mods)) return false;
+    const cost = reconCost(car, mods);
     if (s.cash < cost) return false;
     s.cash -= cost;
     car.costBasis += cost;
-    beginRecon(car, level(s, 'mechanic'));
+    beginRecon(car, mods);
     return true;
   });
 }
@@ -93,20 +96,18 @@ export function counterOffer(state: GameState, prospectId: string, price: number
 
     const neg = prospect.negotiation;
     if (neg.status !== 'open') return false;
-    if (countersRemaining(neg) <= 0) return false;
+    const haggle = haggleSkillFor(s);
+    if (countersRemaining(neg, haggle) <= 0) return false;
 
     const asking = Math.round(price);
     // Countering at or below what they already offered is just acceptance with
     // extra steps, and countering above your own ask makes no sense.
     if (asking <= neg.currentOffer || asking > neg.anchor) return false;
 
-    const outcome = resolveCounter(s.rng, neg, asking);
+    const outcome = resolveCounter(s.rng, neg, asking, haggle);
     prospect.expiresAt = s.t + BALANCE.negotiation.exchangeGraceMs;
 
-    if (outcome.kind === 'walked') {
-      s.stats.walkaways += 1;
-      logEvent(s, { t: s.t, kind: 'walkaway', label: `${prospect.name} walked` });
-    }
+    if (outcome.kind === 'walked') registerWalkaway(s, prospect.name);
     return true;
   });
 }

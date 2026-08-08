@@ -1,6 +1,6 @@
 import { BALANCE } from './balance';
 import { bhphPrice, retailValue } from './economy';
-import { openNegotiation } from './haggle';
+import { openNegotiation, type HaggleSkill } from './haggle';
 import { mintId } from './ids';
 import { customerName } from './models';
 import { buildTerms } from './notes';
@@ -34,6 +34,7 @@ export function generateProspect(
   rng: RngState,
   car: Car,
   underwritingLevel: number,
+  haggle: HaggleSkill,
   now: Millis,
 ): Prospect {
   const weights = tierWeights(underwritingLevel);
@@ -50,7 +51,7 @@ export function generateProspect(
   // Overpricing is measured against cash retail, so asking over market makes
   // cash buyers open harder — the same pressure that thins out foot traffic.
   const overpricing = retail > 0 ? car.askPrice / retail : 1;
-  const negotiation = openNegotiation(rng, cashCeiling, overpricing);
+  const negotiation = openNegotiation(rng, cashCeiling, overpricing, haggle);
 
   const price = bhphPrice(car);
   const weeks = BALANCE.termWeeks[intRange(rng, 0, BALANCE.termWeeks.length - 1)];

@@ -11,6 +11,7 @@ import {
   tellFor,
 } from '../../sim/haggle';
 import { activeNotes, overCapacityFactor } from '../../sim/notes';
+import { haggleSkillFor } from '../../sim/skills';
 import { collectionsCapacity } from '../../sim/upgrades';
 import type { GameState, Prospect } from '../../sim/types';
 import { TIER_COLOR, money, theme } from '../theme';
@@ -71,7 +72,7 @@ export function DealSheet({
   const costBasis = car?.costBasis ?? 0;
   const financeAvailable = state.stage === 'bhph';
 
-  const countersLeft = countersRemaining(neg);
+  const countersLeft = countersRemaining(neg, haggleSkillFor(state));
   const agreed = neg.status === 'accepted';
   // Once they have said yes there is nothing left to argue about; without the
   // status check the sheet would render a counter control that silently no-ops,

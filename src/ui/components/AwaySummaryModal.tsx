@@ -54,6 +54,16 @@ export function AwaySummaryModal({
         />
       </View>
 
+      {summary.skillUps.length > 0 ? (
+        <View style={styles.skills}>
+          {summary.skillUps.map((line, i) => (
+            <Text key={`${line}-${i}`} style={styles.skillLine}>
+              {line}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+
       {summary.capped ? (
         <Text style={styles.capNote}>
           Your night manager only covers so much. Hire more coverage to keep the lot running longer
@@ -86,6 +96,14 @@ function describeSpan(ms: number): string {
 }
 
 const styles = StyleSheet.create({
+  skills: {
+    gap: 3,
+    borderLeftWidth: 2,
+    borderLeftColor: theme.colors.accent,
+    paddingLeft: 10,
+    marginTop: 4,
+  },
+  skillLine: { color: theme.colors.accent, fontSize: 12 },
   hero: {
     alignItems: 'center',
     paddingVertical: 16,

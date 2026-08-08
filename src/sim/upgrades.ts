@@ -36,7 +36,7 @@ export const UPGRADES: readonly UpgradeDef[] = [
   {
     id: 'scout',
     name: 'Auction contacts',
-    description: 'More listings on the feed, and they show up faster.',
+    description: 'More cars on the feed, and they turn up faster.',
     category: 'speed',
     stage: 'curbstoner',
     maxLevel: 4,
@@ -86,7 +86,7 @@ export const UPGRADES: readonly UpgradeDef[] = [
   {
     id: 'autoBuy',
     name: 'Buyer on retainer',
-    description: 'Any listing priced under wholesale gets bought for you.',
+    description: 'Buys anything that still looks cheap at the worst it could be.',
     category: 'automation',
     stage: 'curbstoner',
     maxLevel: 1,
@@ -196,13 +196,9 @@ export function carCapacity(state: GameState): number {
   return BALANCE.lotCapacity + level(state, 'lot') * BALANCE.capacityPerLotLevel;
 }
 
-export function listingSlots(state: GameState): number {
-  return BALANCE.baseListingSlots + level(state, 'scout') * BALANCE.listingSlotsPerScoutLevel;
-}
-
-export function listingIntervalMs(state: GameState): number {
-  return BALANCE.listingIntervalMs * Math.pow(BALANCE.listingIntervalPerScoutLevel, level(state, 'scout'));
-}
+// Sourcing throughput moved to `sourcingModsFor` in skills.ts, where the scout
+// upgrade and the Buying skill are combined. Resolving it here would need this
+// module to import skills.ts, which already imports this one.
 
 export function collectionsCapacity(state: GameState): number {
   return (

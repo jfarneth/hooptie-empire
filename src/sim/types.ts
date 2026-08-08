@@ -58,6 +58,15 @@ export interface Listing {
   expiresAt: Millis;
   /** Cosmetic label for the UI: where the car came from. */
   source: string;
+  /**
+   * How wrong this car looks, as a z-score drawn once at spawn.
+   *
+   * Stored rather than the estimate itself, so the displayed appraisal is a
+   * pure function of this draw and the current Buying level — levelling up
+   * sharpens the whole feed at once without re-rolling anything. See
+   * appraisal.ts.
+   */
+  appraisalNoise: number;
 }
 
 /**
@@ -151,6 +160,22 @@ export interface Prospect {
 export type StageId = 'curbstoner' | 'bhph';
 
 /**
+ * Player proficiencies. These level from doing the thing rather than from
+ * spending money — upgrades buy capacity, skills earn quality.
+ *
+ * Kept as a `Record` rather than three named fields so the paper side of the
+ * business can get its own skill later without another save migration.
+ */
+export type SkillId = 'buy' | 'sell' | 'repair';
+
+export interface Skill {
+  /** 1..BALANCE.skills.maxLevel. */
+  level: number;
+  /** Progress toward the next level. Reset on level-up, pinned at 0 once maxed. */
+  xp: number;
+}
+
+/**
  * Standing instruction for the sales desk once it is staffed.
  * 'auto' compares the cash offer against the expected value of the paper,
  * which is the same calculation the deal sheet shows the player.
@@ -184,7 +209,9 @@ export interface SimEvent {
     | 'repo'
     | 'walkaway'
     | 'recon-done'
-    | 'stage-up';
+    | 'stage-up'
+    | 'skill-up'
+    | 'appraisal';
   label: string;
   amount?: number;
 }
@@ -208,6 +235,8 @@ export interface GameState {
   notes: Note[];
   /** Upgrade id -> level owned. */
   upgrades: Record<string, number>;
+  /** Proficiencies earned by playing. See skills.ts. */
+  skills: Record<SkillId, Skill>;
   /** Standing order for the sales desk. Only acted on once 'salesDesk' is owned. */
   dealPolicy: DealPolicy;
   stats: Stats;
