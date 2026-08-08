@@ -1,3 +1,4 @@
+import { buyListing } from './actions';
 import { BALANCE } from './balance';
 import { advance, cloneState, createInitialState } from './engine';
 import {
@@ -194,12 +195,31 @@ describe('skills in game state', () => {
     expect(copy.skills.buy).not.toBe(s.skills.buy);
   });
 
-  it('accrues from play without the player touching anything', () => {
-    // The bot is not driving here — this is automation and walk-up traffic
-    // alone, which is the path that would silently stop granting XP if the
-    // awards had been put in the action wrappers.
-    const s = advance(createInitialState(4242, 0), 45 * 60 * 1000);
-    const total = SKILL_IDS.reduce((sum, id) => sum + s.skills[id].level, 0);
-    expect(total).toBeGreaterThanOrEqual(SKILL_IDS.length);
+  it('grants buying XP the moment a car is bought', () => {
+    const s0 = createInitialState(4242, 0);
+    const listing = s0.listings[0];
+    const s = buyListing(s0, listing.id);
+    expect(s.skills.buy.xp).toBe(buyXp(listing.price));
+  });
+
+  /**
+   * The regression this whole placement decision exists to prevent.
+   *
+   * Nothing below goes through actions.ts: the standing shop order, the
+   * retainer buyer and the sales desk all call engine internals directly. Award
+   * XP in the player-facing wrappers instead and this lot runs for forty-five
+   * minutes, sells a few dozen cars, and learns nothing.
+   */
+  it('earns XP on the automated path, where the wrappers are never called', () => {
+    const s0 = createInitialState(4242, 0);
+    s0.upgrades = { autoBuy: 1, autoRecon: 1, autoList: 1, salesDesk: 1, advertising: 2 };
+    s0.dealPolicy = 'cash';
+    s0.cash = 40_000;
+
+    const s = advance(s0, 45 * 60 * 1000);
+
+    expect(s.stats.carsSold).toBeGreaterThan(0);
+    for (const id of SKILL_IDS) expect(s.skills[id].level).toBeGreaterThan(1);
+    expect(s.events.some((e) => e.kind === 'skill-up')).toBe(true);
   });
 });
