@@ -1,0 +1,96 @@
+name: Deploy web build
+
+# Publishes the Expo web export to GitHub Pages, giving a playable link at
+# https://<owner>.github.io/<repo>/
+#
+# There is no server involved — the game is entirely client-side, so this is a
+# static file upload and nothing needs to stay running.
+
+on:
+  push:
+    branches:
+      - master
+      - claude/idle-car-dealership-game-2qb1fr
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push supersedes an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Deploy hygiene, not PR gating: never publish a build whose simulation
+      # tests are failing. The tick-invariance test in particular is what the
+      # offline-progress guarantee rests on.
+      - name: Test and typecheck
+        run: |
+          npm test
+          npm run typecheck
+
+      # A project site is served from /<repo>/, but expo export writes absolute
+      # asset URLs. Without this the deployed page 404s its own JS and renders
+      # blank. Derived from the repo name so renaming the repo cannot break it.
+      - name: Export web bundle
+        run: |
+          export EXPO_WEB_BASE_URL="/${GITHUB_REPOSITORY#*/}"
+          echo "Building with base URL: $EXPO_WEB_BASE_URL"
+          npx expo export --platform web --output-dir dist
+
+      # Expo emits a `_expo/` directory. Leading underscores are invisible to
+      # Jekyll, so mark the output as not-Jekyll in case this is ever served
+      # from a branch instead of an artifact.
+      - name: Disable Jekyll processing
+        run: touch dist/.nojekyll
+
+      # Pages has to be switched on by hand exactly once. The built-in workflow
+      # token is not allowed to create a Pages site (that needs a PAT), so
+      # `enablement: true` cannot help — it just fails with an opaque
+      # "Resource not accessible by integration". Check first and say the useful
+      # thing instead.
+      - name: Check Pages is enabled
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if curl -sfL -o /dev/null \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages"; then
+            echo "Pages is enabled."
+          else
+            echo "::error::GitHub Pages is not enabled for this repository."
+            echo "::error::Turn it on once: Settings -> Pages -> Source -> 'GitHub Actions', then re-run this workflow."
+            exit 1
+          fi
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
