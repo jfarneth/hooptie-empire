@@ -8,13 +8,14 @@ import {
   generateCar,
   reconCost,
 } from './cars';
-import { appraisalError, pessimisticWholesale } from './appraisal';
+import { appraisalError, estimatedWholesale, pessimisticWholesale } from './appraisal';
 import { businessDefaults, minBuyMargin, minWorkingCapital, repoThreshold } from './business';
 import { generateProspect } from './customers';
 import { deskCounter, resolveCounter } from './haggle';
 import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
 import { mintId } from './ids';
-import { LISTING_SOURCES, TIERS_BY_STAGE, modelsForTiers } from './models';
+import { LISTING_SOURCES, makeName, modelsForMake, modelsForTiers } from './models';
+import { getStage } from './stages';
 import {
   activeNotes,
   applyDuePayment,
@@ -45,9 +46,11 @@ import {
   repoConditionLoss as repoConditionLossFor,
   repoFee as repoFeeFor,
 } from './upgrades';
+import type { StageSourcing } from './stages';
+import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -91,7 +94,7 @@ function blankState(seed: number, wallNow: number): GameState {
     accumulatorMs: 0,
     rng: createRng(seed),
     cash: BALANCE.startingCash,
-    stage: 'curbstoner',
+    stage: 'curbstone',
     cars: [],
     listings: [],
     prospects: [],
@@ -189,24 +192,50 @@ function stepListings(s: GameState): void {
   spawnListing(s);
 }
 
-/** Put one car on the sourcing feed. */
+/**
+ * Put one car on the sourcing feed.
+ *
+ * Both halves of this — what turns up and what it costs — come from the stage,
+ * because on a franchise stage they change together: one make, delivery miles,
+ * and an invoice price with almost no spread.
+ */
 function spawnListing(s: GameState): void {
-  const tiers = TIERS_BY_STAGE[s.stage] ?? TIERS_BY_STAGE.curbstoner;
-  const models = modelsForTiers(tiers);
+  const stage = getStage(s.stage);
+  const { sourcing } = stage;
+
+  const models = sourcing.makeId
+    ? modelsForMake(sourcing.makeId)
+    : modelsForTiers(sourcing.tiers ?? []);
   const model = pick(s.rng, models);
-  const car = generateCar(s, s.rng, model, s.t);
-  const ask = Math.round(
-    wholesaleValue(car) * range(s.rng, BALANCE.listingAskMin, BALANCE.listingAskMax),
-  );
+
+  const car = generateCar(s, s.rng, model, s.t, stockProfile(sourcing));
+  const ask = Math.round(wholesaleValue(car) * range(s.rng, sourcing.askMin, sourcing.askMax));
 
   s.listings.push({
     id: mintId(s, 'lst'),
     car,
     price: ask,
     expiresAt: s.t + BALANCE.listingLifetimeMs,
-    source: pick(s.rng, LISTING_SOURCES),
+    // A franchise consumes one fewer draw per listing than the open market
+    // does, which is fine: determinism needs the same state to consume the same
+    // stream, not every stage to consume the same amount.
+    source: sourcing.makeId
+      ? `${makeName(sourcing.makeId)} allocation`
+      : pick(s.rng, LISTING_SOURCES),
     appraisalNoise: drawAppraisalNoise(s),
   });
+}
+
+/**
+ * Mileage and condition overrides for stock that did not come off the open
+ * market. Undefined on the used stages, where the car's tier decides.
+ */
+function stockProfile(sourcing: StageSourcing): StockProfile | undefined {
+  if (!sourcing.makeId) return undefined;
+  return {
+    mileage: [sourcing.mileageMin, sourcing.mileageMax],
+    condition: [sourcing.conditionMin, sourcing.conditionMax],
+  };
 }
 
 /**
@@ -240,7 +269,7 @@ function stepProspects(s: GameState): void {
 
     // Cars are shopped against what the buyer could pay for them: cash retail in
     // stage 1, the marked-up window price once there is a finance desk.
-    const reference = s.stage === 'bhph' ? bhphPrice(car) : retailValue(car);
+    const reference = windowPrice(s, car);
     const rate = prospectRate(car.askPrice, reference, advertising);
     if (!chance(s.rng, arrivalChance(rate, TICK_MS))) continue;
 
@@ -374,17 +403,12 @@ function stepAutomation(s: GameState): void {
 
   if (level(s, 'autoBuy') > 0) {
     const capacity = carCapacity(s);
-    const sigma = appraisalSigma(s);
-    // What the buyer insists on beyond "cheap": a margin against the worst case
-    // it can see, not against the estimate. Stacking a required discount on the
-    // pessimistic number is what keeps a stricter setting strictly stricter.
-    const ceilingFactor = 1 - minBuyMargin(s);
     for (const listing of [...s.listings]) {
       if (s.cars.filter((c) => c.status !== 'sold').length >= capacity) break;
       // The retainer buyer sees exactly what the player sees, and works from the
       // bad end of it. Left on ground truth it was omniscient, which made
       // automating strictly better than looking at the feed yourself.
-      if (listing.price > pessimisticWholesale(listing, sigma) * ceilingFactor) continue;
+      if (listing.price > acquisitionCeiling(s, listing)) continue;
       if (s.cash - listing.price < reserve) continue;
       buyListingInternal(s, listing.id);
     }
@@ -443,7 +467,7 @@ function runDeskNegotiation(s: GameState, prospectId: string): void {
 function chooseDeal(s: GameState, prospectId: string): 'cash' | 'finance' | 'none' {
   const prospect = s.prospects.find((p) => p.id === prospectId);
   if (!prospect) return 'none';
-  if (s.stage !== 'bhph') return 'cash';
+  if (!getStage(s.stage).financing) return 'cash';
   // A full book is not a reason to send a buyer away — it is a reason to sell
   // them the car instead of the payment. Without this the desk would keep
   // choosing paper it cannot write and then close nothing at all.
@@ -466,8 +490,66 @@ function chooseDeal(s: GameState, prospectId: string): 'cash' | 'finance' | 'non
 
 // ------------------------------------------------------------------- utils
 
+/**
+ * What this car is shopped against at this store.
+ *
+ * Cash retail where there is no finance desk; the marked-up window price where
+ * there is, using the store's own markup. One helper because pricing, traffic
+ * and the default ask all have to agree on the same number — they got out of
+ * step once already and the symptom was cars nobody looked at.
+ */
+export function windowPrice(s: Pick<GameState, 'stage'>, car: Car): number {
+  const stage = getStage(s.stage);
+  return stage.financing ? bhphPrice(car, stage.bhphMultiplier) : retailValue(car);
+}
+
+/**
+ * How confident the buyer is being about a car it cannot see inside.
+ *
+ * 'worstCase' is what anything spending money unattended must use — it only
+ * takes deals that survive the appraisal being wrong. 'estimate' is what a
+ * person does: buy on the number in front of them. The harness bot uses
+ * 'estimate' deliberately, because a bot working from the floor is a more
+ * cautious buyer than any player and would measure a game nobody plays.
+ */
+export type AppraisalStance = 'worstCase' | 'estimate';
+
+/**
+ * The most a buyer should pay for a listing.
+ *
+ * The two branches are genuinely different questions, and collapsing them is
+ * what broke the franchise stages on their first run: both buyers asked "is this
+ * under wholesale?", a factory allocation is priced *above* wholesale by
+ * construction, and so neither ever bought a single car at a franchise. The feed
+ * sat there for ten hours and the economy flatlined.
+ *
+ *  - **Open market.** Wholesale is what the car is worth to a dealer, so paying
+ *    over it is overpaying — and you are guessing at condition besides, which is
+ *    what `stance` is about.
+ *  - **Franchise.** There is no wholesale market for an allocation and nothing to
+ *    appraise; sigma is zero, so both stances agree. Invoice is the price, every
+ *    unit is saleable, and the only question is whether the sticker leaves the
+ *    margin you asked for. That is the point of the franchise stages: judgement
+ *    stops being the game and throughput starts.
+ */
+export function acquisitionCeiling(
+  s: GameState,
+  listing: Listing,
+  stance: AppraisalStance = 'worstCase',
+): number {
+  const keepBack = 1 - minBuyMargin(s);
+  if (getStage(s.stage).sourcing.makeId) return windowPrice(s, listing.car) * keepBack;
+
+  const sigma = appraisalSigma(s);
+  const basis =
+    stance === 'worstCase'
+      ? pessimisticWholesale(listing, sigma)
+      : estimatedWholesale(listing, sigma);
+  return basis * keepBack;
+}
+
 export function listCar(s: GameState, car: Car, askPrice?: number): void {
-  const reference = s.stage === 'bhph' ? bhphPrice(car) : retailValue(car);
+  const reference = windowPrice(s, car);
   car.askPrice = Math.round(askPrice ?? reference * BALANCE.defaultAskRatio);
   car.status = 'listed';
   car.listedAt = s.t;
@@ -628,7 +710,7 @@ function acceptFinance(s: GameState, prospectId: string): boolean {
   const idx = s.prospects.findIndex((p) => p.id === prospectId);
   if (idx < 0) return false;
   const prospect = s.prospects[idx];
-  if (s.stage !== 'bhph') return false;
+  if (!getStage(s.stage).financing) return false;
   // The book limit is enforced here, on the one path every contract goes
   // through — the sales desk, the harness bot and the player's tap all land on
   // this function, and a limit checked anywhere else would be a limit with a

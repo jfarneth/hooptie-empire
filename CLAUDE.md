@@ -5,16 +5,39 @@ Expo / React Native / TypeScript, no backend. See `README.md` for what the game
 *is*; this file is about how to work on it without breaking the things that
 matter.
 
-Stages 1–2 are built and live. Three player skills — **Buying, Closing,
-Wrenching** — ship alongside them, and buying a car is a judgement call rather
-than arithmetic: the feed shows an *estimated* condition with an honest band,
-not the truth. `docs/skills-plan.md` is the design doc and carries the balance
-measurements behind every number.
+**All six stages are built and live**: Curbstone → small used → large used →
+low-cost franchise → midsize franchise → premium franchise. `src/sim/stages.ts`
+holds the table, and everything that varies by stage lives in it. Three player
+skills — **Buying, Closing, Wrenching** — ship alongside them, and on the used
+stages buying a car is a judgement call rather than arithmetic: the feed shows an
+*estimated* condition with an honest band, not the truth. `docs/skills-plan.md`
+is the design doc and carries the balance measurements behind every number.
 
 The **collections desk is a hard cap on the book**, and a **business management
 suite** (Office → Business) lets the player set three house rules that the
 business then runs under offline: a working capital floor, the repo trigger, and
 the retainer buyer's minimum margin. `src/sim/business.ts` resolves them.
+
+## The two axes of the stage ladder
+
+Worth internalising before touching anything stage-shaped, because almost every
+bug in this area comes from missing one of them.
+
+**Moving up resets the payroll.** Staff (`staff: true` in `upgrades.ts`) drop to
+zero and cost `staffCostMultiplier` more to rehire at the new store. Property,
+process, cash, inventory, the loan book and skills all carry. The line is "would
+this person have to be hired again", which is why `scout` (a book of contacts)
+and `advertising` (a spend) stay. **Skills never reset** — they are the
+carry-over currency and always have been.
+
+**Franchise stages are a different game.** The three used stages buy on the open
+market: condition is hidden, the ask swings ±20%, and judgement is the game. The
+three franchise stages buy from one manufacturer at invoice: one make, delivery
+miles, `appraisalSigmaMult: 0` so the feed tells the exact truth, and a nearly
+flat price band. Buying stops being a decision and throughput starts. Never test
+a capability by comparing stage ids — ask the stage. `financing` is true for five
+of the six, and a `=== 'smallUsed'` check silently means "no finance desk at a
+Valmont store".
 
 ## The rule that must not break
 
@@ -46,35 +69,52 @@ Consequences to respect:
 ## Verify
 
 ```bash
-npm test        # 136 tests
+npm test        # 164 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
+npm run sim -- --hours=32 --seeds=16   # the whole ladder, ~15s
 ```
 
-Targets **at `--seeds=64`**, which is the number to quote and compare against:
+The ladder, median at `--seeds=16 --hours=32`, reached by 16/16:
+
+| | |
+|---|---|
+| Small used dealership | ~1h11m |
+| Large used dealership | ~3h16m |
+| Low-cost franchise | ~5h40m |
+| Midsize franchise | ~12h03m |
+| Premium franchise | ~27h36m |
+
+Roughly a doubling per rung, which is the shape to preserve. A 4h run only ever
+reaches large used, so **a default `npm run sim` cannot tell you anything about
+the franchise stages** — use the 32h invocation for those.
+
+Targets **at `--seeds=64`** over the default 4h, which is the number to quote and
+compare against for everything below the franchise:
 
 | | |
 |---|---|
 | stage 2 reached | ~1h11m |
-| first repossession | ~1h42m |
+| first repossession | ~1h43m |
 | take-it-back odds on the deal sheet | ~30% |
-| harness `default rate` | ~17% (see below — not the same number) |
+| harness `default rate` | ~24% (see below — not the same number) |
 | walk-away rate | ~53% |
-| bad-buy rate | ~30% |
-| Buying / Closing / Wrenching to level 5 | 1h21m / 1h14m / 1h51m |
-| book / limit at 4h | 43 / 43 |
-| end cash at 4h | ~$503k |
-| end portfolio at 4h | ~$316k |
+| bad-buy rate | ~26% |
+| Buying / Closing / Wrenching to level 5 | 1h24m / 1h15m / 1h52m |
+| large used reached | ~3h13m |
+| end cash at 4h | ~$63k |
+| end portfolio at 4h | ~$420k |
 
-**Always state the seed count.** The default `npm run sim` is 6 seeds and reads
-stage 2 at ~1h10m and $619k for the exact same build — seed count moves these
-numbers further than most features do. Comparing a 6-seed run against a 64-seed
-target is the single easiest way to conclude you broke something you didn't.
+**Always state the seed count.** Seed count moves these numbers further than most
+features do, and comparing a 6-seed run against a 64-seed target is the single
+easiest way to conclude you broke something you didn't.
 
-Two deliberate retunes moved these, and neither is a regression. The book cap
-(see below) took end cash from $1.36M to $935k. The risk/negotiation tune-up then
-took it to $503k, mostly via the negotiation half — stage 2 slid from 48m to
-1h11m because stage 1 is all cash deals and half the haggles now fail.
+End cash at 4h is low and that is not a regression: the bot buys the large used
+dealership at ~3h13m, which spends the balance and resets the payroll, so the 4h
+snapshot lands mid-rebuild. Read `lifetime profit` (~$1.86M) for the health of
+the economy and the ladder table above for pacing. Earlier deliberate retunes
+moved the rest: the book cap took end cash from $1.36M to $935k, and the
+risk/negotiation tune-up took it to ~$503k pre-ladder.
 
 All pacing constants live in `src/sim/balance.ts`. Nothing else should hard-code
 a number that affects the curve.
@@ -173,6 +213,19 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   a financed car occupies no lot space while it is out. Repo condition damage
   scales with the trigger so patience is paid for in the unit you recover. If a
   future setting looks free, it is not a setting.
+- **Property carries, people do not.** That single line is the whole design of
+  the stage reset, and it is what makes moving up a decision instead of a button.
+  Anything new on the upgrade table needs a deliberate answer to "would this have
+  to be hired again at a bigger store".
+- **A franchise buys at invoice, not below wholesale.** Automation must gate on
+  `acquisitionCeiling`, never on a bare wholesale comparison. The first cut of
+  the ladder gated both buyers on "is this under wholesale?", which a factory
+  allocation can never satisfy — the feed sat untouched for ten hours and the
+  economy flatlined with no test failing. `AppraisalStance` keeps the two buyers
+  distinct on the used stages: the retainer buyer works from the worst case
+  because it spends money unattended, the harness bot works from the estimate
+  because that is what a person does. Collapsing them cost 35 minutes off the
+  stage-2 milestone before it was caught.
 - **What the UI reveals.** The deal sheet shows exact expected value and default
   odds for financing, because those are long-run properties a dealer genuinely
   learns. It hides negotiation acceptance odds and a car's true condition,
@@ -212,7 +265,7 @@ Most have a guarding test; check before "simplifying" the code around them.
   written for skills passed on a run that accrued zero XP. Mutation-test any
   test guarding a regression: break the code, watch it go red, put it back.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v5**. Saves are long-lived and local to the device; "we wiped
+  Currently **v6**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4
@@ -242,6 +295,10 @@ These will waste your time if you discover them the hard way:
   `package.json` on purpose. Look at the running game, not just the suite — the
   dead feed-slot bonus and a text-wrapping regression were both found this way
   and neither had a failing test.
+- **Look at a franchise in the browser, not just the harness.** The stale-feed
+  bug — a brand new franchise showing auction beaters for two minutes on a feed
+  that promises one make — was invisible to 163 passing tests and obvious in one
+  screenshot. Generate a save at the stage you changed and open it.
 - The bottom nav is **Lot / Buy / Notes / Office**. Upgrades, Skills and Business
   live behind *Office*, and "Buy" also matches the header text "BUY HERE PAY
   HERE", which will bite any text-based selector.
@@ -285,15 +342,24 @@ need a branch preview, build it somewhere that is not the live site.
   cars as you level" brief. Both levers were built and measured and both are
   simply money (see above). The machinery is intact and tested — raising either
   `atMax` in `BALANCE.skills.buy` turns it back on.
-- **The collections ladder now caps the entire late game and nobody has argued
-  the number.** `collections` maxes at level 5, so the book stops at 43
-  contracts, and the bot is pinned there from roughly hour two onward. "The loan
-  book is the game" sits awkwardly next to a book that stops growing halfway
-  through a session. Two honest options, and this is a design call rather than a
-  measurement: accept the throttle, or extend the ladder (`maxLevel`,
-  `collectionsCapacityPerLevel`) so continued investment keeps buying room. The
-  cap was shipped untuned on purpose — retuning the economy in the same change
-  that introduced the constraint would have made both unmeasurable.
+- **The collections ladder still caps the book at 43 contracts at every stage.**
+  `collections` maxes at level 5 and the stage table does not touch it, so a
+  premium franchise carries exactly as much paper as a small lot — only each
+  contract is worth ten times more. That is defensible (the desk is the desk) but
+  nobody has argued it, and "the loan book is the game" sits oddly next to a book
+  whose *count* never grows. A per-stage capacity term in `STAGES` is the obvious
+  lever if it needs one.
+- **Nothing on the ladder is a per-stage sink yet.** Staff cost more to rehire,
+  but there are no ongoing costs at all — no rent, no salaries, no floorplan
+  interest. That is why the franchise stages are pure upside once you clear the
+  entry cost. Recurring cost is the natural next mechanic and would make the
+  working-capital floor mean much more than it currently does.
+- **Buying goes dead at the top.** `appraisalSigmaMult: 0` retires the appraisal
+  on all three franchise stages, so a maxed Buying skill buys nothing there. That
+  is the intended character change, but it does leave a levelled skill inert for
+  the back half of the game. If that reads badly in play, the honest fix is to
+  give Buying a franchise-side effect (allocation throughput, say) rather than to
+  put fake uncertainty back on a new car.
 - **The late game is no longer hot; stage 1 may now be too slow.** End cash is
   ~$503k at hour 4, down from $1.36M across two retunes. The standing complaint
   is resolved, but the stage-2 gate moved from 48m to 1h11m, and a 70-minute

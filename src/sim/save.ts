@@ -112,6 +112,26 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       ...(s.business ?? {}),
     },
   }),
+
+  /**
+   * v5 -> v6: two stages became six.
+   *
+   * Pure rename. 'curbstoner' is the same driveway it always was and 'bhph' is
+   * the same small lot with the same finance desk — the new stage table gives
+   * the small lot exactly the capacity, markup and sourcing the old `bhph`
+   * constants did, so a returning player's business behaves identically and the
+   * only thing that changed is that there is now somewhere to go next.
+   *
+   * An unrecognised value is mapped to the opening stage rather than left alone.
+   * `getStage` throws on an unknown id and it is called on the first tick, so a
+   * save carrying anything else would take the game down on load; starting such
+   * a player at the bottom of a ladder they can climb again beats a crash, and
+   * their cash, inventory, book and skills all survive regardless.
+   */
+  5: (s) => ({
+    ...s,
+    stage: s.stage === 'bhph' ? 'smallUsed' : s.stage === 'curbstoner' ? 'curbstone' : 'curbstone',
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

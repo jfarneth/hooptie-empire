@@ -1,5 +1,6 @@
 import { BALANCE } from './balance';
 import { clamp } from './economy';
+import { getStage } from './stages';
 import { level } from './upgrades';
 import type { ReconMods } from './cars';
 import type { HaggleSkill } from './haggle';
@@ -205,9 +206,22 @@ function repairEffect(state: Pick<GameState, 'skills'>, spec: EffectSpec): numbe
   return effect(spec, skillLevel(state, 'repair'));
 }
 
-/** 1σ of appraisal error in condition points. 0 means the feed tells the truth. */
-export function appraisalSigma(state: Pick<GameState, 'skills'>): number {
-  return buyEffect(state, BALANCE.skills.buy.appraisalSigma);
+/**
+ * 1σ of appraisal error in condition points. 0 means the feed tells the truth.
+ *
+ * The stage's multiplier is the second term, and on the franchise stages it is
+ * zero: nobody appraises a new car off a transporter, you read the invoice. That
+ * retires the Buying skill's whole reason for existing at the top of the ladder,
+ * which is deliberate — the question stops being "is this a good car" and starts
+ * being "can you move them", and that is the actual difference between an
+ * independent lot and a franchise store.
+ */
+export function appraisalSigma(state: Pick<GameState, 'skills' | 'stage'>): number {
+  return buyEffect(state, BALANCE.skills.buy.appraisalSigma) * stageSigmaMult(state);
+}
+
+function stageSigmaMult(state: Pick<GameState, 'stage'>): number {
+  return getStage(state.stage).sourcing.appraisalSigmaMult;
 }
 
 /** Multiplier on the gap between new listings. Lower is faster. */
@@ -295,7 +309,7 @@ export interface SourcingMods {
  * amounted to a silent 2.7x nerf to an upgrade players had already bought.
  * Multiplicative terms on a shared axis are fine; unannounced nerfs are not.
  */
-export function sourcingModsFor(state: Pick<GameState, 'skills' | 'upgrades'>): SourcingMods {
+export function sourcingModsFor(state: Pick<GameState, 'skills' | 'upgrades' | 'stage'>): SourcingMods {
   const scout = level(state, 'scout');
   return {
     slots: BALANCE.baseListingSlots + scout * BALANCE.listingSlotsPerScoutLevel + listingSlotBonus(state),

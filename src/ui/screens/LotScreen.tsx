@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
-  buyLot,
-  canBuyLot,
   counterOffer,
   declineProspect,
   listForSale,
@@ -12,15 +10,16 @@ import {
   takeFinanceDeal,
   unlist,
 } from '../../sim/actions';
-import { BALANCE } from '../../sim/balance';
+import { getStage } from '../../sim/stages';
 import { carCapacity } from '../../sim/upgrades';
 import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
 import { money, theme } from '../theme';
 import { CarSheet } from '../components/CarSheet';
+import { StageCard } from '../components/StageCard';
 import { DealSheet } from '../components/DealSheet';
 import { LotGrid } from '../components/LotGrid';
-import { Button, Card, EmptyState, Label, Meter } from '../components/ui';
+import { Card, EmptyState, Label } from '../components/ui';
 
 /** The main screen: your inventory, your walk-ups, and the road to the lot. */
 export function LotScreen({ state }: { state: GameState }) {
@@ -41,35 +40,13 @@ export function LotScreen({ state }: { state: GameState }) {
   }, [carId, car]);
 
   const held = state.cars.filter((c) => c.status !== 'sold').length;
-  const lotProgress = state.cash / BALANCE.lotPurchaseCost;
 
   return (
     <>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {state.stage === 'curbstoner' ? (
-          <Card style={styles.goalCard}>
-            <Label>Next: your own lot</Label>
-            <View style={styles.goalRow}>
-              <Text style={styles.goalValue}>
-                {money(state.cash)} <Text style={styles.goalOf}>of {money(BALANCE.lotPurchaseCost)}</Text>
-              </Text>
-            </View>
-            <Meter progress={lotProgress} color={theme.colors.accent} height={5} />
-            <Text style={styles.goalHint}>
-              A lot means a finance desk. Instead of selling a car once, you sell it once for the
-              down payment and again as paper.
-            </Text>
-            <Button
-              label={canBuyLot(state) ? `Buy the lot — ${money(BALANCE.lotPurchaseCost)}` : 'Keep flipping'}
-              tone={canBuyLot(state) ? 'primary' : 'ghost'}
-              disabled={!canBuyLot(state)}
-              onPress={() => apply(buyLot)}
-              style={{ marginTop: 10 }}
-            />
-          </Card>
-        ) : null}
+        <StageCard state={state} />
 
-        <Label>{state.stage === 'curbstoner' ? 'Driveway' : 'The lot'}</Label>
+        <Label>{getStage(state.stage).capacityUpgradeId === 'driveway' ? 'Driveway' : 'The lot'}</Label>
 
         {held === 0 ? (
           <EmptyState
@@ -171,16 +148,6 @@ function RecentActivity({ state }: { state: GameState }) {
 
 const styles = StyleSheet.create({
   content: { padding: 16, gap: 10, paddingBottom: 32 },
-  goalCard: { gap: 8, borderColor: theme.colors.accentDim },
-  goalRow: { flexDirection: 'row', alignItems: 'baseline' },
-  goalValue: {
-    color: theme.colors.text,
-    fontSize: 20,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-  },
-  goalOf: { color: theme.colors.textDim, fontSize: 13, fontWeight: '600' },
-  goalHint: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 17 },
   eventRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   eventLabel: { color: theme.colors.textDim, fontSize: 12, flex: 1 },
   eventAmount: { fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },

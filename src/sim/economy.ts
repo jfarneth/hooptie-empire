@@ -59,12 +59,18 @@ export function wholesaleValue(car: Car): number {
 }
 
 /**
- * The buy-here-pay-here window sticker. Marked well above cash retail, which is
- * not a game exaggeration — it is how the business works. The customer is not
- * buying a car, they are buying approval.
+ * The buy-here-pay-here window sticker. Marked above cash retail, which is not a
+ * game exaggeration — it is how the business works. The customer is not buying a
+ * car, they are buying approval.
+ *
+ * `multiplier` is the store's, not the game's: it falls as you move upmarket,
+ * because a premium franchise is selling to someone who could have walked into a
+ * bank. Absolute dollars still climb, because the cars do. Defaults to the
+ * buy-here-pay-here number so callers with no stage in hand get the small-lot
+ * behaviour the constant has always described.
  */
-export function bhphPrice(car: Car): number {
-  return Math.round(retailValue(car) * BALANCE.bhphPriceMultiplier);
+export function bhphPrice(car: Car, multiplier: number = BALANCE.bhphPriceMultiplier): number {
+  return Math.round(retailValue(car) * multiplier);
 }
 
 /** Value of what is sitting on the lot, at cost. */

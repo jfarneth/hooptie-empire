@@ -15,6 +15,9 @@ export type CarTier = 'beater' | 'commuter' | 'family' | 'truck' | 'luxury';
 
 export interface CarModel {
   id: string;
+  /** Marque. On the franchise stages the whole feed is one of these. */
+  makeId: string;
+  /** Full display name, make included: "Renwick Comet". */
   name: string;
   tier: CarTier;
   bodyStyle: BodyStyle;
@@ -157,7 +160,21 @@ export interface Prospect {
   expiresAt: Millis;
 }
 
-export type StageId = 'curbstoner' | 'bhph';
+/**
+ * The dealership you are currently running. Ordered; see `STAGE_ORDER` and the
+ * stage table in stages.ts, which is where everything that varies by stage lives.
+ *
+ * Never test a capability by comparing stage ids — ask the stage. `financing`
+ * is true for five of the six, and a `=== 'smallUsed'` check would silently mean
+ * "no finance desk at a Valmont store".
+ */
+export type StageId =
+  | 'curbstone'
+  | 'smallUsed'
+  | 'largeUsed'
+  | 'lowCostFranchise'
+  | 'midsizeFranchise'
+  | 'premiumFranchise';
 
 /**
  * Player proficiencies. These level from doing the thing rather than from

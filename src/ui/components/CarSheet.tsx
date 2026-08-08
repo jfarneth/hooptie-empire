@@ -4,6 +4,8 @@ import { canRecon, reconCost, reconDurationMs, reconLift, reconValueGain } from 
 import { reconModsFor } from '../../sim/skills';
 import { bhphPrice, retailValue, wholesaleValue } from '../../sim/economy';
 import { getModel } from '../../sim/models';
+import { getStage } from '../../sim/stages';
+import { windowPrice } from '../../sim/engine';
 import type { Car, GameState } from '../../sim/types';
 import { duration, money, theme } from '../theme';
 import { CarSvg } from './CarSvg';
@@ -32,7 +34,7 @@ export function CarSheet({
 
   const model = getModel(car.modelId);
   const retail = retailValue(car);
-  const reference = state.stage === 'bhph' ? bhphPrice(car) : retail;
+  const reference = windowPrice(state, car);
   const shop = reconModsFor(state);
   const cost = reconCost(car, shop);
   const canWork = canRecon(car, shop);
@@ -64,7 +66,7 @@ export function CarSheet({
       <View style={styles.figures}>
         <Figure label="You paid" value={money(car.costBasis)} />
         <Figure label="Cash retail" value={money(retail)} />
-        {state.stage === 'bhph' ? (
+        {getStage(state.stage).financing ? (
           <Figure label="Lot price" value={money(bhphPrice(car))} accent />
         ) : (
           <Figure label="Wholesale" value={money(wholesaleValue(car))} />

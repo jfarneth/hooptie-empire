@@ -11,6 +11,7 @@ import {
   tellFor,
 } from '../../sim/haggle';
 import { repoThreshold } from '../../sim/business';
+import { getStage } from '../../sim/stages';
 import { activeNotes, canWriteNote, overCapacityFactor } from '../../sim/notes';
 import { haggleSkillFor } from '../../sim/skills';
 import { collectionsCapacity } from '../../sim/upgrades';
@@ -71,7 +72,7 @@ export function DealSheet({
 
   const car = state.cars.find((c) => c.id === prospect.carId);
   const costBasis = car?.costBasis ?? 0;
-  const financeAvailable = state.stage === 'bhph';
+  const financeAvailable = getStage(state.stage).financing;
 
   const countersLeft = countersRemaining(neg, haggleSkillFor(state));
   const agreed = neg.status === 'accepted';

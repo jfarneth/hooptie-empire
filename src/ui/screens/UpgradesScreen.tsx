@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { purchaseUpgrade } from '../../sim/actions';
-import { UPGRADES, getUpgrade, level, upgradeCost, type UpgradeDef } from '../../sim/upgrades';
+import { UPGRADES, getUpgrade, level, upgradeCost, upgradeUnlocked, type UpgradeDef } from '../../sim/upgrades';
 import { SKILLS } from '../../sim/skills';
 import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
@@ -39,7 +39,7 @@ export function UpgradesScreen({ state }: { state: GameState }) {
   const apply = useGame((s) => s.apply);
   const [tab, setTab] = useState<OfficeTab>('upgrades');
 
-  const available = UPGRADES.filter((u) => u.stage === 'curbstoner' || state.stage === 'bhph');
+  const available = UPGRADES.filter((u) => upgradeUnlocked(state, u));
   const categories = ['automation', 'capacity', 'speed', 'finance'] as const;
 
   return (
@@ -104,7 +104,7 @@ function UpgradeCard({
 }) {
   const lvl = level(state, def.id);
   const maxed = lvl >= def.maxLevel;
-  const cost = upgradeCost(getUpgrade(def.id), lvl);
+  const cost = upgradeCost(getUpgrade(def.id), lvl, state.stage);
   const affordable = state.cash >= cost;
 
   return (

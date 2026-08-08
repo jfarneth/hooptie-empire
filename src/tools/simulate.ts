@@ -9,9 +9,9 @@
  * how you find out which constant to reach for.
  */
 import {
+  advanceStage,
   buyListing,
-  buyLot,
-  canBuyLot,
+  canAdvanceStage,
   counterOffer,
   listForSale,
   purchaseUpgrade,
@@ -27,9 +27,10 @@ import { deskCounter } from '../sim/haggle';
 import { SKILL_IDS, appraisalSigma, getSkill, haggleSkillFor } from '../sim/skills';
 import { estimatedRetail, estimatedWholesale } from '../sim/appraisal';
 import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
-import { advance, createInitialState, expectedCollections } from '../sim/engine';
+import { acquisitionCeiling, advance, createInitialState, expectedCollections } from '../sim/engine';
 import { activeNotes, canWriteNote, overCapacityFactor } from '../sim/notes';
-import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level } from '../sim/upgrades';
+import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level, upgradeCost } from '../sim/upgrades';
+import { STAGES, getStage, nextStage, stageRank } from '../sim/stages';
 import type { GameState } from '../sim/types';
 
 const STEP_MS = 5_000;
@@ -63,13 +64,16 @@ interface AppraisalTally {
 function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
   let s = state;
 
-  // 1. Take the lot the moment it is affordable — it is the whole point.
-  if (canBuyLot(s)) s = buyLot(s);
+  // 1. Move up the moment it is affordable. A real player would weigh the
+  //    payroll reset against a full book; the bot takes every rung as it comes,
+  //    which makes it the *worst* case for the move and the right thing to
+  //    measure the ladder against.
+  if (canAdvanceStage(s)) s = advanceStage(s);
 
   // 2. Close any walk-up standing in front of us. Paper when it pays better and
   //    the desk has room for it; otherwise sell them the car.
   for (const prospect of [...s.prospects]) {
-    if (s.stage === 'bhph' && canWriteNote(s)) {
+    if (getStage(s.stage).financing && canWriteNote(s)) {
       const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
       const ev =
         prospect.downPayment +
@@ -104,31 +108,47 @@ function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
     // harness would measure a game nobody can play — the whole point of the
     // ambiguity is that this decision is made with incomplete information.
     const sigma = appraisalSigma(s);
+    // The same ceiling the retainer buyer uses, so the harness cannot measure a
+    // buying rule nothing in the game actually applies. On a franchise stage
+    // that ceiling is the sticker rather than wholesale — an allocation is
+    // always priced over wholesale, and gating on wholesale there meant the bot
+    // bought literally nothing for the rest of the run.
+    const ceiling = (l: (typeof s.listings)[number]) => acquisitionCeiling(s, l, 'estimate');
     const deals = s.listings
       .map((l) => ({ l, margin: estimatedRetail(l, sigma) - l.price }))
-      .filter((d) => d.l.price <= estimatedWholesale(d.l, sigma) * 1.02)
+      .filter((d) => d.l.price <= ceiling(d.l) * 1.02)
       .sort((a, b) => b.margin - a.margin);
+    const judging = !getStage(s.stage).sourcing.makeId;
     for (const { l } of deals) {
       if (s.cars.filter((c) => c.status !== 'sold').length >= carCapacity(s)) break;
       if (s.cash - l.price < 400) continue;
-      // Recorded before the buy, while the listing still exists to compare against.
-      appraisal.judged += 1;
-      appraisal.absError += Math.abs(estimatedRetail(l, sigma) - retailValue(l.car)) / Math.max(1, retailValue(l.car));
-      if (l.price > wholesaleValue(l.car)) appraisal.overpaid += 1;
+      // Recorded before the buy, while the listing still exists to compare
+      // against — and only on the open market. "Paid over wholesale" is the
+      // definition of a bad buy when you are guessing at a stranger's car and
+      // meaningless when you are reading a factory invoice, where every unit is
+      // over wholesale by design and there is nothing to misjudge.
+      if (judging) {
+        appraisal.judged += 1;
+        appraisal.absError += Math.abs(estimatedRetail(l, sigma) - retailValue(l.car)) / Math.max(1, retailValue(l.car));
+        if (l.price > wholesaleValue(l.car)) appraisal.overpaid += 1;
+      }
       s = buyListing(s, l.id);
     }
   }
 
-  // 5. Reinvest — but stop and save once the lot is genuinely in reach, the way
-  //    a player who can see the goal post would.
-  const savingForLot = s.stage === 'curbstoner' && s.cash >= BALANCE.lotPurchaseCost * 0.55;
-  if (!savingForLot) {
+  // 5. Reinvest — but stop and save once the next store is genuinely in reach,
+  //    the way a player who can see the goal post would.
+  const upNext = nextStage(s.stage);
+  const savingForNextStore = upNext !== null && s.cash >= upNext.entryCost * 0.55;
+  if (!savingForNextStore) {
     for (const id of UPGRADE_PRIORITY) {
       if (!canBuyUpgrade(s, id)) continue;
       const def = UPGRADES.find((u) => u.id === id)!;
-      const cost = def.baseCost * Math.pow(def.costGrowth, level(s, id));
-      // Keep enough working capital to keep a car pipeline moving.
-      if (s.cash - cost < 3_000) continue;
+      const cost = upgradeCost(def, level(s, id), s.stage);
+      // Keep enough working capital to keep a car pipeline moving. Scaled to the
+      // store, because $3k of float is a pipeline at a curbstone and a rounding
+      // error at a Valmont franchise.
+      if (s.cash - cost < 3_000 * getStage(s.stage).staffCostMultiplier) continue;
       s = purchaseUpgrade(s, id);
       if (id === 'salesDesk') s = setDealPolicy(s, 'auto');
     }
@@ -180,15 +200,16 @@ function runOne(seed: number, hours: number, verbose: boolean) {
    * Checked either side of the bot's turn, because some milestones describe a
    * state the bot immediately spends away.
    *
-   * 'cash for lot' is the one that matters: botTurn buys the lot on its first
-   * line, so testing afterwards never sees the balance that paid for it. Read
-   * only after the turn, this milestone silently reported the time to earn
-   * $18k *back*, landing it after 'stage 2' and making stage 1 look about
-   * twenty minutes longer than it is.
+   * The stage milestones are why. botTurn moves up on its first line, so a check
+   * that only ran afterwards would never see the balance that paid for the move
+   * — the original 'cash for lot' milestone silently reported the time to earn
+   * $18k *back*, which made stage 1 look about twenty minutes longer than it was.
    */
   const markMilestones = () => {
-    if (s.cash >= BALANCE.lotPurchaseCost) mark('cash for lot');
-    if (s.stage === 'bhph') mark('stage 2: BHPH');
+    // One milestone per rung, so the whole ladder is visible in one run.
+    for (const def of STAGES) {
+      if (stageRank(s.stage) >= stageRank(def.id)) mark(def.name);
+    }
     if (s.stats.financeDeals >= 1) mark('first note written');
     if (s.stats.reposCompleted >= 1) mark('first repo');
     if (s.notes.filter((n) => n.status === 'paid').length >= 1) mark('first note paid off');
@@ -264,8 +285,7 @@ function main() {
   console.log(`\nMilestones (median, reached-by-count of ${seeds})`);
   console.log('-'.repeat(64));
   const order = [
-    'cash for lot',
-    'stage 2: BHPH',
+    ...STAGES.slice(1).map((def) => def.name),
     'first note written',
     'first repo',
     'first note paid off',
