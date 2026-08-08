@@ -98,14 +98,43 @@ export interface Note {
   openedAt: Millis;
 }
 
+export type NegotiationStatus = 'open' | 'accepted' | 'walked';
+
+/**
+ * A live haggle over a cash price.
+ *
+ * `reservation`, `room` and `aggression` are hidden from the player — they are
+ * what the buyer privately knows. Everything here lives in GameState rather than
+ * React so a negotiation resolves identically offline, in a replay, and on screen.
+ */
+export interface Negotiation {
+  /** The asking price this negotiation is anchored to. */
+  anchor: number;
+  /** What they first said. Re-counters never go below it. */
+  openingOffer: number;
+  /** What they are offering right now — the price a sale would close at. */
+  currentOffer: number;
+  /** Hidden: the most they would actually pay. */
+  reservation: number;
+  /** Hidden: where the reservation sits between offer and anchor, 0–1. */
+  room: number;
+  /** Hidden: how hard they opened, 0–1. */
+  aggression: number;
+  countersMade: number;
+  lastCounter: number | null;
+  status: NegotiationStatus;
+  /** Index into the tell table, fixed at open so it does not flicker. */
+  tellIndex: number;
+}
+
 /** A customer standing on the lot with an offer for a specific listed car. */
 export interface Prospect {
   id: string;
   carId: string;
   name: string;
   tier: CreditTier;
-  /** What they will pay in cash, today. */
-  cashOffer: number;
+  /** Live cash haggle. `negotiation.currentOffer` is the price on the table. */
+  negotiation: Negotiation;
   /** What they can put down if financed. */
   downPayment: number;
   /** Terms they will accept if financed. */
@@ -135,6 +164,10 @@ export interface Stats {
   notesPaidOff: number;
   notesDefaulted: number;
   reposCompleted: number;
+  /** Cash deals closed after at least one counter. */
+  negotiationsWon: number;
+  /** Buyers lost to a counter that pushed too hard. */
+  walkaways: number;
   totalCollected: number;
   lifetimeProfit: number;
 }
@@ -149,6 +182,7 @@ export interface SimEvent {
     | 'note-paid'
     | 'note-default'
     | 'repo'
+    | 'walkaway'
     | 'recon-done'
     | 'stage-up';
   label: string;

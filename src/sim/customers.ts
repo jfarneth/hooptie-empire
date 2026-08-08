@@ -1,5 +1,6 @@
 import { BALANCE } from './balance';
 import { bhphPrice, retailValue } from './economy';
+import { openNegotiation } from './haggle';
 import { mintId } from './ids';
 import { customerName } from './models';
 import { buildTerms } from './notes';
@@ -43,8 +44,13 @@ export function generateProspect(
   // price of getting approved, and this customer does not need approval. They
   // pay cash retail even when the window sticker says more, which is exactly
   // why the lot would rather write paper than take their money.
-  const cashCeiling = Math.min(car.askPrice, retailValue(car));
-  const cashOffer = Math.round(cashCeiling * range(rng, 0.93, 1.0));
+  const retail = retailValue(car);
+  const cashCeiling = Math.min(car.askPrice, retail);
+
+  // Overpricing is measured against cash retail, so asking over market makes
+  // cash buyers open harder — the same pressure that thins out foot traffic.
+  const overpricing = retail > 0 ? car.askPrice / retail : 1;
+  const negotiation = openNegotiation(rng, cashCeiling, overpricing);
 
   const price = bhphPrice(car);
   const weeks = BALANCE.termWeeks[intRange(rng, 0, BALANCE.termWeeks.length - 1)];
@@ -56,7 +62,7 @@ export function generateProspect(
     carId: car.id,
     name,
     tier,
-    cashOffer,
+    negotiation,
     downPayment,
     financeTerms: terms,
     expiresAt: now + BALANCE.prospectLifetimeMs * (0.7 + nextFloat(rng) * 0.6),

@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   buyLot,
   canBuyLot,
+  counterOffer,
   declineProspect,
   listForSale,
   repriceCar,
@@ -109,6 +110,12 @@ export function LotScreen({ state }: { state: GameState }) {
           if (!prospect) return;
           apply((s) => takeCashDeal(s, prospect.id));
           setProspectId(null);
+        }}
+        onCounter={(price) => {
+          if (!prospect) return;
+          // Deliberately stays open: they may have come back with a better
+          // number, and closing the sheet would hide the reply.
+          apply((s) => counterOffer(s, prospect.id, price));
         }}
         onFinance={() => {
           if (!prospect) return;

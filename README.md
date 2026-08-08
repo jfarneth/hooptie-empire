@@ -1,5 +1,4 @@
 # Hooptie Empire
-# hooptie-empire
 
 An idle tycoon game about the American used-car business. You start selling one
 car at a time out of a driveway and climb toward a lot with its own finance desk.
@@ -81,6 +80,7 @@ src/
     economy.ts      # valuation curves; everything earned traces through here
     notes.ts        # BHPH contracts: amortization, delinquency, default, repo
     customers.ts    # walk-ups, credit tiers, deal structuring
+    haggle.ts       # negotiation: opening offers, reservation prices, counters
     cars.ts         # generation, reconditioning, repo damage
     upgrades.ts     # definitions and derived stats
     actions.ts      # player commands (state -> state)
@@ -105,12 +105,12 @@ The harness drives the real engine with a scripted "reasonable player" and
 reports time-to-milestone across seeds:
 
 ```
-  cash for lot               45m   (8/8)
-  stage 2: BHPH              34m   (8/8)
-  first note written         36m   (8/8)
-  first repo                 59m   (8/8)
-  first note paid off      1h32m   (8/8)
-  default rate              25.8%
+  stage 2: BHPH              43m   (8/8)
+  first note written         43m   (8/8)
+  first repo               1h02m   (8/8)
+  first note paid off      1h40m   (8/8)
+  walk-away rate             9.2%
+  default rate              30.2%
 ```
 
 When the harness and the way the game actually feels disagree, the game is right
@@ -129,6 +129,19 @@ outcome is worth more than the cash sale you turned down. The deal sheet shows
 the expected value of the paper next to the cash offer, computed with the same
 Markov chain the engine uses to resolve the contract — so learning to read that
 screen is learning the real economics, not a UI fiction.
+
+**Haggling runs on a hidden walk-away price.** A buyer opens below your ask and
+carries a private reservation — the most they would actually pay — drawn
+somewhere between the two. Countering below it is likely to land, above it
+usually is not, and pushing far past it loses them. Modelling it that way rather
+than as a distance-from-their-offer formula means some buyers genuinely have room
+and some genuinely do not, which is what makes it read as a person.
+
+Two things stay hidden on purpose. The deal sheet shows exact expected value and
+exact default odds for financing, because those are long-run properties a dealer
+really does learn. One buyer's private walk-away number is not something anyone on
+that lot could know, so the slider gives a qualitative read and a **tell** instead
+of a percentage. Reading customers is a skill, not arithmetic.
 
 **Collections capacity** caps how many active notes you can service. Grow the
 book past the desk and everyone's default odds climb. Growing without staffing is

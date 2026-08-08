@@ -9,6 +9,7 @@ import {
   reconCost,
 } from './cars';
 import { generateProspect } from './customers';
+import { deskCounter, resolveCounter } from './haggle';
 import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
 import { mintId } from './ids';
 import { LISTING_SOURCES, TIERS_BY_STAGE, modelsForTiers } from './models';
@@ -31,7 +32,7 @@ import {
 } from './upgrades';
 import type { Car, GameState, Millis, SimEvent } from './types';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -88,6 +89,8 @@ function blankState(seed: number, wallNow: number): GameState {
       notesPaidOff: 0,
       notesDefaulted: 0,
       reposCompleted: 0,
+      negotiationsWon: 0,
+      walkaways: 0,
       totalCollected: 0,
       lifetimeProfit: 0,
     },
@@ -188,7 +191,9 @@ function spawnListing(s: GameState): void {
 
 function stepProspects(s: GameState): void {
   if (s.prospects.length > 0) {
-    s.prospects = s.prospects.filter((p) => p.expiresAt > s.t);
+    // A buyer leaves when they run out of patience or when they walked away
+    // from a negotiation. Either way the car goes back to waiting for traffic.
+    s.prospects = s.prospects.filter((p) => p.expiresAt > s.t && p.negotiation.status !== 'walked');
   }
 
   const advertising = level(s, 'advertising');
@@ -331,10 +336,50 @@ function stepAutomation(s: GameState): void {
   if (level(s, 'salesDesk') > 0 && s.dealPolicy !== 'manual' && s.prospects.length > 0) {
     for (const prospect of [...s.prospects]) {
       const choice = chooseDeal(s, prospect.id);
-      if (choice === 'cash') acceptCash(s, prospect.id);
-      else if (choice === 'finance') acceptFinance(s, prospect.id);
+      if (choice === 'finance') {
+        acceptFinance(s, prospect.id);
+      } else if (choice === 'cash') {
+        runDeskNegotiation(s, prospect.id);
+      }
     }
   }
+}
+
+/**
+ * The sales desk's standing play: counter exactly once, then take whatever comes
+ * back. It resolves the whole haggle inside a single step because the desk has
+ * no reason to deliberate — which also keeps offline catch-up cheap.
+ *
+ * It uses the same pure functions the player's taps go through, so an automated
+ * lot and a hand-played one are running identical rules.
+ */
+function runDeskNegotiation(s: GameState, prospectId: string): void {
+  const prospect = s.prospects.find((p) => p.id === prospectId);
+  if (!prospect) return;
+
+  const neg = prospect.negotiation;
+
+  // Already at the asking price, or the desk has had its turn: just close.
+  if (neg.countersMade > 0 || neg.currentOffer >= neg.anchor) {
+    acceptCash(s, prospectId);
+    return;
+  }
+
+  const counter = deskCounter(neg);
+  if (counter <= neg.currentOffer) {
+    acceptCash(s, prospectId);
+    return;
+  }
+
+  const outcome = resolveCounter(s.rng, neg, counter);
+  if (outcome.kind === 'walked') {
+    s.stats.walkaways += 1;
+    logEvent(s, { t: s.t, kind: 'walkaway', label: `${prospect.name} walked` });
+    return; // stepProspects sweeps them out.
+  }
+
+  // Accepted, or they came back with a better number — either way, take it.
+  acceptCash(s, prospectId);
 }
 
 /** Which side of the deal the standing policy takes. */
@@ -351,7 +396,7 @@ function chooseDeal(s: GameState, prospectId: string): 'cash' | 'finance' | 'non
     case 'auto': {
       const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
       const ev = expectedFinanceValue(s, prospect.id, capFactor);
-      return ev > prospect.cashOffer ? 'finance' : 'cash';
+      return ev > prospect.negotiation.currentOffer ? 'finance' : 'cash';
     }
     default:
       return 'none';
@@ -382,7 +427,14 @@ export function cloneState(s: GameState): GameState {
     rng: { s: s.rng.s },
     cars: s.cars.map((c) => ({ ...c })),
     listings: s.listings.map((l) => ({ ...l, car: { ...l.car } })),
-    prospects: s.prospects.map((p) => ({ ...p, financeTerms: { ...p.financeTerms } })),
+    // Every nested object on a prospect must be cloned explicitly. A shared
+    // negotiation would mutate backwards through history and quietly corrupt
+    // offline catch-up, which the tick-invariance test exists to catch.
+    prospects: s.prospects.map((p) => ({
+      ...p,
+      financeTerms: { ...p.financeTerms },
+      negotiation: { ...p.negotiation },
+    })),
     notes: s.notes.map((n) => ({ ...n })),
     upgrades: { ...s.upgrades },
     stats: { ...s.stats },
@@ -413,20 +465,26 @@ function acceptCash(s: GameState, prospectId: string): boolean {
   const idx = s.prospects.findIndex((p) => p.id === prospectId);
   if (idx < 0) return false;
   const prospect = s.prospects[idx];
+  if (prospect.negotiation.status === 'walked') return false;
   const car = s.cars.find((c) => c.id === prospect.carId);
   if (!car || car.status !== 'listed') return false;
 
-  const profit = prospect.cashOffer - car.costBasis;
-  s.cash += prospect.cashOffer;
+  // Whatever is on the table right now — their opening number, or whatever the
+  // haggle settled on.
+  const price = prospect.negotiation.currentOffer;
+  const profit = price - car.costBasis;
+  s.cash += price;
   s.stats.carsSold += 1;
   s.stats.cashDeals += 1;
   s.stats.lifetimeProfit += profit;
+
+  if (prospect.negotiation.countersMade > 0) s.stats.negotiationsWon += 1;
 
   logEvent(s, {
     t: s.t,
     kind: 'sale-cash',
     label: `Cash sale: ${carLabel(car)}`,
-    amount: prospect.cashOffer,
+    amount: price,
   });
 
   removeCar(s, car.id);

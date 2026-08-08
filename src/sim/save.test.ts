@@ -1,4 +1,4 @@
-import { advance, createInitialState } from './engine';
+import { SAVE_VERSION, advance, createInitialState } from './engine';
 import { deserialize, migrate, serialize } from './save';
 
 /**
@@ -70,5 +70,43 @@ describe('migration chain', () => {
     const migrated = migrate(JSON.parse(JSON.stringify(state)), state.version);
     expect(migrated.version).toBe(state.version);
     expect(migrated.cash).toBe(state.cash);
+  });
+
+  /**
+   * A v1 save has prospects carrying a flat `cashOffer` and no negotiation. The
+   * engine dereferences `negotiation` on the next tick, so without this
+   * migration every save in the wild would crash on load.
+   */
+  it('carries a v1 save forward and leaves it simulatable', () => {
+    const v1: any = JSON.parse(JSON.stringify(createInitialState(21, 0)));
+    v1.version = 1;
+    v1.cash = 41_234;
+    v1.stage = 'bhph';
+    delete v1.stats.negotiationsWon;
+    delete v1.stats.walkaways;
+    v1.prospects = [
+      { id: 'pros_1', carId: 'car_1', name: 'Old Save', tier: 'C', cashOffer: 3_100 },
+    ];
+
+    const migrated = migrate(v1, 1);
+
+    expect(migrated.version).toBe(SAVE_VERSION);
+    // The things a player would be upset to lose survive.
+    expect(migrated.cash).toBe(41_234);
+    expect(migrated.stage).toBe('bhph');
+    // The thing that cannot survive is dropped rather than half-converted.
+    expect(migrated.prospects).toEqual([]);
+    expect(migrated.stats.negotiationsWon).toBe(0);
+
+    // And it still runs.
+    expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+  });
+
+  it('preserves counters a v2 save already had', () => {
+    const state = createInitialState(3, 0);
+    const withStats: any = JSON.parse(JSON.stringify(state));
+    withStats.version = 1;
+    withStats.stats.negotiationsWon = 17;
+    expect(migrate(withStats, 1).stats.negotiationsWon).toBe(17);
   });
 });

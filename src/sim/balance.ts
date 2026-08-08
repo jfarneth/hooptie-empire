@@ -77,6 +77,49 @@ export const BALANCE = {
   /** Default ask price when a car is listed, as a multiple of retail value. */
   defaultAskRatio: 1.0,
 
+  // --------------------------------------------------------------- negotiation
+  negotiation: {
+    /** Share of shoppers who simply pay the asking price without haggling. */
+    fullPriceChance: 0.12,
+    /** Deepest opening discount off list, before aggression scaling. */
+    maxOpeningDiscount: 0.2,
+    /** Asking over market invites a harder lowball. */
+    overpricingLowballFactor: 0.6,
+    /** Cap on that effect, so an absurd ask does not produce an absurd offer. */
+    maxOverpricingPush: 0.6,
+    /** Chance a buyer names an un-round number, which is what makes the round
+     *  ones read as deliberate rather than as engine output. */
+    oddNumberChance: 0.15,
+
+    /**
+     * Where the hidden reservation price sits between their offer and your ask.
+     * This is the master knob for how much haggling room the economy has.
+     */
+    roomMean: 0.46,
+    roomSpread: 0.44,
+
+    /** Odds they accept a counter placed exactly at their reservation price. */
+    acceptanceAtReservation: 0.55,
+    /** How fast acceptance dies once you push past the reservation. */
+    stretchDecay: 3.2,
+
+    /** Walk odds after a rejected counter. */
+    baseWalkChance: 0.14,
+    /** Added walk odds per unit of overreach beyond the reservation. */
+    walkPerExcess: 0.6,
+    /** Patience wears out across rounds. */
+    walkPerRound: 0.1,
+
+    /** Counters the player gets. On the last one they accept or walk. */
+    maxPlayerCounters: 2,
+    /** Time added to the buyer's clock per exchange, so haggling is not
+     *  guillotined by the walk-up timer. */
+    exchangeGraceMs: 30_000,
+
+    /** Sales desk: where it counters, as a fraction of offer→ask. */
+    deskCounterFraction: 0.55,
+  },
+
   // ---------------------------------------------------------------- capacities
   /** Cars you can hold at once. */
   drivewayCapacity: 2,
