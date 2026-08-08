@@ -24,7 +24,8 @@ import { BALANCE } from '../sim/balance';
 import { canRecon, reconCost } from '../sim/cars';
 import { reconModsFor } from '../sim/skills';
 import { deskCounter } from '../sim/haggle';
-import { haggleSkillFor } from '../sim/skills';
+import { appraisalSigma, haggleSkillFor } from '../sim/skills';
+import { estimatedRetail, estimatedWholesale } from '../sim/appraisal';
 import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
 import { advance, createInitialState, expectedCollections } from '../sim/engine';
 import { activeNotes, overCapacityFactor } from '../sim/notes';
@@ -51,7 +52,15 @@ const UPGRADE_PRIORITY = [
   'nightManager',
 ];
 
-function botTurn(state: GameState): GameState {
+interface AppraisalTally {
+  judged: number;
+  /** Sum of |estimated - true| retail, as a share of true retail. */
+  absError: number;
+  /** Buys that were above the car's real wholesale value. */
+  overpaid: number;
+}
+
+function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
   let s = state;
 
   // 1. Take the lot the moment it is affordable — it is the whole point.
@@ -90,13 +99,21 @@ function botTurn(state: GameState): GameState {
   // 4. Buy the best deal on the feed if there is room and money.
   const held = s.cars.filter((c) => c.status !== 'sold').length;
   if (held < carCapacity(s)) {
+    // The bot buys on the appraisal, not on the truth. Left on ground truth the
+    // harness would measure a game nobody can play — the whole point of the
+    // ambiguity is that this decision is made with incomplete information.
+    const sigma = appraisalSigma(s);
     const deals = s.listings
-      .map((l) => ({ l, margin: retailValue(l.car) - l.price }))
-      .filter((d) => d.l.price <= wholesaleValue(d.l.car) * 1.02)
+      .map((l) => ({ l, margin: estimatedRetail(l, sigma) - l.price }))
+      .filter((d) => d.l.price <= estimatedWholesale(d.l, sigma) * 1.02)
       .sort((a, b) => b.margin - a.margin);
     for (const { l } of deals) {
       if (s.cars.filter((c) => c.status !== 'sold').length >= carCapacity(s)) break;
       if (s.cash - l.price < 400) continue;
+      // Recorded before the buy, while the listing still exists to compare against.
+      appraisal.judged += 1;
+      appraisal.absError += Math.abs(estimatedRetail(l, sigma) - retailValue(l.car)) / Math.max(1, retailValue(l.car));
+      if (l.price > wholesaleValue(l.car)) appraisal.overpaid += 1;
       s = buyListing(s, l.id);
     }
   }
@@ -149,6 +166,7 @@ interface Milestones {
 
 function runOne(seed: number, hours: number, verbose: boolean) {
   let s = createInitialState(seed, 0);
+  const appraisal: AppraisalTally = { judged: 0, absError: 0, overpaid: 0 };
   const milestones: Milestones = {};
   const totalMs = hours * 60 * 60 * 1000;
   let lastReport = 0;
@@ -180,7 +198,7 @@ function runOne(seed: number, hours: number, verbose: boolean) {
   while (s.t < totalMs) {
     s = advance(s, STEP_MS);
     markMilestones();
-    s = botTurn(s);
+    s = botTurn(s, appraisal);
     markMilestones();
 
     if (verbose && s.t - lastReport >= 15 * 60 * 1000) {
@@ -195,7 +213,7 @@ function runOne(seed: number, hours: number, verbose: boolean) {
     }
   }
 
-  return { state: s, milestones };
+  return { state: s, milestones, appraisal };
 }
 
 function fmtMoney(n: number): string {
@@ -223,13 +241,15 @@ function main() {
 
   const allMilestones: Record<string, number[]> = {};
   const finals: GameState[] = [];
+  const tallies: AppraisalTally[] = [];
   const started = Date.now();
 
   for (let i = 0; i < seeds; i++) {
     const seed = 1000 + i * 7919;
     if (verbose) console.log(`\nseed ${seed}`);
-    const { state, milestones } = runOne(seed, hours, verbose);
+    const { state, milestones, appraisal } = runOne(seed, hours, verbose);
     finals.push(state);
+    tallies.push(appraisal);
     for (const [key, t] of Object.entries(milestones)) {
       if (t === undefined) continue;
       (allMilestones[key] ??= []).push(t);
@@ -270,6 +290,16 @@ function main() {
   console.log(`  portfolio          ${fmtMoney(median((s) => portfolioValue(s.notes))).padStart(12)}`);
   console.log(`  lifetime profit    ${fmtMoney(median((s) => s.stats.lifetimeProfit)).padStart(12)}`);
   console.log(`  cars sold          ${String(median((s) => s.stats.carsSold)).padStart(12)}`);
+
+  // Health of the ambiguity system. A bad-buy rate near zero means the feed is
+  // still telling the player the answer; near half means it is a coin flip.
+  const judged = tallies.reduce((n, t) => n + t.judged, 0);
+  if (judged > 0) {
+    const err = tallies.reduce((n, t) => n + t.absError, 0) / judged;
+    const bad = tallies.reduce((n, t) => n + t.overpaid, 0) / judged;
+    console.log(`  appraisal error    ${(err * 100).toFixed(1).padStart(11)}%`);
+    console.log(`  bad-buy rate       ${(bad * 100).toFixed(1).padStart(11)}%`);
+  }
   console.log(`  cash / finance     ${String(median((s) => s.stats.cashDeals)).padStart(6)} /${String(median((s) => s.stats.financeDeals)).padStart(5)}`);
   console.log(`  notes paid / dflt  ${String(median((s) => s.stats.notesPaidOff)).padStart(6)} /${String(median((s) => s.stats.notesDefaulted)).padStart(5)}`);
   console.log(`  repos              ${String(median((s) => s.stats.reposCompleted)).padStart(12)}`);

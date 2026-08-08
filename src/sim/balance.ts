@@ -50,9 +50,26 @@ export const BALANCE = {
   listingIntervalMs: 22_000,
   listingIntervalPerScoutLevel: 0.78,
   listingLifetimeMs: 150_000,
-  /** Seller ask relative to wholesale. Below 1.0 is a genuine deal. */
-  listingAskMin: 0.86,
-  listingAskMax: 1.14,
+  /**
+   * Seller ask relative to wholesale. Below 1.0 is a genuine deal.
+   *
+   * Wider than it was, and load-bearing rather than flavour. The ask is derived
+   * from the car's *true* condition, so a narrow band lets a sharp player
+   * back-solve the condition from the price and defeat the appraisal. Width is
+   * what blunts that, not position — at ±0.20 the price signal is noisy enough
+   * against 0.18 of condition noise that back-solving stops paying.
+   *
+   * Do not widen this further without re-running the harness. The economy is
+   * violently sensitive to it, because the band sets both the share of listings
+   * worth buying and the margin on the ones that are, and an idle economy
+   * compounds margin over four hours. The originally planned 0.72-1.30 measured
+   * +23% end cash; nudging the same width up to 0.84-1.42 measured -98%. This
+   * pair is where throughput and margin land closest to where they were.
+   */
+  listingAskMin: 0.8,
+  listingAskMax: 1.2,
+  /** Condition points of appraisal miss worth telling the player about. */
+  appraisalSurpriseThreshold: 0.08,
 
   // --------------------------------------------------------------------- recon
   /** Sim ms to raise condition by a full 1.0 point. */
@@ -204,11 +221,26 @@ export const BALANCE = {
       repairPerPoint: 40,
     },
 
+    /**
+     * Buying. The one skill whose level 1 is deliberately NOT the old game:
+     * before this, the feed printed exact condition and exact spread, and
+     * "should I buy this" was a comparison rather than a decision.
+     *
+     * σ = 0.18 moves `conditionFactor` by about 0.10, which on a typical car is
+     * ~13% of retail — several hundred dollars against a spread of similar
+     * size. Enough to make the call real, not enough to make it a coin flip.
+     *
+     * Throughput is deliberately thin: one extra feed slot, arriving at level 5,
+     * and no interval effect at all. Both were tried and both simply inflate —
+     * the interval term measured +15% end cash on its own, on a late game
+     * already flagged as hot. `scout` remains the way to buy feed throughput.
+     * What levelling Buying gets you is the eye, which is the point of it.
+     */
     buy: {
-      /** 1σ of appraisal error, in condition points. Level 1 is today: no error. */
-      appraisalSigma: { at1: 0, atMax: 0, ease: 0.7 },
-      listingInterval: { at1: 1, atMax: 1, ease: 1 },
-      listingSlots: { at1: 0, atMax: 0, ease: 1 },
+      /** 1σ of appraisal error, in condition points. */
+      appraisalSigma: { at1: 0.18, atMax: 0.03, ease: 0.7 },
+      listingInterval: { at1: 1, atMax: 1, ease: 0.7 },
+      listingSlots: { at1: 0, atMax: 1, ease: 0.7 },
     },
     /**
      * Closing. Shipped at the full planned strength, because measurement says

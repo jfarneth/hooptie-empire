@@ -1,7 +1,8 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { buyListing } from '../../sim/actions';
-import { retailValue, wholesaleValue } from '../../sim/economy';
+import { appraisalBand, estimatedCondition, estimatedWholesale } from '../../sim/appraisal';
+import { appraisalSigma } from '../../sim/skills';
 import { getModel } from '../../sim/models';
 import { carCapacity } from '../../sim/upgrades';
 import type { GameState, Listing } from '../../sim/types';
@@ -60,18 +61,22 @@ function ListingRow({
   onBuy: () => void;
 }) {
   const model = getModel(listing.car.modelId);
-  const wholesale = wholesaleValue(listing.car);
-  const retail = retailValue(listing.car);
-  const underWholesale = listing.price <= wholesale;
-  const spread = retail - listing.price;
+  // Everything quoted here is an appraisal, not a fact. Mileage and price are
+  // exact; how tired the car is underneath is a guess that sharpens with Buying.
+  const sigma = appraisalSigma(state);
+  const condition = estimatedCondition(listing, sigma);
+  const band = appraisalBand(listing, sigma);
+  const looksCheap = listing.price <= estimatedWholesale(listing, sigma);
   const expiresIn = listing.expiresAt - state.t;
+  const spreadLow = band.low - listing.price;
+  const spreadHigh = band.high - listing.price;
 
   return (
     <Pressable
       onPress={disabled ? undefined : onBuy}
       style={({ pressed }) => [
         styles.row,
-        underWholesale && styles.rowDeal,
+        looksCheap && styles.rowDeal,
         disabled && styles.rowDisabled,
         pressed && !disabled && { borderColor: theme.colors.accent },
       ]}
@@ -90,23 +95,35 @@ function ListingRow({
           {model.name}
         </Text>
         <Text style={styles.meta}>
-          {listing.car.mileage.toLocaleString('en-US')} mi · {Math.round(listing.car.condition * 100)}%
+          {listing.car.mileage.toLocaleString('en-US')} mi · {band.exact ? '' : '~'}
+          {Math.round(condition * 100)}%
           {' · '}
           {listing.source}
         </Text>
         <Row gap={6} style={{ marginTop: 4 }}>
-          {underWholesale ? <Chip text="UNDER WHOLESALE" color={theme.colors.money} /> : null}
+          {looksCheap ? (
+            <Chip
+              text={band.exact ? 'UNDER WHOLESALE' : 'LOOKS CHEAP'}
+              color={theme.colors.money}
+            />
+          ) : null}
           <Text style={styles.expiry}>gone in {duration(expiresIn)}</Text>
         </Row>
       </View>
 
       <View style={styles.priceCol}>
         <Text style={styles.price}>{money(listing.price)}</Text>
-        <Text style={[styles.spread, { color: spread > 0 ? theme.colors.money : theme.colors.danger }]}>
-          {spread > 0 ? '+' : ''}
-          {money(spread)}
+        <Text
+          style={[
+            styles.spread,
+            { color: spreadLow > 0 ? theme.colors.money : theme.colors.danger },
+          ]}
+        >
+          {band.exact
+            ? `${spreadHigh > 0 ? '+' : ''}${money(spreadHigh)}`
+            : `${money(spreadLow)} – ${money(spreadHigh)}`}
         </Text>
-        <Text style={styles.spreadLabel}>vs retail</Text>
+        <Text style={styles.spreadLabel}>{band.exact ? 'vs retail' : 'est. vs retail'}</Text>
       </View>
     </Pressable>
   );

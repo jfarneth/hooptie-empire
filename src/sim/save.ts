@@ -68,6 +68,20 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       repair: { level: 1, xp: 0 },
     },
   }),
+
+  /**
+   * v3 -> v4: cars on the feed stopped advertising their true condition.
+   *
+   * A v3 listing has no noise draw, and the engine reads it on the next render.
+   * Backfilling zero means listings already on the feed appraise honestly —
+   * generous rather than punitive, and they rotate off within ~150s anyway.
+   * Rolling a real draw here would be worse: a player who had been looking at
+   * an exact condition all session would watch the number move for no reason.
+   */
+  3: (s) => ({
+    ...s,
+    listings: (s.listings ?? []).map((l: any) => ({ ...l, appraisalNoise: 0 })),
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

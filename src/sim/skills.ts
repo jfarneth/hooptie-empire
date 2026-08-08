@@ -267,6 +267,39 @@ export function reconMaxLift(state: Pick<GameState, 'skills'>): number {
  * itself quicker — and they are combined here so no call site has to remember
  * to apply both.
  */
+/** How the sourcing feed behaves for this player. */
+export interface SourcingMods {
+  /** Listings that can sit on the feed at once. */
+  slots: number;
+  /** Mean gap between new listings appearing. */
+  intervalMs: number;
+  /** 1σ of appraisal error, in condition points. */
+  sigma: number;
+}
+
+/**
+ * The feed, resolved from both what was bought and what was learned.
+ *
+ * `scout` and Buying stack on both throughput axes, the same way the mechanic
+ * upgrade and Wrenching stack on recon speed: cash buys contacts, practice buys
+ * an eye and a faster turn of the feed. An earlier cut gave them one axis each
+ * on the theory that sharing one was a double dip — but scout's interval term
+ * is worth 2.7x at max level and the skill's is worth 1.3x, so "no double dip"
+ * amounted to a silent 2.7x nerf to an upgrade players had already bought.
+ * Multiplicative terms on a shared axis are fine; unannounced nerfs are not.
+ */
+export function sourcingModsFor(state: Pick<GameState, 'skills' | 'upgrades'>): SourcingMods {
+  const scout = level(state, 'scout');
+  return {
+    slots: BALANCE.baseListingSlots + scout * BALANCE.listingSlotsPerScoutLevel + listingSlotBonus(state),
+    intervalMs:
+      BALANCE.listingIntervalMs *
+      Math.pow(BALANCE.listingIntervalPerScoutLevel, scout) *
+      listingIntervalMultiplier(state),
+    sigma: appraisalSigma(state),
+  };
+}
+
 /**
  * Everything the person at the desk brings to a negotiation, in the plain
  * numbers `haggle.ts` works in.

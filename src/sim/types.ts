@@ -58,6 +58,15 @@ export interface Listing {
   expiresAt: Millis;
   /** Cosmetic label for the UI: where the car came from. */
   source: string;
+  /**
+   * How wrong this car looks, as a z-score drawn once at spawn.
+   *
+   * Stored rather than the estimate itself, so the displayed appraisal is a
+   * pure function of this draw and the current Buying level — levelling up
+   * sharpens the whole feed at once without re-rolling anything. See
+   * appraisal.ts.
+   */
+  appraisalNoise: number;
 }
 
 /**
@@ -201,7 +210,8 @@ export interface SimEvent {
     | 'walkaway'
     | 'recon-done'
     | 'stage-up'
-    | 'skill-up';
+    | 'skill-up'
+    | 'appraisal';
   label: string;
   amount?: number;
 }

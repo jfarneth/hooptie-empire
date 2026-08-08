@@ -8,6 +8,7 @@ import {
   generateCar,
   reconCost,
 } from './cars';
+import { appraisalError, pessimisticWholesale } from './appraisal';
 import { generateProspect } from './customers';
 import { deskCounter, resolveCounter } from './haggle';
 import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
@@ -20,15 +21,17 @@ import {
   openNote,
   overCapacityFactor,
 } from './notes';
-import { chance, createRng, pick, range } from './rng';
+import { chance, createRng, normalish, pick, range } from './rng';
 import {
   blankSkills,
   buyXp,
   cloneSkills,
   getSkill,
   grantXp,
+  appraisalSigma,
   haggleSkillFor,
   reconModsFor,
+  sourcingModsFor,
   repairXp,
   sellXp,
   walkawayXp,
@@ -37,14 +40,12 @@ import {
   carCapacity,
   collectionsCapacity,
   level,
-  listingIntervalMs,
-  listingSlots,
   repoConditionLoss as repoConditionLossFor,
   repoFee as repoFeeFor,
 } from './upgrades';
-import type { Car, GameState, Millis, SimEvent, SkillId } from './types';
+import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -77,6 +78,7 @@ function spawnStarterListing(s: GameState): void {
     price,
     expiresAt: s.t + BALANCE.listingLifetimeMs * 2,
     source: pick(s.rng, LISTING_SOURCES),
+    appraisalNoise: drawAppraisalNoise(s),
   });
 }
 
@@ -175,10 +177,10 @@ function stepListings(s: GameState): void {
     s.listings = s.listings.filter((l) => l.expiresAt > s.t);
   }
 
-  const slots = listingSlots(s);
-  if (s.listings.length >= slots) return;
+  const sourcing = sourcingModsFor(s);
+  if (s.listings.length >= sourcing.slots) return;
 
-  const ratePerSec = 1000 / listingIntervalMs(s);
+  const ratePerSec = 1000 / sourcing.intervalMs;
   if (!chance(s.rng, arrivalChance(ratePerSec, TICK_MS))) return;
 
   spawnListing(s);
@@ -200,7 +202,19 @@ function spawnListing(s: GameState): void {
     price: ask,
     expiresAt: s.t + BALANCE.listingLifetimeMs,
     source: pick(s.rng, LISTING_SOURCES),
+    appraisalNoise: drawAppraisalNoise(s),
   });
+}
+
+/**
+ * How wrong this car will look, as a z-score with unit standard deviation.
+ *
+ * `normalish` spreads over ±spread with sd = spread/3, so spread 3 is what
+ * makes this a real z: multiplying it by σ then yields an error whose sd is σ,
+ * which is what lets the UI quote an honest ±1σ band.
+ */
+function drawAppraisalNoise(s: GameState): number {
+  return normalish(s.rng, 0, 3, -3, 3);
 }
 
 // ------------------------------------------------------------------ sales
@@ -345,9 +359,13 @@ function stepAutomation(s: GameState): void {
 
   if (level(s, 'autoBuy') > 0) {
     const capacity = carCapacity(s);
+    const sigma = appraisalSigma(s);
     for (const listing of [...s.listings]) {
       if (s.cars.filter((c) => c.status !== 'sold').length >= capacity) break;
-      if (listing.price > wholesaleValue(listing.car)) continue;
+      // The retainer buyer sees exactly what the player sees, and works from the
+      // bad end of it. Left on ground truth it was omniscient, which made
+      // automating strictly better than looking at the feed yourself.
+      if (listing.price > pessimisticWholesale(listing, sigma)) continue;
       // Keep a working reserve so automation cannot spend the player broke.
       if (s.cash - listing.price < 500) continue;
       buyListingInternal(s, listing.id);
@@ -516,9 +534,37 @@ function buyListingInternal(s: GameState, listingId: string): boolean {
   s.cash -= listing.price;
   const car = { ...listing.car, costBasis: listing.price, acquiredAt: s.t };
   s.cars.push(car);
+
+  // You own it now, so you can put it on a lift. This is where the appraisal
+  // gets marked, and where the skill teaches itself — the number was a guess
+  // and now it is not.
+  reportAppraisal(s, listing, car);
+
   s.listings.splice(idx, 1);
   awardXp(s, 'buy', buyXp(listing.price));
   return true;
+}
+
+/**
+ * Say something when a car turns out materially different from how it looked.
+ *
+ * Only when it is worth saying: a miss inside the threshold is the appraisal
+ * working as advertised, and narrating every one of those would train players
+ * to ignore the line that matters.
+ */
+function reportAppraisal(s: GameState, listing: Listing, car: Car): void {
+  const error = appraisalError(listing, appraisalSigma(s));
+  if (Math.abs(error) < BALANCE.appraisalSurpriseThreshold) return;
+
+  const label = carLabel(car);
+  logEvent(s, {
+    t: s.t,
+    kind: 'appraisal',
+    label:
+      error > 0
+        ? `${label} is rougher than it looked on the feed`
+        : `${label} cleaned up better than it looked`,
+  });
 }
 
 function acceptCash(s: GameState, prospectId: string): boolean {

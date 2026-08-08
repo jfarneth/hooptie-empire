@@ -1,6 +1,14 @@
 import { buyListing } from './actions';
 import { BALANCE } from './balance';
 import { reconCost, reconDurationMs, reconLift } from './cars';
+import {
+  appraisalBand,
+  estimatedCondition,
+  estimatedRetail,
+  estimatedWholesale,
+  pessimisticWholesale,
+} from './appraisal';
+import { retailValue, wholesaleValue } from './economy';
 import { deskCounter, resolveCounter } from './haggle';
 import { createRng } from './rng';
 import { advance, cloneState, createInitialState } from './engine';
@@ -21,6 +29,7 @@ import {
   reconMaxLift,
   reconModsFor,
   reconSpeedMultiplier,
+  sourcingModsFor,
   repairXp,
   sellXp,
   skillLevel,
@@ -29,7 +38,7 @@ import {
   walkChanceMultiplier,
   xpToNext,
 } from './skills';
-import type { Car, GameState, Negotiation, SkillId } from './types';
+import type { Car, GameState, Listing, Negotiation, SkillId } from './types';
 
 function stateAt(levels: Partial<Record<SkillId, number>>): Pick<GameState, 'skills'> {
   const skills = blankSkills();
@@ -47,10 +56,22 @@ function stateAt(levels: Partial<Record<SkillId, number>>): Pick<GameState, 'ski
 describe('level 1 reproduces the pre-skills build', () => {
   const s = stateAt({});
 
-  it('leaves the sourcing feed untouched', () => {
-    expect(appraisalSigma(s)).toBe(0);
+  it('leaves sourcing throughput untouched', () => {
     expect(listingIntervalMultiplier(s)).toBe(1);
     expect(listingSlotBonus(s)).toBe(0);
+  });
+
+  /**
+   * Appraisal is the one deliberate exception to the neutrality rule.
+   *
+   * Every other effect starts at the constant the pre-skills game used. Buying
+   * cannot: before this there was no error at all, because the feed printed
+   * exact condition. Level 1 is a rookie who misjudges cars, and that is the
+   * point of the whole phase rather than a regression.
+   */
+  it('does NOT leave appraisal untouched, on purpose', () => {
+    expect(appraisalSigma(s)).toBe(BALANCE.skills.buy.appraisalSigma.at1);
+    expect(appraisalSigma(s)).toBeGreaterThan(0);
   });
 
   it('leaves negotiation untouched', () => {
@@ -67,14 +88,153 @@ describe('level 1 reproduces the pre-skills build', () => {
     expect(reconMaxLift(s)).toBe(BALANCE.reconMaxLift);
   });
 
-  it('holds at every level for the skills not yet wired up', () => {
-    // Buying is still inert: until its phase gives it a different atMax, no
-    // level may change any number it owns.
-    for (let lvl = 1; lvl <= BALANCE.skills.maxLevel; lvl++) {
-      const at = stateAt({ buy: lvl });
-      expect(appraisalSigma(at)).toBe(appraisalSigma(s));
-      expect(listingIntervalMultiplier(at)).toBe(listingIntervalMultiplier(s));
-      expect(listingSlotBonus(at)).toBe(listingSlotBonus(s));
+});
+
+describe('Buying', () => {
+  const maxLevel = BALANCE.skills.maxLevel;
+
+  it('sharpens the eye and widens the feed as it levels', () => {
+    const novice = stateAt({ buy: 1 });
+    const expert = stateAt({ buy: maxLevel });
+
+    expect(appraisalSigma(expert)).toBeLessThan(appraisalSigma(novice));
+    expect(listingSlotBonus(expert)).toBeGreaterThan(listingSlotBonus(novice));
+  });
+
+  /**
+   * Buying buys judgement, not throughput. An interval term was measured at
+   * +15% end cash on its own and cut; `scout` is how a player buys a faster
+   * feed. If this starts failing, someone has quietly re-added an economy-wide
+   * multiplier to a skill that is supposed to sharpen a decision.
+   */
+  it('does not accelerate the feed at any level', () => {
+    for (let lvl = 1; lvl <= maxLevel; lvl++) {
+      expect(listingIntervalMultiplier(stateAt({ buy: lvl }))).toBe(1);
+    }
+  });
+
+  it('hands out whole slots, never a fraction of one', () => {
+    for (let lvl = 1; lvl <= maxLevel; lvl++) {
+      expect(Number.isInteger(listingSlotBonus(stateAt({ buy: lvl })))).toBe(true);
+    }
+  });
+
+  it('stacks with the scout upgrade rather than replacing it', () => {
+    const skills = stateAt({ buy: maxLevel }).skills;
+    const bare = sourcingModsFor({ skills, upgrades: {} });
+    const scouted = sourcingModsFor({ skills, upgrades: { scout: 2 } });
+
+    expect(scouted.slots).toBe(bare.slots + 2 * BALANCE.listingSlotsPerScoutLevel);
+    // Contacts and practice stack on the interval, the same way the mechanic
+    // upgrade stacks with Wrenching. Dropping either term is a silent nerf.
+    expect(scouted.intervalMs).toBeLessThan(bare.intervalMs);
+    expect(scouted.intervalMs).toBeCloseTo(
+      bare.intervalMs * Math.pow(BALANCE.listingIntervalPerScoutLevel, 2),
+      6,
+    );
+  });
+});
+
+describe('appraisal', () => {
+  const listingWith = (condition: number, noise: number): Listing => {
+    const base = createInitialState(11, 0).listings[0];
+    return { ...base, car: { ...base.car, condition }, appraisalNoise: noise };
+  };
+
+  it('tells the exact truth when there is no error left', () => {
+    const l = listingWith(0.5, 2.4);
+    expect(estimatedCondition(l, 0)).toBeCloseTo(0.5, 10);
+    expect(estimatedRetail(l, 0)).toBe(retailValue(l.car));
+  });
+
+  it('moves the estimate in the direction of the draw', () => {
+    const flattering = listingWith(0.5, 1.5);
+    const damning = listingWith(0.5, -1.5);
+    expect(estimatedCondition(flattering, 0.18)).toBeGreaterThan(0.5);
+    expect(estimatedCondition(damning, 0.18)).toBeLessThan(0.5);
+  });
+
+  it('never reports a condition outside the possible range', () => {
+    for (const noise of [-3, -1, 0, 1, 3]) {
+      for (const condition of [0.02, 0.5, 0.99]) {
+        const est = estimatedCondition(listingWith(condition, noise), 0.4);
+        expect(est).toBeGreaterThanOrEqual(0);
+        expect(est).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  /**
+   * The band the UI quotes has to be the real error distribution, or the game
+   * is lying about how much it does not know. The noise draw is what carries
+   * that: `normalish(0, 3)` has sd 1, so error sd lands on σ.
+   */
+  it('draws noise with unit standard deviation', () => {
+    let s = createInitialState(4242, 0);
+    const draws: number[] = [];
+    for (let i = 0; i < 60; i++) {
+      s = advance(s, 60_000);
+      for (const l of s.listings) draws.push(l.appraisalNoise);
+    }
+    expect(draws.length).toBeGreaterThan(50);
+
+    const mean = draws.reduce((a, b) => a + b, 0) / draws.length;
+    const sd = Math.sqrt(draws.reduce((a, b) => a + (b - mean) ** 2, 0) / draws.length);
+    expect(Math.abs(mean)).toBeLessThan(0.3);
+    expect(sd).toBeGreaterThan(0.7);
+    expect(sd).toBeLessThan(1.3);
+  });
+
+  it('brackets the estimate with a band that collapses as the eye sharpens', () => {
+    const l = listingWith(0.5, 0.8);
+    const wide = appraisalBand(l, 0.18);
+    const tight = appraisalBand(l, 0.03);
+
+    expect(wide.low).toBeLessThan(wide.high);
+    expect(wide.high - wide.low).toBeGreaterThan(tight.high - tight.low);
+    expect(appraisalBand(l, 0).exact).toBe(true);
+    expect(wide.exact).toBe(false);
+  });
+
+  /**
+   * The retainer buyer must not be omniscient.
+   *
+   * It used to compare against `wholesaleValue(listing.car)` — ground truth —
+   * which after this phase would make automating strictly better than looking
+   * at the feed yourself, because the hired help could see what the owner
+   * could not.
+   */
+  it('will not let the retainer buyer take a deal the player cannot see', () => {
+    const base = createInitialState(77, 0);
+    const car = { ...base.listings[0].car, condition: 0.5 };
+    const truth = wholesaleValue(car);
+
+    const s: GameState = {
+      ...cloneState(base),
+      cash: 500_000,
+      upgrades: { autoBuy: 1 },
+      // Priced exactly at what it is really worth: a bargain to someone who
+      // knows the truth, a coin flip to someone appraising it.
+      listings: [{ ...base.listings[0], car, price: truth, appraisalNoise: 0 }],
+      cars: [],
+    };
+
+    const after = advance(s, 2_000);
+    expect(after.cars.length).toBe(0);
+    expect(after.listings.length).toBe(1);
+
+    // Cheap enough to survive being wrong, and it takes it.
+    const obvious: GameState = {
+      ...s,
+      listings: [{ ...s.listings[0], price: Math.round(truth * 0.5) }],
+    };
+    expect(advance(obvious, 2_000).cars.length).toBe(1);
+  });
+
+  it('prices the pessimistic read at or below the midpoint', () => {
+    for (const noise of [-2, 0, 2]) {
+      const l = listingWith(0.5, noise);
+      expect(pessimisticWholesale(l, 0.18)).toBeLessThanOrEqual(estimatedWholesale(l, 0.18));
     }
   });
 });

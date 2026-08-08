@@ -192,6 +192,58 @@ Deliberately *not* included: better ask prices at higher level. Your edge should
 be your eye, not the market treating you as a favourite — and shifting the ask
 distribution is a direct money printer.
 
+### What the harness actually said, and what it reversed
+
+**Shipped:** σ 0.18 → 0.03, **no interval effect**, **+1 slot** (level 5), ask
+band **0.80–1.20**. Lands at $1.27M end cash against the phase-3 reference of
+$1.23M — near enough to neutral, with a 29% bad-buy rate.
+
+Two things in the plan above were wrong, and both cost real money before the
+harness caught them.
+
+**1. The scout "collision" was not a collision.** Giving `scout` and Buying one
+throughput axis each looked tidy. But scout's interval term is worth 2.7× at max
+level and the skill's replacement was worth 1.3×, so "no double dip" was a silent
+2.7× nerf to an upgrade players had already bought — it halved cars sold, 706 →
+355. Multiplicative terms on a shared axis are fine; that is already how
+`mechanic` and Wrenching compose. Both restored, and Buying's interval term then
+proved to be pure inflation (+15% end cash on its own) and was cut entirely.
+**Buying buys judgement; `scout` buys throughput.**
+
+**2. The ambiguity is not deflationary.** The whole plan assumed Buying's
+ambiguity would take free money out of the front end and offset Wrenching. It
+does the opposite. A selective buyer only takes listings at or below wholesale,
+so widening the ask band hands them a deeper left tail:
+
+| Ask band | Mean ask *among accepted* |
+|---|---|
+| 0.86–1.14 (original) | 0.94 × wholesale |
+| 0.72–1.30 (planned) | 0.87 × wholesale |
+
+Bad buys cost less than the deeper discounts gain: the planned band measured
+**+23% end cash** even with no throughput bonus at all.
+
+**The ask band is the sharpest knob in the game.** It sets both the share of
+listings worth buying and the margin on the ones that are, and an idle economy
+compounds margin over four hours. Holding width at 0.58 and shifting the position
+up by 0.06 took end cash from $1.52M to $282k; another 0.06 took it to $28k.
+Results track the buyable pass rate almost exactly:
+
+| Band | Pass rate | End cash |
+|---|---|---|
+| 0.80–1.20 (shipped) | 55% | $1.27M |
+| 0.86–1.14 (original) | 57% | $0.91M |
+| 0.82–1.22 | 50% | $0.68M |
+| 0.84–1.24 | 45% | $0.16M |
+
+Width still does the work against the price leak; 0.40 is 43% wider than the
+original while landing throughput and margin about where they were. **Do not
+widen it further without re-running the harness.**
+
+**Consequence for Wrenching:** its caps were held low in phase 2 explicitly
+pending this deflationary counterweight. There isn't one. That reasoning is void
+and its ceiling should be re-argued on its own merits in phase 5.
+
 ### Feedback
 
 When a purchase lands more than ~0.08 off the estimate, log an event: *"Once it
@@ -362,8 +414,9 @@ Each phase ships independently.
 3. ~~**Closing**~~ — **done.** `HaggleSkill` options object threaded through
    `haggle.ts`, desk fraction, third counter at level 6. Shipped at full planned
    strength; see above for why that was free.
-4. **Buying + ambiguity** — the real work. Listing noise, widened ask band,
-   `autoBuy` fix, harness bot on estimates, BuyScreen rework.
+4. ~~**Buying + ambiguity**~~ — **done.** Listing noise, widened ask band,
+   `autoBuy` fix, harness bot on estimates, BuyScreen rework. Two planned
+   decisions were reversed by measurement; see below.
 5. **Rebalance and polish** — harness metrics, retune, skills UI, feedback events.
 
 Phases 1–3 hold the existing balance targets. Phase 4 is where they move, which
