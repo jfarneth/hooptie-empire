@@ -115,13 +115,36 @@ export const BALANCE = {
     roomMean: 0.46,
     roomSpread: 0.44,
 
-    /** Odds they accept a counter placed exactly at their reservation price. */
-    acceptanceAtReservation: 0.55,
+    /**
+     * Odds they accept a counter placed exactly at their reservation price.
+     *
+     * Halved from 0.55 in the tune-up that took the negotiation success rate
+     * down by half. Read it as: being asked for the absolute most you would pay
+     * is uncomfortable, and most people balk rather than shrug.
+     *
+     * This knob and `baseWalkChance` had to move together, and the reason is
+     * worth knowing before either is touched again. The sales desk counters
+     * once, so per haggle `P(walk) = (1 - acceptance) x walkChance` — an
+     * accepted counter can never walk. At the old 0.55 acceptance, roughly half
+     * of all counters were simply taken, which capped the achievable walk rate
+     * near 49% even with `baseWalkChance` at 1.0 and no Closing protection.
+     * Walk odds alone cannot move this metric past that ceiling.
+     */
+    acceptanceAtReservation: 0.2,
     /** How fast acceptance dies once you push past the reservation. */
     stretchDecay: 3.2,
 
-    /** Walk odds after a rejected counter. */
-    baseWalkChance: 0.14,
+    /**
+     * Walk odds after a rejected counter.
+     *
+     * 0.9 rather than 1.0 deliberately. At 1.0 every rejected counter loses the
+     * buyer outright for a level-1 closer, which kills the "they come back with
+     * a better number" branch of `resolveCounter` entirely — haggle.test.ts
+     * asserts all three outcomes stay reachable at base skill, and that test is
+     * the design guard, not an inconvenience. At 0.9 the branch survives, and
+     * Closing's `walkChanceMult` is what buys more of it.
+     */
+    baseWalkChance: 0.9,
     /** Added walk odds per unit of overreach beyond the reservation. */
     walkPerExcess: 0.6,
     /** Patience wears out across rounds. */
@@ -150,12 +173,30 @@ export const BALANCE = {
   /** Contract length options, in game weeks. */
   termWeeks: [18, 24, 30, 36] as const,
 
-  /** Per-tier: down payment share, APR, per-payment miss chance, arrival weight. */
+  /**
+   * Per-tier: down payment share, APR, per-payment miss chance, arrival weight.
+   *
+   * Miss chances are a uniform 1.2x on what they were, which puts the odds the
+   * deal sheet quotes — "chance you take it back", averaged over the walk-in mix
+   * and the four contract lengths — at ~30%, up from ~21.6%. Uniform on purpose:
+   * scaling every tier by the same factor preserves the ladder's shape, and the
+   * ladder is the credit model. On a 24-week contract that reads A 0% / B 4% /
+   * C 25% / D 73%, against A 0% / B 2% / C 16% / D 54% before.
+   *
+   * Tune this against the deal sheet number, NOT against the harness's
+   * `default rate` line. That line measures the automated underwriter's
+   * selectivity as much as the paper's riskiness: the sales desk finances on
+   * expected value, so raising risk makes it write safer paper, and the measured
+   * rate saturates around 22-25% and then falls. At a 4x miss chance it reads
+   * 12.2% — below where it started — because by then the desk will only touch
+   * A-tier. Measured non-monotonicity in that metric is the automation reacting,
+   * not the economy misbehaving.
+   */
   creditTiers: {
-    A: { downShare: 0.14, apr: 0.149, missChance: 0.03, weight: 0.14 },
-    B: { downShare: 0.18, apr: 0.199, missChance: 0.08, weight: 0.26 },
-    C: { downShare: 0.24, apr: 0.239, missChance: 0.16, weight: 0.34 },
-    D: { downShare: 0.31, apr: 0.289, missChance: 0.27, weight: 0.26 },
+    A: { downShare: 0.14, apr: 0.149, missChance: 0.036, weight: 0.14 },
+    B: { downShare: 0.18, apr: 0.199, missChance: 0.096, weight: 0.26 },
+    C: { downShare: 0.24, apr: 0.239, missChance: 0.192, weight: 0.34 },
+    D: { downShare: 0.31, apr: 0.289, missChance: 0.324, weight: 0.26 },
   },
 
   /**

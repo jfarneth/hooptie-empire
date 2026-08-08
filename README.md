@@ -106,16 +106,22 @@ The harness drives the real engine with a scripted "reasonable player" and
 reports time-to-milestone across seeds:
 
 ```
-  stage 2: BHPH              43m   (8/8)
-  first note written         43m   (8/8)
-  first repo               1h02m   (8/8)
-  first note paid off      1h40m   (8/8)
-  walk-away rate             9.2%
-  default rate              30.2%
+  stage 2: BHPH            1h10m   (8/8)
+  first note written       1h10m   (8/8)
+  first repo               1h35m   (8/8)
+  first note paid off      2h04m   (8/8)
+  walk-away rate            53.3%
+  default rate             15.8%
 ```
 
 When the harness and the way the game actually feels disagree, the game is right
 — but this is how you find out which constant to reach for.
+
+One caveat that has already caused a wrong turn. That `default rate` is measured
+over the contracts the automated sales desk chose to write, and the desk
+underwrites on expected value — so making borrowers riskier makes it write safer
+paper, and the number can move the *opposite* way to the knob you turned. Tune
+credit risk against the odds the deal sheet quotes instead.
 
 ## Design notes
 
@@ -137,6 +143,12 @@ somewhere between the two. Countering below it is likely to land, above it
 usually is not, and pushing far past it loses them. Modelling it that way rather
 than as a distance-from-their-offer formula means some buyers genuinely have room
 and some genuinely do not, which is what makes it read as a person.
+
+**Pushing back is a gamble.** Turn down their number and there is a good chance
+they are simply gone — about half of all negotiations now end in a walk-off.
+Nothing bad can happen if you just take the opening offer, so the real question
+on every walk-up is whether this buyer is worth the risk at all. Closing is the
+skill that buys you the odds.
 
 Two things stay hidden on purpose. The deal sheet shows exact expected value and
 exact default odds for financing, because those are long-run properties a dealer

@@ -55,24 +55,26 @@ Targets **at `--seeds=64`**, which is the number to quote and compare against:
 
 | | |
 |---|---|
-| stage 2 reached | ~48m |
-| first repossession | ~1h11m |
-| default rate | ~15% |
-| walk-away rate | ~8% |
-| bad-buy rate | ~31% |
-| Buying / Closing / Wrenching to level 5 | 53m / 54m / 1h19m |
+| stage 2 reached | ~1h11m |
+| first repossession | ~1h42m |
+| take-it-back odds on the deal sheet | ~30% |
+| harness `default rate` | ~17% (see below — not the same number) |
+| walk-away rate | ~53% |
+| bad-buy rate | ~30% |
+| Buying / Closing / Wrenching to level 5 | 1h21m / 1h14m / 1h51m |
 | book / limit at 4h | 43 / 43 |
-| end cash at 4h | ~$935k |
-| end portfolio at 4h | ~$307k |
+| end cash at 4h | ~$503k |
+| end portfolio at 4h | ~$316k |
 
 **Always state the seed count.** The default `npm run sim` is 6 seeds and reads
-stage 2 at ~51m and $1.04M for the exact same build — seed count moves these
+stage 2 at ~1h10m and $619k for the exact same build — seed count moves these
 numbers further than most features do. Comparing a 6-seed run against a 64-seed
 target is the single easiest way to conclude you broke something you didn't.
 
-These targets moved when the book cap landed; the pre-cap build read $1.36M cash
-and $1.13M portfolio with a 27% default rate. Do not treat those as a regression
-baseline — see the note on the cap below.
+Two deliberate retunes moved these, and neither is a regression. The book cap
+(see below) took end cash from $1.36M to $935k. The risk/negotiation tune-up then
+took it to $503k, mostly via the negotiation half — stage 2 slid from 48m to
+1h11m because stage 1 is all cash deals and half the haggles now fail.
 
 All pacing constants live in `src/sim/balance.ts`. Nothing else should hard-code
 a number that affects the curve.
@@ -91,6 +93,21 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   is worth far more than it looks: shortening the listing interval measured +15%
   end cash, one extra feed slot +21%. This is why Buying grants *no* throughput
   and is purely an accuracy skill.
+- **The harness's `default rate` line measures the underwriter, not the paper.**
+  The sales desk finances on expected value, so raising borrower risk makes it
+  write *safer* paper and the measured rate saturates around 22–25% and then
+  falls: at a 4x miss chance it reads 12.2%, below where it started, because by
+  then the desk will only touch A-tier. Tune credit risk against the deal
+  sheet's "chance you take it back" — `expectedCollections(...).defaultProbability`
+  over the walk-in mix — which is unconfounded and is what the player actually
+  sees. Non-monotonicity in the harness line is automation reacting correctly.
+- **Negotiation walk rate is capped by acceptance, not by walk odds.** The desk
+  counters once, so per haggle `P(walk) = (1 - acceptance) x walkChance`; an
+  accepted counter can never walk. That puts a hard ceiling of `1 - acceptance`
+  on the metric no matter what `baseWalkChance` does. Moving the walk rate means
+  moving `acceptanceAtReservation` first and walk odds second. Also note Closing's
+  `walkChanceMult` bottoms at 0.6, and the harness spends most of a 4h run at
+  Closing 10, so the measured rate sits well under the level-1 rate.
 - **The harness separates the mild band from the strong band and nothing
   finer.** End-cash medians swing ±12 points at 64 seeds — enough to order two
   settings backwards. If two configs are within ~15%, the harness cannot tell
@@ -125,8 +142,14 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   is the differentiator; car flipping is the tutorial. Resist changes that make
   flipping the main event.
 - **Illustrated lot**, not a data-dense dashboard.
+- **Countering is a gamble, not free money.** Since the tune-up, a refused
+  counter loses the buyer ~9 times in 10 at level-1 Closing. Walk-aways are only
+  ever triggered by a counter — take the opening offer and nothing can go wrong —
+  so "should I push back at all?" is now a live decision where it used to be
+  automatic. The harness cannot see this: the bot always counters, so its stage-1
+  slowdown is the worst case, not what a careful hand player feels.
 - **Negotiation**: slider input, cash-only for now, sales desk counters once and
-  takes what comes back, moderate walk risk. `src/sim/haggle.ts` deliberately
+  takes what comes back, and a rejected counter usually ends the deal. `src/sim/haggle.ts` deliberately
   works in abstract money and takes a `HaggleSkill` of plain numbers — it knows
   about neither cars nor `GameState`. That is the seam for down-payment
   haggling later. Keep it that way.
@@ -271,13 +294,15 @@ need a branch preview, build it somewhere that is not the live site.
   `collectionsCapacityPerLevel`) so continued investment keeps buying room. The
   cap was shipped untuned on purpose — retuning the economy in the same change
   that introduced the constraint would have made both unmeasurable.
-- **Late game runs cooler than it did** (~$935k cash at hour 4, down from
-  $1.36M), which lands roughly where the pre-skills build was. That was the
-  standing complaint, but it was fixed by a side effect rather than on purpose.
-  Still needs a human playing it, not more harness fitting.
-- **Closing 5 now lands at 54m rather than 1h06m.** Not a Closing change: with
-  the book capped, far more deals close for cash, and cash deals are what pay
-  Closing XP. Worth knowing before anyone reads it as the skill getting stronger.
+- **The late game is no longer hot; stage 1 may now be too slow.** End cash is
+  ~$503k at hour 4, down from $1.36M across two retunes. The standing complaint
+  is resolved, but the stage-2 gate moved from 48m to 1h11m, and a 70-minute
+  tutorial is a lot to ask before the game changes shape. If that needs
+  shortening, `lotPurchaseCost` is the honest lever — it targets stage 1 without
+  undoing the negotiation change. Needs a human playing it.
+- **Every skill now levels ~50% slower** (Buying 5 at 1h21m, was 53m) for the
+  same reason: fewer closed deals means less XP. Nothing about the skills
+  changed. Check this against feel before touching `xpBase`.
 - **The three house rules are unmeasured by design.** The harness bot runs them
   all at their defaults, which is what makes the cap's measurement clean — but it
   means nothing here bounds what a player gets from setting them. The repo

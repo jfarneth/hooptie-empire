@@ -74,6 +74,6 @@ export function generateProspect(
 export const TIER_BLURB: Record<CreditTier, string> = {
   A: 'Good credit. Small down, low rate, almost always pays.',
   B: 'Bruised credit. Reasonable down, pays most weeks.',
-  C: 'Subprime. Solid down payment, misses now and then.',
-  D: 'Deep subprime. Big money down, and a real chance you see the car again.',
+  C: 'Subprime. Solid down payment, misses more often than not lately.',
+  D: 'Deep subprime. Big money down, and you will probably see the car again.',
 };
