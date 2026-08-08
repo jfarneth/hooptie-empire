@@ -215,9 +215,16 @@ export function listingIntervalMultiplier(state: Pick<GameState, 'skills'>): num
   return buyEffect(state, BALANCE.skills.buy.listingInterval);
 }
 
-/** Extra slots on the sourcing feed, on top of what `scout` bought. */
+/**
+ * Extra slots on the sourcing feed, on top of what `scout` bought.
+ *
+ * Rounded, not floored. Flooring a 0→1 curve only ever reaches 1 at exactly max
+ * level, which made this silently dead for nine of the ten levels it was
+ * supposed to span. Rounding puts the step at the halfway point of the eased
+ * curve, which for the shipped spec is level 5.
+ */
 export function listingSlotBonus(state: Pick<GameState, 'skills'>): number {
-  return Math.floor(buyEffect(state, BALANCE.skills.buy.listingSlots));
+  return Math.round(buyEffect(state, BALANCE.skills.buy.listingSlots));
 }
 
 /** Odds a buyer's tell is off by a band. Lower means a read you can trust. */

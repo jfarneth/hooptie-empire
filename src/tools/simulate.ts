@@ -24,7 +24,7 @@ import { BALANCE } from '../sim/balance';
 import { canRecon, reconCost } from '../sim/cars';
 import { reconModsFor } from '../sim/skills';
 import { deskCounter } from '../sim/haggle';
-import { appraisalSigma, haggleSkillFor } from '../sim/skills';
+import { SKILL_IDS, appraisalSigma, getSkill, haggleSkillFor } from '../sim/skills';
 import { estimatedRetail, estimatedWholesale } from '../sim/appraisal';
 import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
 import { advance, createInitialState, expectedCollections } from '../sim/engine';
@@ -193,6 +193,10 @@ function runOne(seed: number, hours: number, verbose: boolean) {
     if (s.notes.filter((n) => n.status === 'paid').length >= 1) mark('first note paid off');
     if (portfolioValue(s.notes) >= 50_000) mark('$50k portfolio');
     if (s.cash >= 100_000) mark('$100k cash');
+    // Does levelling keep pace with the stages it is meant to accompany?
+    for (const id of SKILL_IDS) {
+      if (s.skills[id].level >= 5) mark(`${getSkill(id).name} 5`);
+    }
   };
 
   while (s.t < totalMs) {
@@ -266,6 +270,7 @@ function main() {
     'first note paid off',
     '$50k portfolio',
     '$100k cash',
+    ...SKILL_IDS.map((id) => `${getSkill(id).name} 5`),
   ];
   for (const key of order) {
     const times = allMilestones[key];

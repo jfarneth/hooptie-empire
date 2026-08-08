@@ -20,6 +20,8 @@ export interface AwaySummary {
   collected: number;
   notesPaid: number;
   repos: number;
+  /** Levels gained while the app was closed, e.g. ['Buying reached level 4']. */
+  skillUps: string[];
 }
 
 interface GameStore {
@@ -71,6 +73,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (simulatedMs > 60_000) {
       const before = { ...saved.stats };
       const cashBefore = saved.cash;
+      const eventsBefore = saved.events.length;
       next = advance(saved, simulatedMs);
       const delta = diffStats(before, next.stats);
 
@@ -80,6 +83,14 @@ export const useGame = create<GameStore>((set, get) => ({
         capped: elapsedMs > cap,
         cashDelta: next.cash - cashBefore,
         payments: next.events.filter((e) => e.kind === 'payment').length,
+        // Read from the events the catch-up actually logged, so the summary
+        // cannot claim a level the sim did not award. The log is a ring buffer,
+        // so a very long absence reports only the tail — under-reporting beats
+        // inventing.
+        skillUps: next.events
+          .slice(next.events.length > eventsBefore ? -(next.events.length - eventsBefore) : 0)
+          .filter((e) => e.kind === 'skill-up')
+          .map((e) => e.label),
         ...delta,
       };
     }

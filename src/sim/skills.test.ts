@@ -93,12 +93,10 @@ describe('level 1 reproduces the pre-skills build', () => {
 describe('Buying', () => {
   const maxLevel = BALANCE.skills.maxLevel;
 
-  it('sharpens the eye and widens the feed as it levels', () => {
+  it('sharpens the eye as it levels', () => {
     const novice = stateAt({ buy: 1 });
     const expert = stateAt({ buy: maxLevel });
-
     expect(appraisalSigma(expert)).toBeLessThan(appraisalSigma(novice));
-    expect(listingSlotBonus(expert)).toBeGreaterThan(listingSlotBonus(novice));
   });
 
   /**
@@ -117,6 +115,31 @@ describe('Buying', () => {
     for (let lvl = 1; lvl <= maxLevel; lvl++) {
       expect(Number.isInteger(listingSlotBonus(stateAt({ buy: lvl })))).toBe(true);
     }
+  });
+
+  /**
+   * Buying grants no throughput at all right now — see balance.ts. One extra
+   * feed slot measured +21% end cash, which is too much for a small perk on an
+   * economy already running hot. If this starts failing, someone re-enabled it;
+   * re-run the harness before believing it is free.
+   */
+  it('grants no feed throughput at any level', () => {
+    for (let lvl = 1; lvl <= maxLevel; lvl++) {
+      expect(listingSlotBonus(stateAt({ buy: lvl }))).toBe(0);
+      expect(listingIntervalMultiplier(stateAt({ buy: lvl }))).toBe(1);
+    }
+  });
+
+  /**
+   * The rounding still has to be right for when it is switched back on. Floored,
+   * a 0→1 curve only reaches 1 at exactly max level — dead for nine of the ten
+   * levels it spans, which is the bug this replaced.
+   */
+  it('would step the slot bonus partway up rather than only at the cap', () => {
+    const spec = { at1: 0, atMax: 1, ease: 0.7 };
+    expect(Math.round(effect(spec, 4))).toBe(0);
+    expect(Math.round(effect(spec, 5))).toBe(1);
+    expect(Math.floor(effect(spec, 9))).toBe(0); // the old behaviour, for contrast
   });
 
   it('stacks with the scout upgrade rather than replacing it', () => {

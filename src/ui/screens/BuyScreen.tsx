@@ -94,7 +94,7 @@ function ListingRow({
         <Text style={styles.name} numberOfLines={1}>
           {model.name}
         </Text>
-        <Text style={styles.meta}>
+        <Text style={styles.meta} numberOfLines={1}>
           {listing.car.mileage.toLocaleString('en-US')} mi · {band.exact ? '' : '~'}
           {Math.round(condition * 100)}%
           {' · '}
@@ -107,7 +107,9 @@ function ListingRow({
               color={theme.colors.money}
             />
           ) : null}
-          <Text style={styles.expiry}>gone in {duration(expiresIn)}</Text>
+          <Text style={styles.expiry} numberOfLines={1}>
+            gone in {duration(expiresIn)}
+          </Text>
         </Row>
       </View>
 

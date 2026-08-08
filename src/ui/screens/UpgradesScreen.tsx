@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { purchaseUpgrade, setDealPolicy } from '../../sim/actions';
 import { UPGRADES, getUpgrade, level, upgradeCost, type UpgradeDef } from '../../sim/upgrades';
+import { SKILLS } from '../../sim/skills';
 import type { DealPolicy, GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
 import { money, theme } from '../theme';
 import { Button, Card, Chip, Label, Row } from '../components/ui';
+import { SkillCard } from '../components/SkillCard';
 
 const CATEGORY_TITLE: Record<string, string> = {
   automation: 'Take your hands off it',
@@ -28,8 +30,15 @@ const POLICY_HINT: Record<DealPolicy, string> = {
   auto: 'Compare the cash offer against the expected value of the note, deal by deal.',
 };
 
+/**
+ * Two things you can improve, kept on one screen because they answer the same
+ * question: what makes the business better tomorrow than it was today. The
+ * distinction the tabs draw is the one that matters — the left column is what
+ * money buys, the right is what the work teaches you.
+ */
 export function UpgradesScreen({ state }: { state: GameState }) {
   const apply = useGame((s) => s.apply);
+  const [tab, setTab] = useState<'upgrades' | 'skills'>('upgrades');
   const hasDesk = level(state, 'salesDesk') > 0;
 
   const available = UPGRADES.filter((u) => u.stage === 'curbstoner' || state.stage === 'bhph');
@@ -37,7 +46,34 @@ export function UpgradesScreen({ state }: { state: GameState }) {
 
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      {hasDesk ? (
+      <View style={styles.tabs}>
+        <Button
+          label="Upgrades"
+          tone={tab === 'upgrades' ? 'primary' : 'ghost'}
+          onPress={() => setTab('upgrades')}
+          style={styles.tab}
+        />
+        <Button
+          label="Skills"
+          tone={tab === 'skills' ? 'primary' : 'ghost'}
+          onPress={() => setTab('skills')}
+          style={styles.tab}
+        />
+      </View>
+
+      {tab === 'skills' ? (
+        <View style={{ gap: 8 }}>
+          <Label>What the work has taught you</Label>
+          <Text style={styles.skillsHint}>
+            These level on their own, from doing the thing. Nothing here is for sale.
+          </Text>
+          {SKILLS.map((def) => (
+            <SkillCard key={def.id} def={def} state={state} />
+          ))}
+        </View>
+      ) : (
+        <>
+          {hasDesk ? (
         <Card style={{ gap: 8 }}>
           <Label>Standing order</Label>
           <Text style={styles.policyHint}>{POLICY_HINT[state.dealPolicy]}</Text>
@@ -75,6 +111,8 @@ export function UpgradesScreen({ state }: { state: GameState }) {
           </View>
         );
       })}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -142,4 +180,7 @@ const styles = StyleSheet.create({
   policyHint: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 16 },
   policyRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   policyButton: { flexGrow: 1, flexBasis: '45%' },
+  tabs: { flexDirection: 'row', gap: 6 },
+  tab: { flex: 1 },
+  skillsHint: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 16 },
 });

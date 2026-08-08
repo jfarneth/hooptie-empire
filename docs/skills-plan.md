@@ -417,12 +417,37 @@ Each phase ships independently.
 4. ~~**Buying + ambiguity**~~ — **done.** Listing noise, widened ask band,
    `autoBuy` fix, harness bot on estimates, BuyScreen rework. Two planned
    decisions were reversed by measurement; see below.
-5. **Rebalance and polish** — harness metrics, retune, skills UI, feedback events.
+5. ~~**Rebalance and polish**~~ — **done.** Skills tab on the Office screen, XP
+   meters and plain-language effect lines, skill-ups in the away summary,
+   skill-level milestones in the harness, Wrenching re-argued upward now that
+   its "wait for the counterweight" reasoning is void.
 
 Phases 1–3 hold the existing balance targets. Phase 4 is where they move, which
 is why it's last and alone.
 
 ---
+
+## 8b. Where it landed
+
+All five phases, measured at 64 seeds against the pre-skills build:
+
+| | pre-skills | shipped | |
+|---|---|---|---|
+| end cash (4h) | $1,072,926 | $1,363,067 | +27% |
+| lifetime profit | $1,824,392 | $2,016,364 | +11% |
+| cars sold | 704 | 692 | −2% |
+| stage 2 | 45m | 48m | +3m |
+| walk-away rate | 9.2% | 8.8% | |
+| bad-buy rate | — | 28.3% | |
+| Buying / Closing / Wrenching to level 5 | — | 54m / 1h06m / 1h23m | |
+
+**Buying ships with no throughput at all**, which departs from the original
+brief of "locate more cars as you level". Both levers were built and measured
+and both are simply money: the interval term +15% end cash, one extra feed slot
++21%. This economy compounds throughput exponentially over four hours, and the
+late game was already flagged as hot. `scout` is how throughput is bought, with
+cash. The machinery is intact and tested — raising either `atMax` turns it back
+on — so it is a balance call, not a missing feature.
 
 ## 9. Open questions
 

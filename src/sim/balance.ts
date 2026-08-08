@@ -218,7 +218,7 @@ export const BALANCE = {
       sellCounterBonus: 6,
       /** You learn from the ones who walk, too. */
       sellWalkaway: 4,
-      repairPerPoint: 40,
+      repairPerPoint: 55, // Shop work is rarer than buying or selling; this keeps Wrenching roughly in step.
     },
 
     /**
@@ -230,17 +230,24 @@ export const BALANCE = {
      * ~13% of retail — several hundred dollars against a spread of similar
      * size. Enough to make the call real, not enough to make it a coin flip.
      *
-     * Throughput is deliberately thin: one extra feed slot, arriving at level 5,
-     * and no interval effect at all. Both were tried and both simply inflate —
-     * the interval term measured +15% end cash on its own, on a late game
-     * already flagged as hot. `scout` remains the way to buy feed throughput.
-     * What levelling Buying gets you is the eye, which is the point of it.
+     * Buying carries NO throughput at all, which is a deliberate departure from
+     * the original brief of "locate more cars as you level".
+     *
+     * Both throughput levers were built, measured and switched off, because
+     * this economy compounds throughput exponentially over four hours: the
+     * interval term measured +15% end cash on its own, and a single extra feed
+     * slot measured +21%. Against a late game already flagged as running hot,
+     * that is a great deal of money for a small perk. `scout` is how a player
+     * buys feed throughput, with cash, at a price.
+     *
+     * The machinery for both is intact and tested — raising either atMax turns
+     * it back on — so this is a balance call, not a missing feature.
      */
     buy: {
       /** 1σ of appraisal error, in condition points. */
       appraisalSigma: { at1: 0.18, atMax: 0.03, ease: 0.7 },
       listingInterval: { at1: 1, atMax: 1, ease: 0.7 },
-      listingSlots: { at1: 0, atMax: 1, ease: 0.7 },
+      listingSlots: { at1: 0, atMax: 0, ease: 0.7 },
     },
     /**
      * Closing. Shipped at the full planned strength, because measurement says
@@ -267,12 +274,17 @@ export const BALANCE = {
     /**
      * Wrenching. Caps deliberately well short of what the shop could bear.
      *
-     * Measured at 64 seeds against the same flat baseline, this is +5% lifetime
-     * profit and +8% end-of-hour-4 cash. The plan's opening bid
-     * (0.80 / 0.60 / 0.50) measured at +8% and +19%, and stronger settings
-     * reached +13% and +31% — the wrong direction for a late game already
-     * flagged as running hot, with its counterweight (the ambiguity that stops
-     * buying being free money) still unbuilt. Raise these once it exists.
+     * Raised in phase 5. The original caps were held low pending the ambiguity
+     * acting as a deflationary counterweight — it does not; see the appraisal
+     * note above. With that reasoning void, these were re-argued on their own
+     * merits: at 0.92/0.82/0.40 the skill was barely perceptible (cost -8%,
+     * speed -18%) which is a poor thing to make a player level for.
+     *
+     * At 64 seeds all three skills together now land +24% end cash and +13%
+     * lifetime profit against the pre-skills build. The next step up
+     * (0.85/0.72/0.45) measured +31% and was declined: the late game was
+     * already flagged as hot, and that call needs a human playing it rather
+     * than another sweep.
      *
      * Two things the harness genuinely cannot answer, so do not re-derive them
      * from it: it separates the mild band from the strong band and nothing
@@ -282,9 +294,9 @@ export const BALANCE = {
      * on feel alone: the first few levels are the ones a player is present for.
      */
     repair: {
-      costMult: { at1: 1, atMax: 0.92, ease: 0.7 },
-      speedMult: { at1: 1, atMax: 0.82, ease: 0.7 },
-      maxLift: { at1: 0.35, atMax: 0.4, ease: 0.7 },
+      costMult: { at1: 1, atMax: 0.88, ease: 0.7 },
+      speedMult: { at1: 1, atMax: 0.76, ease: 0.7 },
+      maxLift: { at1: 0.35, atMax: 0.43, ease: 0.7 },
     },
   },
 } as const;
