@@ -221,6 +221,12 @@ so the module stays the seam it was built to be.
 
 ## 4. Wrenching — recon
 
+**Shipped:** cost ×0.92, speed ×0.82, max lift 0.35 → 0.40, `ease` 0.7 —
+considerably milder than the values below, for the reasons in *What the harness
+actually said*.
+
+Originally proposed:
+
 - **Cost** ×1.00 → ×0.80
 - **Speed** ×1.00 → ×0.60
 - **Max lift** 0.35 → 0.50 (one job takes a rough car further)
@@ -235,9 +241,36 @@ profit = lift × CFV × 0.19  →  at lift 0.35:  0.067 × CFV
 At cap (lift 0.50, cost ×0.80): `0.50 × CFV × (0.55 − 0.288) = 0.131 × CFV` —
 roughly **2× the profit per job and 1.67× the throughput, so ~3.3× the money per
 hour from the shop**. Against a late game that already runs hot at ~$1.7M by hour
-four, that needs watching. Tune Wrenching *last*, after Buying's ambiguity has
-taken the free money out of the front end, and be willing to pull `maxLift` back
-to 0.45 and `costMult` to 0.85.
+four, that needs watching.
+
+### What the harness actually said
+
+The ~3.3× figure is a *cap* calculation, and nobody reaches the cap inside four
+hours — a 4h run levels Wrenching to about 4–6 of 10. Measured end-to-end at 64
+seeds against an identical flat baseline:
+
+| Setting | lifetime profit | end cash |
+|---|---|---|
+| 0.95 / 0.90 / 0.38 | +3.8% | +8.1% |
+| **0.92 / 0.82 / 0.40 (shipped)** | **+5.1%** | **+7.6%** |
+| 0.80 / 0.60 / 0.50 (planned) | +8.3% | +19.0% |
+| 0.85 / 0.70 / 0.45 | +13.2% | +31.0% |
+
+Two things worth carrying forward:
+
+- **The harness separates the mild band from the strong band and nothing
+  finer.** The last two rows are out of order — the weaker setting measures
+  higher — because with `ease 0.7` they sit within 0.5% of each other at the
+  levels a 4h run reaches, so the gap between them is seed noise. End-cash
+  medians swing ±12 points at 64 seeds. Don't tune against differences smaller
+  than that.
+- **Seed count moves the baseline more than this feature does.** The flat
+  baseline reads 41m to stage 2 at 6 seeds and 45m at 64. The documented targets
+  were taken at 8. Compare like with like or the reading is meaningless.
+
+Shipped values are the measurably-gentle option, chosen because the late game is
+already hot and Buying's ambiguity — the counterweight that takes free money out
+of the front end — is not built yet. Raise them once it is.
 
 ---
 
@@ -301,7 +334,8 @@ Each phase ships independently.
    before and after. Every effect spec ships with `atMax === at1`, so the curves
    are flat and levels currently buy nothing — each phase below turns one skill
    on by editing those numbers and wiring the accessor that already exists.
-2. **Wrenching** — smallest surface (`cars.ts` + `stepRecon`), effects only.
+2. ~~**Wrenching**~~ — **done.** `ReconMods` threaded through `cars.ts`, the
+   mechanic upgrade folded into it, values tuned at 64 seeds. See above.
 3. **Closing** — `haggle.ts` options object, desk fraction, extra counter.
 4. **Buying + ambiguity** — the real work. Listing noise, widened ask band,
    `autoBuy` fix, harness bot on estimates, BuyScreen rework.

@@ -1,5 +1,6 @@
 import { buyListing } from './actions';
 import { BALANCE } from './balance';
+import { reconCost, reconDurationMs, reconLift } from './cars';
 import { advance, cloneState, createInitialState } from './engine';
 import {
   SKILL_IDS,
@@ -15,6 +16,7 @@ import {
   negotiationRoomMean,
   reconCostMultiplier,
   reconMaxLift,
+  reconModsFor,
   reconSpeedMultiplier,
   repairXp,
   sellXp,
@@ -24,7 +26,7 @@ import {
   walkChanceMultiplier,
   xpToNext,
 } from './skills';
-import type { GameState, SkillId } from './types';
+import type { Car, GameState, SkillId } from './types';
 
 function stateAt(levels: Partial<Record<SkillId, number>>): Pick<GameState, 'skills'> {
   const skills = blankSkills();
@@ -62,17 +64,78 @@ describe('level 1 reproduces the pre-skills build', () => {
     expect(reconMaxLift(s)).toBe(BALANCE.reconMaxLift);
   });
 
-  it('holds at every level while the effect curves are still flat', () => {
-    // Guards the claim that the substrate is inert: until a phase turns a skill
-    // on by giving it a different atMax, no level may change any number.
+  it('holds at every level for the skills not yet wired up', () => {
+    // Buying and Closing are still inert: until their phase gives them a
+    // different atMax, no level may change any number they own.
     for (let lvl = 1; lvl <= BALANCE.skills.maxLevel; lvl++) {
-      const at = stateAt({ buy: lvl, sell: lvl, repair: lvl });
+      const at = stateAt({ buy: lvl, sell: lvl });
       expect(appraisalSigma(at)).toBe(appraisalSigma(s));
       expect(listingIntervalMultiplier(at)).toBe(listingIntervalMultiplier(s));
+      expect(listingSlotBonus(at)).toBe(listingSlotBonus(s));
       expect(tellJitter(at)).toBe(tellJitter(s));
-      expect(reconCostMultiplier(at)).toBe(reconCostMultiplier(s));
-      expect(reconMaxLift(at)).toBe(reconMaxLift(s));
+      expect(walkChanceMultiplier(at)).toBe(walkChanceMultiplier(s));
+      expect(maxPlayerCounters(at)).toBe(maxPlayerCounters(s));
     }
+  });
+});
+
+describe('Wrenching', () => {
+  const maxLevel = BALANCE.skills.maxLevel;
+
+  it('makes the work cheaper, faster and deeper as it levels', () => {
+    const novice = stateAt({ repair: 1 });
+    const expert = stateAt({ repair: maxLevel });
+
+    expect(reconCostMultiplier(expert)).toBeLessThan(reconCostMultiplier(novice));
+    expect(reconSpeedMultiplier(expert)).toBeLessThan(reconSpeedMultiplier(novice));
+    expect(reconMaxLift(expert)).toBeGreaterThan(reconMaxLift(novice));
+  });
+
+  it('moves in one direction the whole way up', () => {
+    let cost = reconCostMultiplier(stateAt({ repair: 1 }));
+    let lift = reconMaxLift(stateAt({ repair: 1 }));
+    for (let lvl = 2; lvl <= maxLevel; lvl++) {
+      const at = stateAt({ repair: lvl });
+      expect(reconCostMultiplier(at)).toBeLessThanOrEqual(cost);
+      expect(reconMaxLift(at)).toBeGreaterThanOrEqual(lift);
+      cost = reconCostMultiplier(at);
+      lift = reconMaxLift(at);
+    }
+  });
+
+  /**
+   * The effects have to actually reach the shop. Asserting on the multipliers
+   * alone would pass just as happily if cars.ts ignored the mods entirely.
+   */
+  it('reaches the actual recon job', () => {
+    const car: Car = {
+      ...createInitialState(9, 0).listings[0].car,
+      condition: 0.3,
+      status: 'ready',
+    };
+
+    const novice = reconModsFor({ skills: stateAt({ repair: 1 }).skills, upgrades: {} });
+    const expert = reconModsFor({ skills: stateAt({ repair: maxLevel }).skills, upgrades: {} });
+
+    expect(reconLift(car, expert)).toBeGreaterThan(reconLift(car, novice));
+    expect(reconDurationMs(car, expert)).toBeLessThan(reconDurationMs(car, novice));
+    // A bigger job on the same car, and still cheaper per point of condition.
+    expect(reconCost(car, expert) / reconLift(car, expert)).toBeLessThan(
+      reconCost(car, novice) / reconLift(car, novice),
+    );
+  });
+
+  it('stacks with the mechanic upgrade rather than replacing it', () => {
+    const skills = stateAt({ repair: maxLevel }).skills;
+    const unstaffed = reconModsFor({ skills, upgrades: {} });
+    const staffed = reconModsFor({ skills, upgrades: { mechanic: 3 } });
+
+    expect(staffed.speedMult).toBeLessThan(unstaffed.speedMult);
+    // Cash bought the bay, practice made the work quicker; both terms survive.
+    expect(staffed.speedMult).toBeCloseTo(
+      unstaffed.speedMult * Math.pow(BALANCE.reconMsPerMechanicLevel, 3),
+      10,
+    );
   });
 });
 

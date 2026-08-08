@@ -27,6 +27,7 @@ import {
   cloneSkills,
   getSkill,
   grantXp,
+  reconModsFor,
   repairXp,
   sellXp,
   walkawayXp,
@@ -316,13 +317,14 @@ function repossess(s: GameState, carId: string, customer: string, label: string)
 
 function stepAutomation(s: GameState): void {
   if (level(s, 'autoRecon') > 0) {
+    const mods = reconModsFor(s);
     for (const car of s.cars) {
-      if (!canRecon(car)) continue;
-      const cost = reconCost(car);
+      if (!canRecon(car, mods)) continue;
+      const cost = reconCost(car, mods);
       if (cost > s.cash) continue;
       s.cash -= cost;
       car.costBasis += cost;
-      beginRecon(car, level(s, 'mechanic'));
+      beginRecon(car, mods);
     }
   }
 
@@ -331,7 +333,10 @@ function stepAutomation(s: GameState): void {
       if (car.status !== 'ready') continue;
       // Leave cars alone if the shop still has work to do on them and the
       // standing shop order is going to pick them up next step.
-      if (level(s, 'autoRecon') > 0 && canRecon(car) && reconCost(car) <= s.cash) continue;
+      const mods = reconModsFor(s);
+      if (level(s, 'autoRecon') > 0 && canRecon(car, mods) && reconCost(car, mods) <= s.cash) {
+        continue;
+      }
       listCar(s, car);
     }
   }

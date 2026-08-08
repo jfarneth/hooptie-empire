@@ -52,38 +52,57 @@ export function generateCar(
   };
 }
 
+/**
+ * What the shop is currently capable of.
+ *
+ * Passed in rather than read from state, so this module stays free of any
+ * knowledge of upgrades and skills — the same reason `haggle.ts` works in
+ * abstract money. The mechanic upgrade and the Wrenching skill both land in
+ * `speedMult`, already multiplied together by the caller; see
+ * `reconModsFor()` in skills.ts.
+ */
+export interface ReconMods {
+  /** Ceiling on the condition one job can add. */
+  maxLift: number;
+  /** Multiplier on the dollar cost of the work. */
+  costMult: number;
+  /** Multiplier on how long it takes. Lower is faster. */
+  speedMult: number;
+}
+
 /** How much condition one recon job can add to this car. */
-export function reconLift(car: Car): number {
-  return Math.max(0, Math.min(BALANCE.reconMaxLift, 1 - car.condition));
+export function reconLift(car: Car, mods: ReconMods): number {
+  return Math.max(0, Math.min(mods.maxLift, 1 - car.condition));
 }
 
 /**
  * Cost of the recon job. Priced against what this specific car is worth, not
  * against the model's showroom value — see conditionFreeValue().
  */
-export function reconCost(car: Car): number {
-  return Math.round(reconLift(car) * conditionFreeValue(car) * BALANCE.reconCostPerPoint);
+export function reconCost(car: Car, mods: ReconMods): number {
+  return Math.round(
+    reconLift(car, mods) * conditionFreeValue(car) * BALANCE.reconCostPerPoint * mods.costMult,
+  );
 }
 
 /** Retail value this recon job will add. Always the number the UI should quote. */
-export function reconValueGain(car: Car): number {
-  return Math.round(reconLift(car) * valuePerConditionPoint(car));
+export function reconValueGain(car: Car, mods: ReconMods): number {
+  return Math.round(reconLift(car, mods) * valuePerConditionPoint(car));
 }
 
-export function reconDurationMs(car: Car, mechanicLevel: number): Millis {
-  const speed = Math.pow(BALANCE.reconMsPerMechanicLevel, mechanicLevel);
-  return Math.round(reconLift(car) * BALANCE.reconMsPerPoint * speed);
+export function reconDurationMs(car: Car, mods: ReconMods): Millis {
+  return Math.round(reconLift(car, mods) * BALANCE.reconMsPerPoint * mods.speedMult);
 }
 
 /** True when there is meaningful work left to do on this car. */
-export function canRecon(car: Car): boolean {
-  return car.status === 'ready' && reconLift(car) > 0.02;
+export function canRecon(car: Car, mods: ReconMods): boolean {
+  return car.status === 'ready' && reconLift(car, mods) > 0.02;
 }
 
 /** Puts the car in the shop. Caller is responsible for debiting `reconCost`. */
-export function beginRecon(car: Car, mechanicLevel: number): void {
-  const lift = reconLift(car);
-  const total = reconDurationMs(car, mechanicLevel);
+export function beginRecon(car: Car, mods: ReconMods): void {
+  const lift = reconLift(car, mods);
+  const total = reconDurationMs(car, mods);
   car.status = 'recon';
   car.reconRemainingMs = total;
   car.reconTotalMs = total;

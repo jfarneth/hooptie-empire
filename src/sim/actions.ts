@@ -12,6 +12,7 @@ import {
 } from './engine';
 import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
+import { reconModsFor } from './skills';
 import { collectionsCapacity, getUpgrade, level, upgradeCost } from './upgrades';
 import type { DealPolicy, GameState } from './types';
 
@@ -35,12 +36,13 @@ export function buyListing(state: GameState, listingId: string): GameState {
 export function startRecon(state: GameState, carId: string): GameState {
   return act(state, (s) => {
     const car = s.cars.find((c) => c.id === carId);
-    if (!car || !canRecon(car)) return false;
-    const cost = reconCost(car);
+    const mods = reconModsFor(s);
+    if (!car || !canRecon(car, mods)) return false;
+    const cost = reconCost(car, mods);
     if (s.cash < cost) return false;
     s.cash -= cost;
     car.costBasis += cost;
-    beginRecon(car, level(s, 'mechanic'));
+    beginRecon(car, mods);
     return true;
   });
 }

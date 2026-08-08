@@ -22,6 +22,7 @@ import {
 } from '../sim/actions';
 import { BALANCE } from '../sim/balance';
 import { canRecon, reconCost } from '../sim/cars';
+import { reconModsFor } from '../sim/skills';
 import { deskCounter } from '../sim/haggle';
 import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
 import { advance, createInitialState, expectedCollections } from '../sim/engine';
@@ -75,8 +76,9 @@ function botTurn(state: GameState): GameState {
   }
 
   // 3. Recondition anything worth reconditioning, then list it.
+  const reconMods = reconModsFor(s);
   for (const car of s.cars) {
-    if (car.status === 'ready' && canRecon(car) && reconCost(car) <= s.cash * 0.4) {
+    if (car.status === 'ready' && canRecon(car, reconMods) && reconCost(car, reconMods) <= s.cash * 0.4) {
       s = startRecon(s, car.id);
     }
   }

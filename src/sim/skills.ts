@@ -1,5 +1,7 @@
 import { BALANCE } from './balance';
 import { clamp } from './economy';
+import { level } from './upgrades';
+import type { ReconMods } from './cars';
 import type { GameState, Skill, SkillId } from './types';
 
 /**
@@ -253,4 +255,22 @@ export function reconSpeedMultiplier(state: Pick<GameState, 'skills'>): number {
 /** Ceiling on how much condition one recon job can add. */
 export function reconMaxLift(state: Pick<GameState, 'skills'>): number {
   return repairEffect(state, BALANCE.skills.repair.maxLift);
+}
+
+/**
+ * Everything the shop's capability depends on, resolved into the plain numbers
+ * `cars.ts` works in.
+ *
+ * The mechanic upgrade and the Wrenching skill are separate multiplicative
+ * terms on the same axis — cash buys a faster bay, practice makes the work
+ * itself quicker — and they are combined here so no call site has to remember
+ * to apply both.
+ */
+export function reconModsFor(state: Pick<GameState, 'skills' | 'upgrades'>): ReconMods {
+  const mechanic = Math.pow(BALANCE.reconMsPerMechanicLevel, level(state, 'mechanic'));
+  return {
+    maxLift: reconMaxLift(state),
+    costMult: reconCostMultiplier(state),
+    speedMult: mechanic * reconSpeedMultiplier(state),
+  };
 }

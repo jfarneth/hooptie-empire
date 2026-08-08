@@ -218,10 +218,27 @@ export const BALANCE = {
       /** Level at which the player gets a third counter. 0 disables it. */
       extraCounterAt: 0,
     },
+    /**
+     * Wrenching. Caps deliberately well short of what the shop could bear.
+     *
+     * Measured at 64 seeds against the same flat baseline, this is +5% lifetime
+     * profit and +8% end-of-hour-4 cash. The plan's opening bid
+     * (0.80 / 0.60 / 0.50) measured at +8% and +19%, and stronger settings
+     * reached +13% and +31% — the wrong direction for a late game already
+     * flagged as running hot, with its counterweight (the ambiguity that stops
+     * buying being free money) still unbuilt. Raise these once it exists.
+     *
+     * Two things the harness genuinely cannot answer, so do not re-derive them
+     * from it: it separates the mild band from the strong band and nothing
+     * finer — end-cash medians swing ±12 points between settings that are
+     * within 0.5% of each other at the levels a 4h run actually reaches — and
+     * it cannot tell the easings apart at all. `ease: 0.7` front-loads the gain
+     * on feel alone: the first few levels are the ones a player is present for.
+     */
     repair: {
-      costMult: { at1: 1, atMax: 1, ease: 1 },
-      speedMult: { at1: 1, atMax: 1, ease: 1 },
-      maxLift: { at1: 0.35, atMax: 0.35, ease: 1 },
+      costMult: { at1: 1, atMax: 0.92, ease: 0.7 },
+      speedMult: { at1: 1, atMax: 0.82, ease: 0.7 },
+      maxLift: { at1: 0.35, atMax: 0.4, ease: 0.7 },
     },
   },
 } as const;
