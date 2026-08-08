@@ -30,8 +30,24 @@ export function serialize(state: GameState, wallNow: number): string {
  * one, because saves in the wild have already been through it.
  */
 const MIGRATIONS: Record<number, (state: any) => any> = {
-  // Example shape for the next schema change:
-  // 1: (s) => ({ ...s, newField: defaultValue }),
+  /**
+   * v1 → v2: walk-ups became negotiations.
+   *
+   * A v1 prospect carries a flat `cashOffer` and no negotiation, which the
+   * engine would dereference on the very next tick. Prospects are ephemeral by
+   * design — someone standing on the lot when you closed the app is not worth
+   * preserving — so the migration drops them rather than inventing a haggle
+   * they never had. Inventory, notes, cash and upgrades are untouched.
+   */
+  1: (s) => ({
+    ...s,
+    prospects: [],
+    stats: {
+      negotiationsWon: 0,
+      walkaways: 0,
+      ...s.stats,
+    },
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

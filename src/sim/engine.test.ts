@@ -26,7 +26,14 @@ function fingerprint(s: GameState) {
     cars: s.cars.map((c) => `${c.id}:${c.status}:${c.condition.toFixed(4)}:${c.costBasis}`),
     notes: s.notes.map((n) => `${n.id}:${n.status}:${n.principal.toFixed(4)}:${n.paymentsRemaining}`),
     listings: s.listings.map((l) => `${l.id}:${l.price}`),
-    prospects: s.prospects.map((p) => `${p.id}:${p.cashOffer}`),
+    // Negotiation fields are included deliberately: a prospect's haggle is
+    // nested mutable state, so this is what catches a missed clone in
+    // cloneState leaking mutations backwards through history.
+    prospects: s.prospects.map(
+      (p) =>
+        `${p.id}:${p.negotiation.currentOffer}:${p.negotiation.status}:` +
+        `${p.negotiation.countersMade}:${p.negotiation.reservation.toFixed(2)}`,
+    ),
     stats: s.stats,
   };
 }

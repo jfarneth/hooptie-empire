@@ -9,6 +9,7 @@ import {
   listCar,
   logEvent,
 } from './engine';
+import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
 import { collectionsCapacity, getUpgrade, level, upgradeCost } from './upgrades';
 import type { DealPolicy, GameState } from './types';
@@ -75,6 +76,39 @@ export function repriceCar(state: GameState, carId: string, askPrice: number): G
 
 export function takeCashDeal(state: GameState, prospectId: string): GameState {
   return act(state, (s) => acceptCash(s, prospectId));
+}
+
+/**
+ * Push back on a cash offer.
+ *
+ * Resolves immediately — they either take it, come back with a better number, or
+ * walk. Each exchange buys the buyer a little more patience so a haggle is not
+ * cut short by the walk-up timer; running out of *counters* is what ends it,
+ * not running out of clock.
+ */
+export function counterOffer(state: GameState, prospectId: string, price: number): GameState {
+  return act(state, (s) => {
+    const prospect = s.prospects.find((p) => p.id === prospectId);
+    if (!prospect) return false;
+
+    const neg = prospect.negotiation;
+    if (neg.status !== 'open') return false;
+    if (countersRemaining(neg) <= 0) return false;
+
+    const asking = Math.round(price);
+    // Countering at or below what they already offered is just acceptance with
+    // extra steps, and countering above your own ask makes no sense.
+    if (asking <= neg.currentOffer || asking > neg.anchor) return false;
+
+    const outcome = resolveCounter(s.rng, neg, asking);
+    prospect.expiresAt = s.t + BALANCE.negotiation.exchangeGraceMs;
+
+    if (outcome.kind === 'walked') {
+      s.stats.walkaways += 1;
+      logEvent(s, { t: s.t, kind: 'walkaway', label: `${prospect.name} walked` });
+    }
+    return true;
+  });
 }
 
 export function takeFinanceDeal(state: GameState, prospectId: string): GameState {

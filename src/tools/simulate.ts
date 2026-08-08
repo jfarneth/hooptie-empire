@@ -12,6 +12,7 @@ import {
   buyListing,
   buyLot,
   canBuyLot,
+  counterOffer,
   listForSale,
   purchaseUpgrade,
   setDealPolicy,
@@ -21,6 +22,7 @@ import {
 } from '../sim/actions';
 import { BALANCE } from '../sim/balance';
 import { canRecon, reconCost } from '../sim/cars';
+import { deskCounter } from '../sim/haggle';
 import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
 import { advance, createInitialState, expectedCollections } from '../sim/engine';
 import { activeNotes, overCapacityFactor } from '../sim/notes';
@@ -55,19 +57,21 @@ function botTurn(state: GameState): GameState {
 
   // 2. Close any walk-up standing in front of us.
   for (const prospect of [...s.prospects]) {
-    if (s.stage !== 'bhph') {
-      s = takeCashDeal(s, prospect.id);
-      continue;
+    if (s.stage === 'bhph') {
+      const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
+      const ev =
+        prospect.downPayment +
+        expectedCollections(
+          prospect.financeTerms.weeks,
+          prospect.financeTerms.weeklyPayment,
+          BALANCE.creditTiers[prospect.tier].missChance * capFactor,
+        ).expectedCollected;
+      if (ev > prospect.negotiation.currentOffer) {
+        s = takeFinanceDeal(s, prospect.id);
+        continue;
+      }
     }
-    const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
-    const ev =
-      prospect.downPayment +
-      expectedCollections(
-        prospect.financeTerms.weeks,
-        prospect.financeTerms.weeklyPayment,
-        BALANCE.creditTiers[prospect.tier].missChance * capFactor,
-      ).expectedCollected;
-    s = ev > prospect.cashOffer ? takeFinanceDeal(s, prospect.id) : takeCashDeal(s, prospect.id);
+    s = haggleThenClose(s, prospect.id);
   }
 
   // 3. Recondition anything worth reconditioning, then list it.
@@ -110,6 +114,30 @@ function botTurn(state: GameState): GameState {
   }
 
   return s;
+}
+
+/**
+ * Mirrors the sales desk: counter once, then take whatever comes back.
+ *
+ * The bot must haggle the same way automation does, or the harness would be
+ * measuring a game nobody actually plays.
+ */
+function haggleThenClose(state: GameState, prospectId: string): GameState {
+  let s = state;
+  const prospect = s.prospects.find((p) => p.id === prospectId);
+  if (!prospect) return s;
+
+  const neg = prospect.negotiation;
+  if (neg.status === 'open' && neg.countersMade === 0) {
+    const counter = deskCounter(neg);
+    if (counter > neg.currentOffer) s = counterOffer(s, prospectId, counter);
+  }
+
+  // They may have walked, in which case the prospect is gone or flagged.
+  const after = s.prospects.find((p) => p.id === prospectId);
+  if (!after || after.negotiation.status === 'walked') return s;
+
+  return takeCashDeal(s, prospectId);
 }
 
 interface Milestones {
@@ -228,6 +256,15 @@ function main() {
   console.log(`  cash / finance     ${String(median((s) => s.stats.cashDeals)).padStart(6)} /${String(median((s) => s.stats.financeDeals)).padStart(5)}`);
   console.log(`  notes paid / dflt  ${String(median((s) => s.stats.notesPaidOff)).padStart(6)} /${String(median((s) => s.stats.notesDefaulted)).padStart(5)}`);
   console.log(`  repos              ${String(median((s) => s.stats.reposCompleted)).padStart(12)}`);
+  console.log(
+    `  haggles won / lost ${String(median((s) => s.stats.negotiationsWon)).padStart(6)} /${String(median((s) => s.stats.walkaways)).padStart(5)}`,
+  );
+
+  const won = median((s) => s.stats.negotiationsWon);
+  const lost = median((s) => s.stats.walkaways);
+  if (won + lost > 0) {
+    console.log(`  walk-away rate     ${((lost / (won + lost)) * 100).toFixed(1).padStart(11)}%`);
+  }
 
   const defaults = median((s) => s.stats.notesDefaulted);
   const written = median((s) => s.stats.financeDeals);
