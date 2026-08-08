@@ -28,7 +28,7 @@ import { SKILL_IDS, appraisalSigma, getSkill, haggleSkillFor } from '../sim/skil
 import { estimatedRetail, estimatedWholesale } from '../sim/appraisal';
 import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
 import { advance, createInitialState, expectedCollections } from '../sim/engine';
-import { activeNotes, overCapacityFactor } from '../sim/notes';
+import { activeNotes, canWriteNote, overCapacityFactor } from '../sim/notes';
 import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level } from '../sim/upgrades';
 import type { GameState } from '../sim/types';
 
@@ -66,9 +66,10 @@ function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
   // 1. Take the lot the moment it is affordable — it is the whole point.
   if (canBuyLot(s)) s = buyLot(s);
 
-  // 2. Close any walk-up standing in front of us.
+  // 2. Close any walk-up standing in front of us. Paper when it pays better and
+  //    the desk has room for it; otherwise sell them the car.
   for (const prospect of [...s.prospects]) {
-    if (s.stage === 'bhph') {
+    if (s.stage === 'bhph' && canWriteNote(s)) {
       const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
       const ev =
         prospect.downPayment +
@@ -211,7 +212,7 @@ function runOne(seed: number, hours: number, verbose: boolean) {
         `  ${fmtTime(s.t).padStart(7)}  cash ${fmtMoney(s.cash).padStart(10)}` +
           `  portfolio ${fmtMoney(portfolioValue(s.notes)).padStart(9)}` +
           `  cars ${String(s.cars.filter((c) => c.status !== 'sold').length).padStart(2)}` +
-          `  notes ${String(activeNotes(s.notes).length).padStart(3)}` +
+          `  notes ${String(activeNotes(s.notes).length).padStart(3)}/${String(collectionsCapacity(s)).padEnd(3)}` +
           `  sold ${String(s.stats.carsSold).padStart(3)}`,
       );
     }
@@ -305,6 +306,13 @@ function main() {
     console.log(`  appraisal error    ${(err * 100).toFixed(1).padStart(11)}%`);
     console.log(`  bad-buy rate       ${(bad * 100).toFixed(1).padStart(11)}%`);
   }
+  // The book limit is a hard constraint now, so how close the bot runs to it —
+  // and whether it ever staffs the desk high enough to matter — is the first
+  // thing to look at when the finance side of a run looks wrong.
+  console.log(
+    `  book / limit       ${String(median((s) => activeNotes(s.notes).length)).padStart(6)} /${String(median((s) => collectionsCapacity(s))).padStart(5)}`,
+  );
+  console.log(`  collections desk   ${String(median((s) => level(s, 'collections'))).padStart(12)}`);
   console.log(`  cash / finance     ${String(median((s) => s.stats.cashDeals)).padStart(6)} /${String(median((s) => s.stats.financeDeals)).padStart(5)}`);
   console.log(`  notes paid / dflt  ${String(median((s) => s.stats.notesPaidOff)).padStart(6)} /${String(median((s) => s.stats.notesDefaulted)).padStart(5)}`);
   console.log(`  repos              ${String(median((s) => s.stats.reposCompleted)).padStart(12)}`);

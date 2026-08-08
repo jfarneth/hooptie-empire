@@ -164,16 +164,66 @@ export const BALANCE = {
    * portfolio needs watching rather than just growing.
    */
   delinquencyMissMultiplier: 1.5,
+  /** Default repo trigger. The player can move it; see `business` below. */
   repoAfterMissedPayments: 3,
   repoFee: 250,
-  /** Condition lost when a car comes back on the hook. */
+  /** Condition lost when a car comes back on the hook, at the default trigger. */
   repoConditionLoss: 0.18,
+  /**
+   * How much worse a repo comes back per missed payment you let ride past the
+   * default trigger — and how much better it comes back if you pull sooner.
+   *
+   * This is what makes the repo trigger a decision rather than a free lunch.
+   * Left flat, a longer leash is strictly better: the borrower gets more chances
+   * to cure, so expected collections rise and defaults fall, and a financed car
+   * occupies no lot space while it is out. Damage that scales with patience puts
+   * the cost where the real business puts it — the unit you finally recover has
+   * been driven by someone who stopped paying for it two months ago.
+   */
+  repoConditionLossPerExtraMiss: 0.25,
+  /** Floor on that multiplier, so a hair-trigger repo is not damage-free. */
+  repoConditionLossFloor: 0.5,
 
-  /** Active notes you can service before collections quality degrades. */
+  /**
+   * Active notes the collections desk will carry. This is a hard limit: the
+   * finance desk refuses to write past it.
+   *
+   * It used to be a soft one — you could write as much paper as you liked and
+   * pay for it in delinquency — which meant the number on the HUD was a
+   * suggestion, and the book ran ~3.5x over a fully-staffed desk by hour four.
+   */
   baseCollectionsCapacity: 8,
   collectionsCapacityPerLevel: 7,
-  /** Miss chance multiplier applied per 100% over collections capacity. */
+  /**
+   * Miss chance multiplier applied per 100% over collections capacity.
+   *
+   * Still load-bearing even though the cap is hard now: a save written before
+   * the cap, or one whose desk shrank, can sit over the line, and it should
+   * degrade rather than break.
+   */
   overCapacityMissPenalty: 0.9,
+
+  // ------------------------------------------------------- business management
+  /**
+   * The house rules a player can set, and the range they can set them over.
+   *
+   * `defaults` is the invariant: every one of these reproduces what the game did
+   * before the suite existed, so a fresh save and a migrated one behave the same
+   * and the only thing this feature changes on its own is what the player can
+   * now choose to change.
+   */
+  business: {
+    defaults: {
+      minWorkingCapital: 500,
+      repoAfterMissedPayments: 3,
+      minBuyMargin: 0,
+    },
+    /** Offered as a choice rather than a slider: these are decisions, not dials. */
+    workingCapitalChoices: [0, 500, 2_500, 10_000, 50_000],
+    repoTriggerMin: 1,
+    repoTriggerMax: 6,
+    buyMarginChoices: [0, 0.05, 0.1, 0.2],
+  },
 
   // -------------------------------------------------------------- progression
   /** Cash required to buy the lot and enter stage 2. */

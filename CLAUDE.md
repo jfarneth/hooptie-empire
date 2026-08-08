@@ -11,6 +11,11 @@ than arithmetic: the feed shows an *estimated* condition with an honest band,
 not the truth. `docs/skills-plan.md` is the design doc and carries the balance
 measurements behind every number.
 
+The **collections desk is a hard cap on the book**, and a **business management
+suite** (Office → Business) lets the player set three house rules that the
+business then runs under offline: a working capital floor, the repo trigger, and
+the retainer buyer's minimum margin. `src/sim/business.ts` resolves them.
+
 ## The rule that must not break
 
 **`src/sim` never imports `react`, `react-native`, or any UI package.**
@@ -31,14 +36,17 @@ Consequences to respect:
 - `cloneState()` in `src/sim/engine.ts` deep-clones by explicit spread. **Any new
   nested object on a state entity must be added there**, or mutations leak
   backwards through history and silently corrupt offline catch-up. Currently
-  that means prospects (`negotiation`, `financeTerms`) and `skills`, which is a
-  record of objects and needs `cloneSkills`, not a spread. The tick-invariance
-  test is the guard; keep its fingerprint covering new fields.
+  that means prospects (`negotiation`, `financeTerms`), `business`, and `skills`,
+  which is a record of objects and needs `cloneSkills`, not a spread. The
+  tick-invariance test is the guard; keep its fingerprint covering new fields.
+  Note that the fingerprint only bites for fields the *tick* writes — `business`
+  is set by actions only, so its real guard is the clone-isolation test in
+  `business.test.ts`. Anything else in that shape needs the same treatment.
 
 ## Verify
 
 ```bash
-npm test        # 109 tests
+npm test        # 136 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 ```
@@ -48,17 +56,23 @@ Targets **at `--seeds=64`**, which is the number to quote and compare against:
 | | |
 |---|---|
 | stage 2 reached | ~48m |
-| first repossession | ~1h08m |
-| default rate | ~27% |
-| walk-away rate | ~9% |
-| bad-buy rate | ~28% |
-| Buying / Closing / Wrenching to level 5 | 54m / 1h06m / 1h23m |
-| end cash at 4h | ~$1.36M |
+| first repossession | ~1h11m |
+| default rate | ~15% |
+| walk-away rate | ~8% |
+| bad-buy rate | ~31% |
+| Buying / Closing / Wrenching to level 5 | 53m / 54m / 1h19m |
+| book / limit at 4h | 43 / 43 |
+| end cash at 4h | ~$935k |
+| end portfolio at 4h | ~$307k |
 
 **Always state the seed count.** The default `npm run sim` is 6 seeds and reads
-stage 2 at ~51m and $1.45M for the exact same build — seed count moves these
+stage 2 at ~51m and $1.04M for the exact same build — seed count moves these
 numbers further than most features do. Comparing a 6-seed run against a 64-seed
 target is the single easiest way to conclude you broke something you didn't.
+
+These targets moved when the book cap landed; the pre-cap build read $1.36M cash
+and $1.13M portfolio with a 27% default rate. Do not treat those as a regression
+baseline — see the note on the cap below.
 
 All pacing constants live in `src/sim/balance.ts`. Nothing else should hard-code
 a number that affects the curve.
@@ -89,6 +103,19 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   (`autoBuy`, the harness bot) must work from the appraisal, never from
   `wholesaleValue(listing.car)`. Automation that can see what the owner cannot
   makes automating strictly better than playing.
+- **The book cap is now the biggest single lever on the late game**, and it is
+  the only thing behind the target change above. Measured at 64 seeds by
+  disabling `canWriteNote` and re-running: end cash $1.36M and portfolio $1.10M
+  with the cap off, against $935k / $307k with it on. The same run isolates the
+  $500 working capital floor as costing *nothing* measurable, so attribute the
+  whole −31% cash / −73% portfolio swing to the cap. It also drops the default
+  rate from 27% to 15%, because the pre-cap book ran ~3.5x over a fully staffed
+  desk and `overCapacityFactor` was pinning miss chance near its ceiling.
+- **The bot maxes `collections` and then sits at 43/43 for the rest of the run.**
+  The harness prints `book / limit` and `collections desk` for exactly this
+  reason — when the finance side of a run looks wrong, that is the first place
+  to look. A change to `baseCollectionsCapacity` or `collectionsCapacityPerLevel`
+  is now a change to the whole late-game curve, not a tweak to a penalty.
 
 ## Settled decisions — don't relitigate these
 
@@ -104,9 +131,25 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   about neither cars nor `GameState`. That is the seam for down-payment
   haggling later. Keep it that way.
 - **Upgrades buy capacity; skills earn quality.** Where both touch one axis they
-  stack multiplicatively (`mechanic` × Wrenching speed, `scout` × the feed).
-  Splitting an axis between them instead is how you silently nerf something a
-  player already paid for.
+  stack multiplicatively (`mechanic` × Wrenching speed, `scout` × the feed,
+  `repoMan` × the repo trigger's damage). Splitting an axis between them instead
+  is how you silently nerf something a player already paid for.
+- **The collections desk sets a hard limit, not a soft one.** The number was
+  already on the HUD and the ledger; it just was not enforced, so a player who
+  read it as a limit was wrong and one who ignored it was rewarded. Enforced on
+  `acceptFinance` — the single path the sales desk, the harness bot and the
+  player's tap all go through. A full book sells the customer the car instead of
+  the payment; it never sends them away.
+- **House rules are limits, not dials.** The business suite deliberately offers
+  discrete choices rather than sliders: these are settings a player picks once
+  and then reasons about after eight hours away, and a limit survives that
+  absence in a way a fine-grained dial does not. Every default reproduces the
+  pre-suite build exactly, which is what makes the migration safe.
+- **A repo trigger has to cost something.** Left flat, a longer leash is strictly
+  better — more chances to cure, higher expected collections, fewer defaults, and
+  a financed car occupies no lot space while it is out. Repo condition damage
+  scales with the trigger so patience is paid for in the unit you recover. If a
+  future setting looks free, it is not a setting.
 - **What the UI reveals.** The deal sheet shows exact expected value and default
   odds for financing, because those are long-run properties a dealer genuinely
   learns. It hides negotiation acceptance odds and a car's true condition,
@@ -146,9 +189,15 @@ Most have a guarding test; check before "simplifying" the code around them.
   written for skills passed on a run that accrued zero XP. Mutation-test any
   test guarding a regression: break the code, watch it go red, put it back.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v4**. Saves are long-lived and local to the device; "we wiped
+  Currently **v5**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
+- **A new limit never retroactively destroys what a save already holds.** A v4
+  book can sit far over the v5 cap. The migration leaves every contract intact
+  and lets the book shrink back under the line by attrition, with
+  `overCapacityFactor` still degrading it in the meantime — that penalty is not
+  dead code, it is what makes meeting an over-capacity book graceful. Deleting
+  notes to make the invariant true would delete somebody's portfolio.
 
 ## Environment constraints
 
@@ -170,9 +219,20 @@ These will waste your time if you discover them the hard way:
   `package.json` on purpose. Look at the running game, not just the suite — the
   dead feed-slot bonus and a text-wrapping regression were both found this way
   and neither had a failing test.
-- The bottom nav is **Lot / Buy / Notes / Office**. Upgrades and Skills live
-  behind *Office*, and "Buy" also matches the header text "BUY HERE PAY HERE",
-  which will bite any text-based selector.
+- The bottom nav is **Lot / Buy / Notes / Office**. Upgrades, Skills and Business
+  live behind *Office*, and "Buy" also matches the header text "BUY HERE PAY
+  HERE", which will bite any text-based selector.
+- **`page.addInitScript` runs on every navigation, including `reload()`.** Seed
+  the save only when the key is absent, or a reload re-stamps your fixture over
+  whatever the game just autosaved and every persistence check silently passes
+  against the fixture. Autosave is on a 5s timer, so wait past it before reading.
+- The away-summary modal renders a full-screen backdrop labelled *Close* that
+  eats every click on the lot. It appears whenever the injected save's
+  `lastSeenAt` is more than a minute old — stamp it to `Date.now()` at inject
+  time, or dismiss "Back to work" first.
+- Chromium is at **`/opt/pw-browsers/chromium-1194/chrome-linux/chrome`**, not
+  `/opt/pw-browsers/chromium`, which is a file rather than a directory.
+  `playwright` must be required from the repo root to resolve.
 
 ## Deployment
 
@@ -202,8 +262,28 @@ need a branch preview, build it somewhere that is not the live site.
   cars as you level" brief. Both levers were built and measured and both are
   simply money (see above). The machinery is intact and tested — raising either
   `atMax` in `BALANCE.skills.buy` turns it back on.
-- **Late game still runs hot** (~$1.36M cash at hour 4, +27% versus the
-  pre-skills build). Needs a human playing it, not more harness fitting.
+- **The collections ladder now caps the entire late game and nobody has argued
+  the number.** `collections` maxes at level 5, so the book stops at 43
+  contracts, and the bot is pinned there from roughly hour two onward. "The loan
+  book is the game" sits awkwardly next to a book that stops growing halfway
+  through a session. Two honest options, and this is a design call rather than a
+  measurement: accept the throttle, or extend the ladder (`maxLevel`,
+  `collectionsCapacityPerLevel`) so continued investment keeps buying room. The
+  cap was shipped untuned on purpose — retuning the economy in the same change
+  that introduced the constraint would have made both unmeasurable.
+- **Late game runs cooler than it did** (~$935k cash at hour 4, down from
+  $1.36M), which lands roughly where the pre-skills build was. That was the
+  standing complaint, but it was fixed by a side effect rather than on purpose.
+  Still needs a human playing it, not more harness fitting.
+- **Closing 5 now lands at 54m rather than 1h06m.** Not a Closing change: with
+  the book capped, far more deals close for cash, and cash deals are what pay
+  Closing XP. Worth knowing before anyone reads it as the skill getting stronger.
+- **The three house rules are unmeasured by design.** The harness bot runs them
+  all at their defaults, which is what makes the cap's measurement clean — but it
+  means nothing here bounds what a player gets from setting them. The repo
+  trigger in particular trades collections against recovered condition, and
+  CLAUDE.md's own warning applies: the harness separates the mild band from the
+  strong band and nothing finer.
 - **A fourth skill for the paper side** — collections, levelled by payments taken
   and repos worked — is the obvious next one. `skills` is a `Record` so it needs
   no reshaping, and skill levels are the natural carry-over currency if a

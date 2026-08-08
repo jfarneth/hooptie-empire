@@ -144,9 +144,20 @@ really does learn. One buyer's private walk-away number is not something anyone 
 that lot could know, so the slider gives a qualitative read and a **tell** instead
 of a percentage. Reading customers is a skill, not arithmetic.
 
-**Collections capacity** caps how many active notes you can service. Grow the
-book past the desk and everyone's default odds climb. Growing without staffing is
-a real and punishing mistake, which is the point.
+**Collections capacity is a hard cap** on how many contracts you can carry. Fill
+the desk and the finance option goes away — walk-ups get sold the car instead of
+the payment until something on the book pays off or goes bad. Staffing the desk
+is what buys the right to write more paper, which makes it the decision the whole
+back half of the game turns on.
+
+**House rules** (Office → Business) are the standing constraints the place runs
+under while you are not watching: a floor under the till that no automation will
+spend past, how many missed payments you allow before the car comes back, and how
+far under the worst case your buyer on retainer insists on being before it spends
+your money. None of them is a free win. Pull the repo trigger sooner and you
+recover a better car from a customer who might have caught up; give them rope and
+you collect more from the ones who do, and get back a rougher car from the ones
+who never had it.
 
 ## Not built yet
 

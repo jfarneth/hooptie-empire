@@ -26,6 +26,8 @@ export function NotesScreen({ state }: { state: GameState }) {
   const active = activeNotes(state.notes);
   const closed = state.notes.filter((n) => n.status === 'paid' || n.status === 'defaulted');
   const capacity = collectionsCapacity(state);
+  const atLimit = active.length >= capacity;
+  const overCapacity = active.length > capacity;
   const delinquent = active.filter((n) => n.status === 'delinquent');
 
   const weeklyScheduled = active.reduce((sum, n) => sum + n.paymentAmount, 0);
@@ -52,22 +54,25 @@ export function NotesScreen({ state }: { state: GameState }) {
         <View style={{ gap: 4 }}>
           <Row style={{ justifyContent: 'space-between' }}>
             <Text style={styles.metaLabel}>Collections desk</Text>
-            <Text
-              style={[
-                styles.metaValue,
-                active.length > capacity && { color: theme.colors.danger },
-              ]}
-            >
+            <Text style={[styles.metaValue, atLimit && { color: theme.colors.danger }]}>
               {active.length} / {capacity} notes
             </Text>
           </Row>
           <Meter
             progress={active.length / Math.max(1, capacity)}
-            color={active.length > capacity ? theme.colors.danger : theme.colors.accent}
+            color={atLimit ? theme.colors.danger : theme.colors.accent}
           />
-          {active.length > capacity ? (
+          {/* Two distinct states, and they are not the same problem. Full is the
+              rule working; over is a book that predates the rule, or one whose
+              desk shrank underneath it, and that one still bleeds. */}
+          {overCapacity ? (
             <Text style={styles.warning}>
-              Over capacity. Everyone on the book is likelier to miss until you staff up.
+              Over capacity. Everyone on the book is likelier to miss, and no new contracts get
+              written, until it comes back under {capacity}.
+            </Text>
+          ) : atLimit ? (
+            <Text style={styles.warning}>
+              Full. Walk-ups get sold the car instead of the payment until something closes out.
             </Text>
           ) : null}
         </View>

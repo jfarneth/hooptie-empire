@@ -99,7 +99,7 @@ export interface Note {
   paymentsTotal: number;
   paymentsRemaining: number;
   nextDueAt: Millis;
-  /** Consecutive missed payments. Repo triggers at BALANCE.repoAfterMissedPayments. */
+  /** Consecutive missed payments. Repo triggers at the player's repo threshold. */
   missedPayments: number;
   /** Cash actually collected so far, down payment excluded. */
   collected: number;
@@ -182,6 +182,35 @@ export interface Skill {
  */
 export type DealPolicy = 'manual' | 'cash' | 'finance' | 'auto';
 
+/**
+ * The house rules: standing constraints the player sets once and the business
+ * then runs under, whether or not anyone is watching.
+ *
+ * These live in GameState rather than in React for the same reason a negotiation
+ * does — they have to hold while the app is closed, or a policy would silently
+ * stop applying exactly when it matters most. Every default reproduces the
+ * behaviour the game had before the suite existed.
+ */
+export interface BusinessPolicy {
+  /**
+   * Cash the automation will not spend below. The retainer buyer and the
+   * standing shop order both stop here rather than running the float to zero.
+   */
+  minWorkingCapital: number;
+  /**
+   * Consecutive missed payments before the car comes back. Lower recovers the
+   * unit sooner and in better shape; higher gives a borrower rope to cure and
+   * collects more, at the cost of a rougher car whenever it does go bad.
+   */
+  repoAfterMissedPayments: number;
+  /**
+   * What the retainer buyer insists on: a discount to the worst-case wholesale
+   * it can see, as a share of that value. 0 is "anything that looks cheap at
+   * the bad end", which is what the buyer did before this existed.
+   */
+  minBuyMargin: number;
+}
+
 export interface Stats {
   carsSold: number;
   cashDeals: number;
@@ -239,6 +268,8 @@ export interface GameState {
   skills: Record<SkillId, Skill>;
   /** Standing order for the sales desk. Only acted on once 'salesDesk' is owned. */
   dealPolicy: DealPolicy;
+  /** House rules the whole business runs under. See BusinessPolicy. */
+  business: BusinessPolicy;
   stats: Stats;
   /** Ring buffer of recent events; trimmed to BALANCE.eventLogSize. */
   events: SimEvent[];

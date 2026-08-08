@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { purchaseUpgrade, setDealPolicy } from '../../sim/actions';
+import { purchaseUpgrade } from '../../sim/actions';
 import { UPGRADES, getUpgrade, level, upgradeCost, type UpgradeDef } from '../../sim/upgrades';
 import { SKILLS } from '../../sim/skills';
-import type { DealPolicy, GameState } from '../../sim/types';
+import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
 import { money, theme } from '../theme';
-import { Button, Card, Chip, Label, Row } from '../components/ui';
+import { Button, Chip, Label, Row } from '../components/ui';
+import { BusinessPanel } from '../components/BusinessPanel';
 import { SkillCard } from '../components/SkillCard';
 
 const CATEGORY_TITLE: Record<string, string> = {
@@ -16,30 +17,27 @@ const CATEGORY_TITLE: Record<string, string> = {
   finance: 'The book',
 };
 
-const POLICY_LABEL: Record<DealPolicy, string> = {
-  manual: 'Ask me',
-  cash: 'Always cash',
-  finance: 'Always finance',
-  auto: 'Whichever pays more',
-};
+type OfficeTab = 'upgrades' | 'skills' | 'business';
 
-const POLICY_HINT: Record<DealPolicy, string> = {
-  manual: 'Every walk-up waits for you to decide.',
-  cash: 'Take the money and move the next car in.',
-  finance: 'Write paper on everyone who will sign, whatever their credit.',
-  auto: 'Compare the cash offer against the expected value of the note, deal by deal.',
+const TAB_LABEL: Record<OfficeTab, string> = {
+  upgrades: 'Upgrades',
+  skills: 'Skills',
+  business: 'Business',
 };
 
 /**
- * Two things you can improve, kept on one screen because they answer the same
- * question: what makes the business better tomorrow than it was today. The
- * distinction the tabs draw is the one that matters — the left column is what
- * money buys, the right is what the work teaches you.
+ * The office: the three things that are true about the business rather than
+ * about any one car. What money buys, what the work has taught you, and the
+ * rules the place runs under while you are not in it.
+ *
+ * The standing order lives on the Business tab rather than next to the upgrade
+ * that unlocks it, because it is the same kind of object as the house rules —
+ * an instruction that keeps applying with the app closed — and it reads as one
+ * decision surface alongside them instead of as a footnote to a purchase.
  */
 export function UpgradesScreen({ state }: { state: GameState }) {
   const apply = useGame((s) => s.apply);
-  const [tab, setTab] = useState<'upgrades' | 'skills'>('upgrades');
-  const hasDesk = level(state, 'salesDesk') > 0;
+  const [tab, setTab] = useState<OfficeTab>('upgrades');
 
   const available = UPGRADES.filter((u) => u.stage === 'curbstoner' || state.stage === 'bhph');
   const categories = ['automation', 'capacity', 'speed', 'finance'] as const;
@@ -47,18 +45,15 @@ export function UpgradesScreen({ state }: { state: GameState }) {
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.tabs}>
-        <Button
-          label="Upgrades"
-          tone={tab === 'upgrades' ? 'primary' : 'ghost'}
-          onPress={() => setTab('upgrades')}
-          style={styles.tab}
-        />
-        <Button
-          label="Skills"
-          tone={tab === 'skills' ? 'primary' : 'ghost'}
-          onPress={() => setTab('skills')}
-          style={styles.tab}
-        />
+        {(Object.keys(TAB_LABEL) as OfficeTab[]).map((id) => (
+          <Button
+            key={id}
+            label={TAB_LABEL[id]}
+            tone={tab === id ? 'primary' : 'ghost'}
+            onPress={() => setTab(id)}
+            style={styles.tab}
+          />
+        ))}
       </View>
 
       {tab === 'skills' ? (
@@ -71,46 +66,27 @@ export function UpgradesScreen({ state }: { state: GameState }) {
             <SkillCard key={def.id} def={def} state={state} />
           ))}
         </View>
+      ) : tab === 'business' ? (
+        <BusinessPanel state={state} />
       ) : (
         <>
-          {hasDesk ? (
-        <Card style={{ gap: 8 }}>
-          <Label>Standing order</Label>
-          <Text style={styles.policyHint}>{POLICY_HINT[state.dealPolicy]}</Text>
-          <View style={styles.policyRow}>
-            {(Object.keys(POLICY_LABEL) as DealPolicy[]).map((policy) => {
-              const selected = state.dealPolicy === policy;
-              return (
-                <Button
-                  key={policy}
-                  label={POLICY_LABEL[policy]}
-                  tone={selected ? 'primary' : 'ghost'}
-                  onPress={() => apply((s) => setDealPolicy(s, policy))}
-                  style={styles.policyButton}
-                />
-              );
-            })}
-          </View>
-        </Card>
-      ) : null}
-
-      {categories.map((category) => {
-        const items = available.filter((u) => u.category === category);
-        if (items.length === 0) return null;
-        return (
-          <View key={category} style={{ gap: 8 }}>
-            <Label>{CATEGORY_TITLE[category]}</Label>
-            {items.map((def) => (
-              <UpgradeCard
-                key={def.id}
-                def={def}
-                state={state}
-                onBuy={() => apply((s) => purchaseUpgrade(s, def.id))}
-              />
-            ))}
-          </View>
-        );
-      })}
+          {categories.map((category) => {
+            const items = available.filter((u) => u.category === category);
+            if (items.length === 0) return null;
+            return (
+              <View key={category} style={{ gap: 8 }}>
+                <Label>{CATEGORY_TITLE[category]}</Label>
+                {items.map((def) => (
+                  <UpgradeCard
+                    key={def.id}
+                    def={def}
+                    state={state}
+                    onBuy={() => apply((s) => purchaseUpgrade(s, def.id))}
+                  />
+                ))}
+              </View>
+            );
+          })}
         </>
       )}
     </ScrollView>
@@ -177,9 +153,6 @@ const styles = StyleSheet.create({
   name: { color: theme.colors.text, fontSize: 14, fontWeight: '700' },
   description: { color: theme.colors.textDim, fontSize: 12, lineHeight: 16 },
   buyButton: { minWidth: 92 },
-  policyHint: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 16 },
-  policyRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  policyButton: { flexGrow: 1, flexBasis: '45%' },
   tabs: { flexDirection: 'row', gap: 6 },
   tab: { flex: 1 },
   skillsHint: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 16 },

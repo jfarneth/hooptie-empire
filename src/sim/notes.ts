@@ -1,6 +1,7 @@
 import { BALANCE, MS_PER_GAME_WEEK } from './balance';
 import { weeklyPayment } from './economy';
 import { mintId } from './ids';
+import { collectionsCapacity } from './upgrades';
 import type { CreditTier, GameState, Millis, Note, Prospect } from './types';
 
 /**
@@ -45,9 +46,36 @@ export function activeNotes(notes: Note[]): Note[] {
 }
 
 /**
+ * Contracts the desk will still take. Zero means the finance desk is closed
+ * until something on the book pays off or goes bad.
+ *
+ * This is a hard limit, not a target. The number was already on the HUD and on
+ * the ledger; it just wasn't enforced, so a player who read it as a limit was
+ * wrong and a player who ignored it was rewarded. Staffing the desk is now what
+ * buys the right to write more paper.
+ *
+ * Clamped at zero rather than allowed to go negative, because a save from before
+ * the cap can legitimately be sitting over the line. Those books shrink back
+ * under it by attrition; nothing is torn up.
+ */
+export function bookRoom(state: GameState): number {
+  return Math.max(0, collectionsCapacity(state) - activeNotes(state.notes).length);
+}
+
+/** True when the finance desk can write another contract right now. */
+export function canWriteNote(state: GameState): boolean {
+  return bookRoom(state) > 0;
+}
+
+/**
  * Multiplier applied to every borrower's miss chance once the portfolio outgrows
  * the collections desk. Growing the book without staffing it is a real and
  * punishing mistake, which is the point.
+ *
+ * With the cap enforced this only bites on a book that was already over the line
+ * — a save written before the cap, or one that has since been carried across a
+ * shrinking desk. It stays because degrading is the right way to meet that
+ * state; the alternative is a rule that only applies to new games.
  */
 export function overCapacityFactor(activeCount: number, capacity: number): number {
   if (activeCount <= capacity || capacity <= 0) return 1;
@@ -75,14 +103,22 @@ export interface PaymentResult {
 /**
  * Apply the payment that is due. Mutates the note and advances `nextDueAt` by a
  * game week whether or not the borrower paid — a missed week still passes.
+ *
+ * `repoAfter` is the player's repo trigger; it defaults to the house number so
+ * callers that have no state to hand (the amortization tests, mostly) still
+ * describe the shipped rule.
  */
-export function applyDuePayment(note: Note, made: boolean): PaymentResult {
+export function applyDuePayment(
+  note: Note,
+  made: boolean,
+  repoAfter: number = BALANCE.repoAfterMissedPayments,
+): PaymentResult {
   note.nextDueAt += MS_PER_GAME_WEEK;
 
   if (!made) {
     note.missedPayments += 1;
     note.status = 'delinquent';
-    const defaulted = note.missedPayments >= BALANCE.repoAfterMissedPayments;
+    const defaulted = note.missedPayments >= Math.max(1, repoAfter);
     if (defaulted) note.status = 'defaulted';
     return { paid: false, amount: 0, closed: false, defaulted };
   }

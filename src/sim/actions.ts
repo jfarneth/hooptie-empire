@@ -1,4 +1,5 @@
 import { BALANCE } from './balance';
+import { businessPolicy, clampBusinessPolicy } from './business';
 import { beginRecon, canRecon, reconCost } from './cars';
 import {
   acceptCash,
@@ -14,7 +15,7 @@ import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
 import { haggleSkillFor, reconModsFor } from './skills';
 import { collectionsCapacity, getUpgrade, level, upgradeCost } from './upgrades';
-import type { DealPolicy, GameState } from './types';
+import type { BusinessPolicy, DealPolicy, GameState } from './types';
 
 /**
  * Player commands. Every one of these takes a state and returns a new state, so
@@ -143,6 +144,31 @@ export function setDealPolicy(state: GameState, policy: DealPolicy): GameState {
   return act(state, (s) => {
     if (level(s, 'salesDesk') === 0 && policy !== 'manual') return false;
     s.dealPolicy = policy;
+    return true;
+  });
+}
+
+/**
+ * Change one or more house rules.
+ *
+ * Takes a patch rather than a whole policy so a control that owns one setting
+ * cannot clobber the other two, and clamps rather than rejects so an out-of-range
+ * value lands somewhere sane instead of silently doing nothing.
+ */
+export function setBusinessPolicy(state: GameState, patch: Partial<BusinessPolicy>): GameState {
+  return act(state, (s) => {
+    const current = businessPolicy(s);
+    const next = clampBusinessPolicy(patch, current);
+    if (
+      next.minWorkingCapital === current.minWorkingCapital &&
+      next.repoAfterMissedPayments === current.repoAfterMissedPayments &&
+      next.minBuyMargin === current.minBuyMargin
+    ) {
+      // No-op: returning false keeps state identity, so the UI does not re-render
+      // the whole lot every time a control re-reports the value it already had.
+      return false;
+    }
+    s.business = next;
     return true;
   });
 }

@@ -82,6 +82,36 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
     ...s,
     listings: (s.listings ?? []).map((l: any) => ({ ...l, appraisalNoise: 0 })),
   }),
+
+  /**
+   * v4 -> v5: house rules, and a book limit that is actually a limit.
+   *
+   * A v4 save has no `business` key and the engine reads it every tick, so it is
+   * backfilled with the exact numbers that reproduce v4 behaviour: the $500
+   * reserve the retainer buyer used to hard-code, the repo trigger the whole
+   * game was balanced on, and no margin floor at all. A returning player's lot
+   * runs identically until they go and change something.
+   *
+   * Their book is a different matter, and deliberately left alone. Notes written
+   * over the new cap are not torn up — that would delete a portfolio someone
+   * spent hours building, which is precisely the thing migrations exist to
+   * prevent. An over-capacity book simply writes no new paper until it shrinks
+   * back under the line, and `overCapacityFactor` keeps degrading it in the
+   * meantime, exactly as it did before.
+   *
+   * Written out longhand rather than calling businessDefaults(): a migration has
+   * to keep meaning what it meant when it shipped, and a shared helper is free
+   * to change underneath it.
+   */
+  4: (s) => ({
+    ...s,
+    business: {
+      minWorkingCapital: 500,
+      repoAfterMissedPayments: 3,
+      minBuyMargin: 0,
+      ...(s.business ?? {}),
+    },
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {
