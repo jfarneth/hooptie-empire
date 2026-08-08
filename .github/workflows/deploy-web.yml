@@ -59,12 +59,27 @@ jobs:
       - name: Disable Jekyll processing
         run: touch dist/.nojekyll
 
-      # `enablement` turns Pages on via the API so this needs no manual setup.
-      # If the account blocks that, switch Pages source to "GitHub Actions" in
-      # Settings → Pages once and every later run works.
+      # Pages has to be switched on by hand exactly once. The built-in workflow
+      # token is not allowed to create a Pages site (that needs a PAT), so
+      # `enablement: true` cannot help — it just fails with an opaque
+      # "Resource not accessible by integration". Check first and say the useful
+      # thing instead.
+      - name: Check Pages is enabled
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if curl -sfL -o /dev/null \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages"; then
+            echo "Pages is enabled."
+          else
+            echo "::error::GitHub Pages is not enabled for this repository."
+            echo "::error::Turn it on once: Settings -> Pages -> Source -> 'GitHub Actions', then re-run this workflow."
+            exit 1
+          fi
+
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
