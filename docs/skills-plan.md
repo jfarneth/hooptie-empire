@@ -217,6 +217,29 @@ so the module stays the seam it was built to be.
 - **Desk counter fraction** 0.55 → 0.72 — the sales desk gets better as you do,
   so automating isn't strictly worse than playing.
 
+### What the harness actually said
+
+**Shipped at full planned strength**, because measurement says it costs nothing.
+Across 64 seeds, every setting from timid to strong landed within ±3% on
+lifetime profit — inside the noise band established in phase 2:
+
+| Setting (room / walk / desk) | lifetime profit | end cash |
+|---|---|---|
+| 0.47 / 0.85 / 0.60 | −3.0% | −1.5% |
+| 0.49 / 0.75 / 0.64 | +2.9% | +10.3% |
+| **0.52 / 0.60 / 0.72 (shipped)** | **−0.7%** | **+6.1%** |
+
+The reason is structural and worth knowing before someone "fixes" it: the sales
+desk counters exactly once and takes whatever comes back, so it cannot exploit a
+better negotiator. And two of the five effects are invisible to the harness by
+construction — a bot never reads a tell, and never uses a third counter it does
+not ask for.
+
+So Closing is a skill that pays out almost entirely to someone playing by hand,
+which is the intent. The corollary is the risk: **the harness cannot bound its
+upside for a player who does use all three counters.** That belongs in playtest,
+not in another sweep.
+
 ---
 
 ## 4. Wrenching — recon
@@ -336,7 +359,9 @@ Each phase ships independently.
    on by editing those numbers and wiring the accessor that already exists.
 2. ~~**Wrenching**~~ — **done.** `ReconMods` threaded through `cars.ts`, the
    mechanic upgrade folded into it, values tuned at 64 seeds. See above.
-3. **Closing** — `haggle.ts` options object, desk fraction, extra counter.
+3. ~~**Closing**~~ — **done.** `HaggleSkill` options object threaded through
+   `haggle.ts`, desk fraction, third counter at level 6. Shipped at full planned
+   strength; see above for why that was free.
 4. **Buying + ambiguity** — the real work. Listing noise, widened ask band,
    `autoBuy` fix, harness bot on estimates, BuyScreen rework.
 5. **Rebalance and polish** — harness metrics, retune, skills UI, feedback events.

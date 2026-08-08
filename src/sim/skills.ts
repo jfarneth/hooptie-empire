@@ -2,6 +2,7 @@ import { BALANCE } from './balance';
 import { clamp } from './economy';
 import { level } from './upgrades';
 import type { ReconMods } from './cars';
+import type { HaggleSkill } from './haggle';
 import type { GameState, Skill, SkillId } from './types';
 
 /**
@@ -266,6 +267,20 @@ export function reconMaxLift(state: Pick<GameState, 'skills'>): number {
  * itself quicker — and they are combined here so no call site has to remember
  * to apply both.
  */
+/**
+ * Everything the person at the desk brings to a negotiation, in the plain
+ * numbers `haggle.ts` works in.
+ */
+export function haggleSkillFor(state: Pick<GameState, 'skills'>): HaggleSkill {
+  return {
+    roomMean: negotiationRoomMean(state),
+    tellJitter: tellJitter(state),
+    walkChanceMult: walkChanceMultiplier(state),
+    maxCounters: maxPlayerCounters(state),
+    deskCounterFraction: deskCounterFraction(state),
+  };
+}
+
 export function reconModsFor(state: Pick<GameState, 'skills' | 'upgrades'>): ReconMods {
   const mechanic = Math.pow(BALANCE.reconMsPerMechanicLevel, level(state, 'mechanic'));
   return {

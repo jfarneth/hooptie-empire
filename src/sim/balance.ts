@@ -210,13 +210,27 @@ export const BALANCE = {
       listingInterval: { at1: 1, atMax: 1, ease: 1 },
       listingSlots: { at1: 0, atMax: 0, ease: 1 },
     },
+    /**
+     * Closing. Shipped at the full planned strength, because measurement says
+     * it costs nothing: across 64 seeds every setting from timid to strong
+     * landed within ±3% on lifetime profit, which is inside the noise.
+     *
+     * The reason is structural, and it is worth knowing before anyone "fixes"
+     * it. The sales desk counters exactly once and takes whatever comes back,
+     * so it cannot exploit a better negotiator; and two of these five effects
+     * are invisible to the harness by construction — a bot never reads a tell,
+     * and never uses a third counter it does not ask for. Closing is a skill
+     * that pays out almost entirely to someone playing by hand, which is the
+     * intent. The corollary is that the harness cannot bound its upside for a
+     * player who does use all three counters. Watch that in playtest, not here.
+     */
     sell: {
-      tellJitter: { at1: 0.3, atMax: 0.3, ease: 0.8 },
-      walkChanceMult: { at1: 1, atMax: 1, ease: 1 },
-      roomMean: { at1: 0.46, atMax: 0.46, ease: 1 },
-      deskCounterFrac: { at1: 0.55, atMax: 0.55, ease: 1 },
+      tellJitter: { at1: 0.3, atMax: 0.05, ease: 0.7 },
+      walkChanceMult: { at1: 1, atMax: 0.6, ease: 0.7 },
+      roomMean: { at1: 0.46, atMax: 0.52, ease: 0.7 },
+      deskCounterFrac: { at1: 0.55, atMax: 0.72, ease: 0.7 },
       /** Level at which the player gets a third counter. 0 disables it. */
-      extraCounterAt: 0,
+      extraCounterAt: 6,
     },
     /**
      * Wrenching. Caps deliberately well short of what the shop could bear.

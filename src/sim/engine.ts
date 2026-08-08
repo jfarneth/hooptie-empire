@@ -27,6 +27,7 @@ import {
   cloneSkills,
   getSkill,
   grantXp,
+  haggleSkillFor,
   reconModsFor,
   repairXp,
   sellXp,
@@ -213,6 +214,7 @@ function stepProspects(s: GameState): void {
 
   const advertising = level(s, 'advertising');
   const underwriting = level(s, 'underwriting');
+  const haggle = haggleSkillFor(s);
 
   for (const car of s.cars) {
     if (car.status !== 'listed') continue;
@@ -225,7 +227,7 @@ function stepProspects(s: GameState): void {
     const rate = prospectRate(car.askPrice, reference, advertising);
     if (!chance(s.rng, arrivalChance(rate, TICK_MS))) continue;
 
-    s.prospects.push(generateProspect(s, s.rng, car, underwriting, s.t));
+    s.prospects.push(generateProspect(s, s.rng, car, underwriting, haggle, s.t));
   }
 }
 
@@ -384,13 +386,14 @@ function runDeskNegotiation(s: GameState, prospectId: string): void {
     return;
   }
 
-  const counter = deskCounter(neg);
+  const haggle = haggleSkillFor(s);
+  const counter = deskCounter(neg, haggle);
   if (counter <= neg.currentOffer) {
     acceptCash(s, prospectId);
     return;
   }
 
-  const outcome = resolveCounter(s.rng, neg, counter);
+  const outcome = resolveCounter(s.rng, neg, counter, haggle);
   if (outcome.kind === 'walked') {
     registerWalkaway(s, prospect.name);
     return; // stepProspects sweeps them out.

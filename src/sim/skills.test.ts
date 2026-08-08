@@ -1,6 +1,8 @@
 import { buyListing } from './actions';
 import { BALANCE } from './balance';
 import { reconCost, reconDurationMs, reconLift } from './cars';
+import { deskCounter, resolveCounter } from './haggle';
+import { createRng } from './rng';
 import { advance, cloneState, createInitialState } from './engine';
 import {
   SKILL_IDS,
@@ -8,6 +10,7 @@ import {
   blankSkills,
   buyXp,
   deskCounterFraction,
+  haggleSkillFor,
   effect,
   grantXp,
   listingIntervalMultiplier,
@@ -26,7 +29,7 @@ import {
   walkChanceMultiplier,
   xpToNext,
 } from './skills';
-import type { Car, GameState, SkillId } from './types';
+import type { Car, GameState, Negotiation, SkillId } from './types';
 
 function stateAt(levels: Partial<Record<SkillId, number>>): Pick<GameState, 'skills'> {
   const skills = blankSkills();
@@ -65,17 +68,82 @@ describe('level 1 reproduces the pre-skills build', () => {
   });
 
   it('holds at every level for the skills not yet wired up', () => {
-    // Buying and Closing are still inert: until their phase gives them a
-    // different atMax, no level may change any number they own.
+    // Buying is still inert: until its phase gives it a different atMax, no
+    // level may change any number it owns.
     for (let lvl = 1; lvl <= BALANCE.skills.maxLevel; lvl++) {
-      const at = stateAt({ buy: lvl, sell: lvl });
+      const at = stateAt({ buy: lvl });
       expect(appraisalSigma(at)).toBe(appraisalSigma(s));
       expect(listingIntervalMultiplier(at)).toBe(listingIntervalMultiplier(s));
       expect(listingSlotBonus(at)).toBe(listingSlotBonus(s));
-      expect(tellJitter(at)).toBe(tellJitter(s));
-      expect(walkChanceMultiplier(at)).toBe(walkChanceMultiplier(s));
-      expect(maxPlayerCounters(at)).toBe(maxPlayerCounters(s));
     }
+  });
+});
+
+describe('Closing', () => {
+  const maxLevel = BALANCE.skills.maxLevel;
+
+  it('sharpens the read and softens the walk as it levels', () => {
+    const novice = stateAt({ sell: 1 });
+    const expert = stateAt({ sell: maxLevel });
+
+    expect(tellJitter(expert)).toBeLessThan(tellJitter(novice));
+    expect(walkChanceMultiplier(expert)).toBeLessThan(walkChanceMultiplier(novice));
+    expect(negotiationRoomMean(expert)).toBeGreaterThan(negotiationRoomMean(novice));
+    expect(deskCounterFraction(expert)).toBeGreaterThan(deskCounterFraction(novice));
+  });
+
+  it('hands over the third counter exactly at its level, not before', () => {
+    const at = BALANCE.skills.sell.extraCounterAt;
+    expect(at).toBeGreaterThan(1);
+    expect(maxPlayerCounters(stateAt({ sell: at - 1 }))).toBe(BALANCE.negotiation.maxPlayerCounters);
+    expect(maxPlayerCounters(stateAt({ sell: at }))).toBe(BALANCE.negotiation.maxPlayerCounters + 1);
+    expect(maxPlayerCounters(stateAt({ sell: maxLevel }))).toBe(
+      BALANCE.negotiation.maxPlayerCounters + 1,
+    );
+  });
+
+  /**
+   * The effects have to reach the negotiation itself. Asserting on the
+   * accessors alone would pass just as happily if haggle.ts ignored the skill.
+   */
+  it('reaches the desk and the buyer', () => {
+    const novice = haggleSkillFor(stateAt({ sell: 1 }));
+    const expert = haggleSkillFor(stateAt({ sell: maxLevel }));
+
+    const neg: Negotiation = {
+      anchor: 8_000,
+      openingOffer: 6_000,
+      currentOffer: 6_000,
+      reservation: 7_000,
+      room: 0.5,
+      aggression: 0.5,
+      countersMade: 0,
+      lastCounter: null,
+      status: 'open',
+      tellIndex: 2,
+    };
+
+    // A better closer opens higher.
+    expect(deskCounter(neg, expert)).toBeGreaterThan(deskCounter(neg, novice));
+
+    // And loses fewer of them to an identical overreach.
+    const walks = (skill: typeof novice) => {
+      let lost = 0;
+      for (let seed = 0; seed < 400; seed++) {
+        const rng = createRng(seed);
+        const live = { ...neg };
+        if (resolveCounter(rng, live, 7_600, skill).kind === 'walked') lost += 1;
+      }
+      return lost;
+    };
+    expect(walks(expert)).toBeLessThan(walks(novice));
+  });
+
+  it('leaves the counter budget alone below the unlock level', () => {
+    const early = haggleSkillFor(stateAt({ sell: 1 }));
+    expect(early.maxCounters).toBe(BALANCE.negotiation.maxPlayerCounters);
+    expect(early.roomMean).toBe(BALANCE.negotiation.roomMean);
+    expect(early.deskCounterFraction).toBe(BALANCE.negotiation.deskCounterFraction);
   });
 });
 

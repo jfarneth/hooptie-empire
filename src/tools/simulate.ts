@@ -24,6 +24,7 @@ import { BALANCE } from '../sim/balance';
 import { canRecon, reconCost } from '../sim/cars';
 import { reconModsFor } from '../sim/skills';
 import { deskCounter } from '../sim/haggle';
+import { haggleSkillFor } from '../sim/skills';
 import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
 import { advance, createInitialState, expectedCollections } from '../sim/engine';
 import { activeNotes, overCapacityFactor } from '../sim/notes';
@@ -131,7 +132,7 @@ function haggleThenClose(state: GameState, prospectId: string): GameState {
 
   const neg = prospect.negotiation;
   if (neg.status === 'open' && neg.countersMade === 0) {
-    const counter = deskCounter(neg);
+    const counter = deskCounter(neg, haggleSkillFor(s));
     if (counter > neg.currentOffer) s = counterOffer(s, prospectId, counter);
   }
 
