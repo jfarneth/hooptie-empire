@@ -1,4 +1,4 @@
-# Curbstone
+# Hooptie Empire
 
 An idle tycoon game about the American used-car business. You start selling one
 car at a time out of a driveway and climb toward a lot with its own finance desk.

@@ -2,7 +2,7 @@
  * Dynamic Expo config, layered on top of app.json.
  *
  * Its only job is the web base path. GitHub Pages serves a project site from a
- * subpath (`/hello-world/`), but `expo export` writes absolute asset URLs by
+ * subpath (`/<repo>/`), but `expo export` writes absolute asset URLs by
  * default — so without a base URL the deployed page requests `/_expo/...`,
  * misses, and renders blank.
  *

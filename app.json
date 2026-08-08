@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Curbstone",
-    "slug": "curbstone",
+    "name": "Hooptie Empire",
+    "slug": "hooptie-empire",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,10 +9,10 @@
     "backgroundColor": "#101219",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.jfarneth.curbstone"
+      "bundleIdentifier": "com.jfarneth.hooptieempire"
     },
     "android": {
-      "package": "com.jfarneth.curbstone",
+      "package": "com.jfarneth.hooptieempire",
       "adaptiveIcon": {
         "backgroundColor": "#101219",
         "foregroundImage": "./assets/android-icon-foreground.png",
