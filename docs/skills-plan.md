@@ -296,9 +296,11 @@ of those two is the acceptable outcome *before* reading the numbers.
 
 Each phase ships independently.
 
-1. **Substrate** — state, XP, curve, `skills.ts`, save v3, `cloneState`, events,
-   balance tables. No behaviour change. *Gate: level-1 output byte-identical to
-   today.*
+1. ~~**Substrate**~~ — **done.** State, XP, curve, `skills.ts`, save v3,
+   `cloneState`, events, balance tables. Gate met: harness output byte-identical
+   before and after. Every effect spec ships with `atMax === at1`, so the curves
+   are flat and levels currently buy nothing — each phase below turns one skill
+   on by editing those numbers and wiring the accessor that already exists.
 2. **Wrenching** — smallest surface (`cars.ts` + `stepRecon`), effects only.
 3. **Closing** — `haggle.ts` options object, desk fraction, extra counter.
 4. **Buying + ambiguity** — the real work. Listing noise, widened ask band,

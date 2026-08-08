@@ -8,6 +8,7 @@ import {
   expectedFinanceValue,
   listCar,
   logEvent,
+  registerWalkaway,
 } from './engine';
 import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
@@ -103,10 +104,7 @@ export function counterOffer(state: GameState, prospectId: string, price: number
     const outcome = resolveCounter(s.rng, neg, asking);
     prospect.expiresAt = s.t + BALANCE.negotiation.exchangeGraceMs;
 
-    if (outcome.kind === 'walked') {
-      s.stats.walkaways += 1;
-      logEvent(s, { t: s.t, kind: 'walkaway', label: `${prospect.name} walked` });
-    }
+    if (outcome.kind === 'walked') registerWalkaway(s, prospect.name);
     return true;
   });
 }

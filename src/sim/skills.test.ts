@@ -1,0 +1,205 @@
+import { BALANCE } from './balance';
+import { advance, cloneState, createInitialState } from './engine';
+import {
+  SKILL_IDS,
+  appraisalSigma,
+  blankSkills,
+  buyXp,
+  deskCounterFraction,
+  effect,
+  grantXp,
+  listingIntervalMultiplier,
+  listingSlotBonus,
+  maxPlayerCounters,
+  negotiationRoomMean,
+  reconCostMultiplier,
+  reconMaxLift,
+  reconSpeedMultiplier,
+  repairXp,
+  sellXp,
+  skillLevel,
+  skillProgress,
+  tellJitter,
+  walkChanceMultiplier,
+  xpToNext,
+} from './skills';
+import type { GameState, SkillId } from './types';
+
+function stateAt(levels: Partial<Record<SkillId, number>>): Pick<GameState, 'skills'> {
+  const skills = blankSkills();
+  for (const id of SKILL_IDS) skills[id].level = levels[id] ?? 1;
+  return { skills };
+}
+
+/**
+ * The gate this whole phase rests on.
+ *
+ * Skills ship before the systems that read them, which is only safe if a
+ * level-1 player is playing precisely the game that existed before. Every
+ * accessor is checked against the constant it will eventually replace.
+ */
+describe('level 1 reproduces the pre-skills build', () => {
+  const s = stateAt({});
+
+  it('leaves the sourcing feed untouched', () => {
+    expect(appraisalSigma(s)).toBe(0);
+    expect(listingIntervalMultiplier(s)).toBe(1);
+    expect(listingSlotBonus(s)).toBe(0);
+  });
+
+  it('leaves negotiation untouched', () => {
+    expect(tellJitter(s)).toBe(0.3);
+    expect(walkChanceMultiplier(s)).toBe(1);
+    expect(negotiationRoomMean(s)).toBe(BALANCE.negotiation.roomMean);
+    expect(deskCounterFraction(s)).toBe(BALANCE.negotiation.deskCounterFraction);
+    expect(maxPlayerCounters(s)).toBe(BALANCE.negotiation.maxPlayerCounters);
+  });
+
+  it('leaves the shop untouched', () => {
+    expect(reconCostMultiplier(s)).toBe(1);
+    expect(reconSpeedMultiplier(s)).toBe(1);
+    expect(reconMaxLift(s)).toBe(BALANCE.reconMaxLift);
+  });
+
+  it('holds at every level while the effect curves are still flat', () => {
+    // Guards the claim that the substrate is inert: until a phase turns a skill
+    // on by giving it a different atMax, no level may change any number.
+    for (let lvl = 1; lvl <= BALANCE.skills.maxLevel; lvl++) {
+      const at = stateAt({ buy: lvl, sell: lvl, repair: lvl });
+      expect(appraisalSigma(at)).toBe(appraisalSigma(s));
+      expect(listingIntervalMultiplier(at)).toBe(listingIntervalMultiplier(s));
+      expect(tellJitter(at)).toBe(tellJitter(s));
+      expect(reconCostMultiplier(at)).toBe(reconCostMultiplier(s));
+      expect(reconMaxLift(at)).toBe(reconMaxLift(s));
+    }
+  });
+});
+
+describe('effect()', () => {
+  const spec = { at1: 0.2, atMax: 0.05, ease: 0.7 };
+
+  it('is exact at both ends regardless of easing', () => {
+    expect(effect(spec, 1)).toBe(spec.at1);
+    expect(effect(spec, BALANCE.skills.maxLevel)).toBe(spec.atMax);
+  });
+
+  it('moves monotonically between them', () => {
+    let previous = effect(spec, 1);
+    for (let lvl = 2; lvl <= BALANCE.skills.maxLevel; lvl++) {
+      const value = effect(spec, lvl);
+      expect(value).toBeLessThanOrEqual(previous);
+      previous = value;
+    }
+  });
+
+  it('clamps rather than extrapolating past the cap', () => {
+    expect(effect(spec, BALANCE.skills.maxLevel + 5)).toBe(spec.atMax);
+    expect(effect(spec, 0)).toBe(spec.at1);
+  });
+
+  it('front-loads the gain when ease is below 1', () => {
+    const midpoint = Math.ceil((1 + BALANCE.skills.maxLevel) / 2);
+    const halfway = spec.at1 + (spec.atMax - spec.at1) * 0.5;
+    // Lower is better for this spec, so front-loaded means already past halfway.
+    expect(effect(spec, midpoint)).toBeLessThan(halfway);
+  });
+});
+
+describe('xp and levelling', () => {
+  it('costs more per level', () => {
+    for (let lvl = 1; lvl < BALANCE.skills.maxLevel - 1; lvl++) {
+      expect(xpToNext(lvl + 1)).toBeGreaterThan(xpToNext(lvl));
+    }
+  });
+
+  it('levels up and carries the remainder forward', () => {
+    const s = stateAt({});
+    const needed = xpToNext(1);
+    expect(grantXp(s, 'buy', needed + 10)).toBe(1);
+    expect(skillLevel(s, 'buy')).toBe(2);
+    expect(s.skills.buy.xp).toBe(10);
+  });
+
+  it('handles several levels from one award', () => {
+    const s = stateAt({});
+    const gained = grantXp(s, 'buy', xpToNext(1) + xpToNext(2) + xpToNext(3));
+    expect(gained).toBe(3);
+    expect(skillLevel(s, 'buy')).toBe(4);
+  });
+
+  it('stops at the cap and banks nothing against a level that will not come', () => {
+    const s = stateAt({ sell: BALANCE.skills.maxLevel });
+    expect(grantXp(s, 'sell', 100_000)).toBe(0);
+    expect(skillLevel(s, 'sell')).toBe(BALANCE.skills.maxLevel);
+    expect(s.skills.sell.xp).toBe(0);
+    expect(skillProgress(s, 'sell').ratio).toBe(1);
+  });
+
+  it('ignores non-positive awards', () => {
+    const s = stateAt({});
+    expect(grantXp(s, 'buy', 0)).toBe(0);
+    expect(grantXp(s, 'buy', -50)).toBe(0);
+    expect(s.skills.buy.xp).toBe(0);
+  });
+
+  it('only touches the skill it was given', () => {
+    const s = stateAt({});
+    grantXp(s, 'repair', xpToNext(1));
+    expect(skillLevel(s, 'repair')).toBe(2);
+    expect(skillLevel(s, 'buy')).toBe(1);
+    expect(skillLevel(s, 'sell')).toBe(1);
+  });
+});
+
+describe('xp awards', () => {
+  it('scales sub-linearly with price, so one expensive car is no shortcut', () => {
+    const cheap = buyXp(1_500);
+    const tenfold = buyXp(15_000);
+    expect(tenfold).toBeGreaterThan(cheap);
+    expect(tenfold).toBeLessThan(cheap * 10);
+  });
+
+  it('always pays something, even on a giveaway', () => {
+    expect(buyXp(0)).toBeGreaterThan(0);
+    expect(sellXp(0, 0)).toBeGreaterThan(0);
+    expect(repairXp(0)).toBeGreaterThan(0);
+  });
+
+  it('pays more for a deal that was actually haggled', () => {
+    expect(sellXp(4_000, 1)).toBeGreaterThan(sellXp(4_000, 0));
+  });
+
+  it('pays the shop per condition point, not per dollar', () => {
+    expect(repairXp(0.3)).toBeGreaterThan(repairXp(0.1));
+  });
+});
+
+describe('skills in game state', () => {
+  it('starts a new game at level 1 across the board', () => {
+    const s = createInitialState(1, 0);
+    for (const id of SKILL_IDS) {
+      expect(s.skills[id].level).toBe(1);
+      expect(s.skills[id].xp).toBe(0);
+    }
+  });
+
+  it('is deep-cloned, so history cannot be mutated backwards', () => {
+    const s = createInitialState(2, 0);
+    const copy = cloneState(s);
+    copy.skills.buy.xp += 500;
+    copy.skills.buy.level = 7;
+    expect(s.skills.buy.xp).toBe(0);
+    expect(s.skills.buy.level).toBe(1);
+    expect(copy.skills).not.toBe(s.skills);
+    expect(copy.skills.buy).not.toBe(s.skills.buy);
+  });
+
+  it('accrues from play without the player touching anything', () => {
+    // The bot is not driving here — this is automation and walk-up traffic
+    // alone, which is the path that would silently stop granting XP if the
+    // awards had been put in the action wrappers.
+    const s = advance(createInitialState(4242, 0), 45 * 60 * 1000);
+    const total = SKILL_IDS.reduce((sum, id) => sum + s.skills[id].level, 0);
+    expect(total).toBeGreaterThanOrEqual(SKILL_IDS.length);
+  });
+});

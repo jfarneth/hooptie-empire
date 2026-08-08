@@ -1,5 +1,6 @@
 import { SAVE_VERSION, advance, createInitialState } from './engine';
 import { deserialize, migrate, serialize } from './save';
+import { SKILL_IDS } from './skills';
 
 /**
  * Save compatibility is not a nice-to-have in this genre. A player can be hours
@@ -99,6 +100,33 @@ describe('migration chain', () => {
     expect(migrated.stats.negotiationsWon).toBe(0);
 
     // And it still runs.
+    expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+  });
+
+  /**
+   * A real v2 save has no `skills` key at all. The engine dereferences it on
+   * the first tick, so this is the migration that decides whether an existing
+   * portfolio survives the update.
+   */
+  it('gives a v2 save a fresh set of skills without disturbing anything else', () => {
+    const v2: any = JSON.parse(JSON.stringify(createInitialState(88, 0)));
+    v2.version = 2;
+    v2.cash = 96_500;
+    v2.stage = 'bhph';
+    v2.upgrades = { lot: 2, collections: 1 };
+    delete v2.skills;
+
+    const migrated = migrate(v2, 2);
+
+    expect(migrated.version).toBe(SAVE_VERSION);
+    for (const id of SKILL_IDS) {
+      expect(migrated.skills[id]).toEqual({ level: 1, xp: 0 });
+    }
+    // Everything a player would notice is untouched.
+    expect(migrated.cash).toBe(96_500);
+    expect(migrated.stage).toBe('bhph');
+    expect(migrated.upgrades).toEqual({ lot: 2, collections: 1 });
+
     expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
   });
 

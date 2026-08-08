@@ -22,6 +22,16 @@ import {
 } from './notes';
 import { chance, createRng, pick, range } from './rng';
 import {
+  blankSkills,
+  buyXp,
+  cloneSkills,
+  getSkill,
+  grantXp,
+  repairXp,
+  sellXp,
+  walkawayXp,
+} from './skills';
+import {
   carCapacity,
   collectionsCapacity,
   level,
@@ -30,9 +40,9 @@ import {
   repoConditionLoss as repoConditionLossFor,
   repoFee as repoFeeFor,
 } from './upgrades';
-import type { Car, GameState, Millis, SimEvent } from './types';
+import type { Car, GameState, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -81,6 +91,7 @@ function blankState(seed: number, wallNow: number): GameState {
     prospects: [],
     notes: [],
     upgrades: {},
+    skills: blankSkills(),
     dealPolicy: 'manual',
     stats: {
       carsSold: 0,
@@ -145,7 +156,10 @@ function stepRecon(s: GameState): void {
     if (car.status !== 'recon') continue;
     car.reconRemainingMs -= TICK_MS;
     if (car.reconRemainingMs <= 0) {
+      // Captured before finishing, because finishRecon() is what closes the gap.
+      const lift = car.reconTargetCondition - car.condition;
       finishRecon(car);
+      awardXp(s, 'repair', repairXp(lift));
       logEvent(s, { t: s.t, kind: 'recon-done', label: `${carLabel(car)} out of the shop` });
     }
   }
@@ -373,8 +387,7 @@ function runDeskNegotiation(s: GameState, prospectId: string): void {
 
   const outcome = resolveCounter(s.rng, neg, counter);
   if (outcome.kind === 'walked') {
-    s.stats.walkaways += 1;
-    logEvent(s, { t: s.t, kind: 'walkaway', label: `${prospect.name} walked` });
+    registerWalkaway(s, prospect.name);
     return; // stepProspects sweeps them out.
   }
 
@@ -412,6 +425,41 @@ export function listCar(s: GameState, car: Car, askPrice?: number): void {
   car.listedAt = s.t;
 }
 
+/**
+ * Award skill XP and announce any level-up.
+ *
+ * This lives on the shared path rather than in actions.ts on purpose. The
+ * standing shop order, the retainer buyer and the sales desk all call the
+ * engine internals directly, so XP granted in the player-facing wrapper would
+ * quietly stop accruing the moment someone automated — exactly backwards for an
+ * idle game.
+ */
+export function awardXp(s: GameState, id: SkillId, amount: number): void {
+  const gained = grantXp(s, id, amount);
+  if (gained === 0) return;
+
+  const name = getSkill(id).name;
+  const finalLevel = s.skills[id].level;
+  for (let i = gained; i > 0; i--) {
+    logEvent(s, {
+      t: s.t,
+      kind: 'skill-up',
+      label: `${name} reached level ${finalLevel - i + 1}`,
+    });
+  }
+}
+
+/**
+ * A buyer walking is bookkeeping in three places at once, and it happens on
+ * both the hand-played and the automated path. One helper so a fourth caller
+ * cannot forget one of them.
+ */
+export function registerWalkaway(s: GameState, customerName: string): void {
+  s.stats.walkaways += 1;
+  awardXp(s, 'sell', walkawayXp());
+  logEvent(s, { t: s.t, kind: 'walkaway', label: `${customerName} walked` });
+}
+
 export function logEvent(s: GameState, event: SimEvent): void {
   s.events.push(event);
   if (s.events.length > BALANCE.eventLogSize) {
@@ -437,6 +485,9 @@ export function cloneState(s: GameState): GameState {
     })),
     notes: s.notes.map((n) => ({ ...n })),
     upgrades: { ...s.upgrades },
+    // Each skill is a nested object, so the record needs cloning entry by entry
+    // for the same reason prospects do.
+    skills: cloneSkills(s.skills),
     stats: { ...s.stats },
     events: s.events.map((e) => ({ ...e })),
   };
@@ -458,6 +509,7 @@ function buyListingInternal(s: GameState, listingId: string): boolean {
   const car = { ...listing.car, costBasis: listing.price, acquiredAt: s.t };
   s.cars.push(car);
   s.listings.splice(idx, 1);
+  awardXp(s, 'buy', buyXp(listing.price));
   return true;
 }
 
@@ -479,6 +531,7 @@ function acceptCash(s: GameState, prospectId: string): boolean {
   s.stats.lifetimeProfit += profit;
 
   if (prospect.negotiation.countersMade > 0) s.stats.negotiationsWon += 1;
+  awardXp(s, 'sell', sellXp(price, prospect.negotiation.countersMade));
 
   logEvent(s, {
     t: s.t,

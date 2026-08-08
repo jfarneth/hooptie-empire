@@ -83,6 +83,7 @@ src/
     haggle.ts       # negotiation: opening offers, reservation prices, counters
     cars.ts         # generation, reconditioning, repo damage
     upgrades.ts     # definitions and derived stats
+    skills.ts       # Buying/Closing/Wrenching: XP, levels, derived stats
     actions.ts      # player commands (state -> state)
     save.ts         # serialization, versioning, migrations
     balance.ts      # every tuning constant in the game, one file

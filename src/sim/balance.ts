@@ -161,6 +161,69 @@ export const BALANCE = {
   // -------------------------------------------------------------- progression
   /** Cash required to buy the lot and enter stage 2. */
   lotPurchaseCost: 18_000,
+
+  // -------------------------------------------------------------------- skills
+  /**
+   * Player proficiencies: Buying, Closing, Wrenching.
+   *
+   * Every effect is declared as its value at level 1 and at max level, with an
+   * easing exponent applied to normalized progress. `ease < 1` front-loads the
+   * gain so the first levels are the ones a player feels.
+   *
+   * INVARIANT: every `at1` equals the constant the game used before skills
+   * existed, so a level-1 save behaves exactly like the pre-skills build. There
+   * is a test for it (skills.test.ts) and it is what makes it safe to land the
+   * substrate ahead of the effects that read it.
+   *
+   * Every `atMax` currently equals its `at1`, so the curves are flat and levels
+   * buy nothing yet. That is deliberate: the substrate ships provably inert, and
+   * each later phase turns one skill on by editing these numbers and wiring the
+   * accessor that already exists. Target values live in docs/skills-plan.md and
+   * are not committed here until the harness has argued with them.
+   */
+  skills: {
+    maxLevel: 10,
+    /** XP to go from level 1 to 2; each level costs `xpGrowth` times the last. */
+    xpBase: 100,
+    xpGrowth: 1.55,
+
+    /**
+     * XP awards. Money-driven grants scale with a square root so one expensive
+     * car cannot leapfrog a skill, and recon pays per condition point so beaters
+     * train the shop just as well as clean cars do.
+     */
+    xp: {
+      buyPerCar: 12,
+      buyPriceRef: 1_500,
+      sellPerDeal: 10,
+      sellPriceRef: 2_500,
+      /** Closing a deal you actually haggled for teaches more than taking list. */
+      sellCounterBonus: 6,
+      /** You learn from the ones who walk, too. */
+      sellWalkaway: 4,
+      repairPerPoint: 40,
+    },
+
+    buy: {
+      /** 1σ of appraisal error, in condition points. Level 1 is today: no error. */
+      appraisalSigma: { at1: 0, atMax: 0, ease: 0.7 },
+      listingInterval: { at1: 1, atMax: 1, ease: 1 },
+      listingSlots: { at1: 0, atMax: 0, ease: 1 },
+    },
+    sell: {
+      tellJitter: { at1: 0.3, atMax: 0.3, ease: 0.8 },
+      walkChanceMult: { at1: 1, atMax: 1, ease: 1 },
+      roomMean: { at1: 0.46, atMax: 0.46, ease: 1 },
+      deskCounterFrac: { at1: 0.55, atMax: 0.55, ease: 1 },
+      /** Level at which the player gets a third counter. 0 disables it. */
+      extraCounterAt: 0,
+    },
+    repair: {
+      costMult: { at1: 1, atMax: 1, ease: 1 },
+      speedMult: { at1: 1, atMax: 1, ease: 1 },
+      maxLift: { at1: 0.35, atMax: 0.35, ease: 1 },
+    },
+  },
 } as const;
 
 export type BalanceConfig = typeof BALANCE;
