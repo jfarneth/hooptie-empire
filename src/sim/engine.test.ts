@@ -38,6 +38,10 @@ function fingerprint(s: GameState) {
     // Skills are a record of nested objects, so like prospects they are what
     // would catch a missed clone in cloneState.
     skills: SKILL_IDS.map((id) => `${id}:${s.skills[id].level}:${s.skills[id].xp}`),
+    // The house rules are nested and mutable too. Nothing inside a tick writes
+    // them, so this is a tripwire rather than an active guard here — the guard
+    // that bites is the clone-isolation test in business.test.ts.
+    business: s.business,
     stats: s.stats,
   };
 }

@@ -115,13 +115,36 @@ export const BALANCE = {
     roomMean: 0.46,
     roomSpread: 0.44,
 
-    /** Odds they accept a counter placed exactly at their reservation price. */
-    acceptanceAtReservation: 0.55,
+    /**
+     * Odds they accept a counter placed exactly at their reservation price.
+     *
+     * Halved from 0.55 in the tune-up that took the negotiation success rate
+     * down by half. Read it as: being asked for the absolute most you would pay
+     * is uncomfortable, and most people balk rather than shrug.
+     *
+     * This knob and `baseWalkChance` had to move together, and the reason is
+     * worth knowing before either is touched again. The sales desk counters
+     * once, so per haggle `P(walk) = (1 - acceptance) x walkChance` — an
+     * accepted counter can never walk. At the old 0.55 acceptance, roughly half
+     * of all counters were simply taken, which capped the achievable walk rate
+     * near 49% even with `baseWalkChance` at 1.0 and no Closing protection.
+     * Walk odds alone cannot move this metric past that ceiling.
+     */
+    acceptanceAtReservation: 0.2,
     /** How fast acceptance dies once you push past the reservation. */
     stretchDecay: 3.2,
 
-    /** Walk odds after a rejected counter. */
-    baseWalkChance: 0.14,
+    /**
+     * Walk odds after a rejected counter.
+     *
+     * 0.9 rather than 1.0 deliberately. At 1.0 every rejected counter loses the
+     * buyer outright for a level-1 closer, which kills the "they come back with
+     * a better number" branch of `resolveCounter` entirely — haggle.test.ts
+     * asserts all three outcomes stay reachable at base skill, and that test is
+     * the design guard, not an inconvenience. At 0.9 the branch survives, and
+     * Closing's `walkChanceMult` is what buys more of it.
+     */
+    baseWalkChance: 0.9,
     /** Added walk odds per unit of overreach beyond the reservation. */
     walkPerExcess: 0.6,
     /** Patience wears out across rounds. */
@@ -150,12 +173,30 @@ export const BALANCE = {
   /** Contract length options, in game weeks. */
   termWeeks: [18, 24, 30, 36] as const,
 
-  /** Per-tier: down payment share, APR, per-payment miss chance, arrival weight. */
+  /**
+   * Per-tier: down payment share, APR, per-payment miss chance, arrival weight.
+   *
+   * Miss chances are a uniform 1.2x on what they were, which puts the odds the
+   * deal sheet quotes — "chance you take it back", averaged over the walk-in mix
+   * and the four contract lengths — at ~30%, up from ~21.6%. Uniform on purpose:
+   * scaling every tier by the same factor preserves the ladder's shape, and the
+   * ladder is the credit model. On a 24-week contract that reads A 0% / B 4% /
+   * C 25% / D 73%, against A 0% / B 2% / C 16% / D 54% before.
+   *
+   * Tune this against the deal sheet number, NOT against the harness's
+   * `default rate` line. That line measures the automated underwriter's
+   * selectivity as much as the paper's riskiness: the sales desk finances on
+   * expected value, so raising risk makes it write safer paper, and the measured
+   * rate saturates around 22-25% and then falls. At a 4x miss chance it reads
+   * 12.2% — below where it started — because by then the desk will only touch
+   * A-tier. Measured non-monotonicity in that metric is the automation reacting,
+   * not the economy misbehaving.
+   */
   creditTiers: {
-    A: { downShare: 0.14, apr: 0.149, missChance: 0.03, weight: 0.14 },
-    B: { downShare: 0.18, apr: 0.199, missChance: 0.08, weight: 0.26 },
-    C: { downShare: 0.24, apr: 0.239, missChance: 0.16, weight: 0.34 },
-    D: { downShare: 0.31, apr: 0.289, missChance: 0.27, weight: 0.26 },
+    A: { downShare: 0.14, apr: 0.149, missChance: 0.036, weight: 0.14 },
+    B: { downShare: 0.18, apr: 0.199, missChance: 0.096, weight: 0.26 },
+    C: { downShare: 0.24, apr: 0.239, missChance: 0.192, weight: 0.34 },
+    D: { downShare: 0.31, apr: 0.289, missChance: 0.324, weight: 0.26 },
   },
 
   /**
@@ -164,16 +205,66 @@ export const BALANCE = {
    * portfolio needs watching rather than just growing.
    */
   delinquencyMissMultiplier: 1.5,
+  /** Default repo trigger. The player can move it; see `business` below. */
   repoAfterMissedPayments: 3,
   repoFee: 250,
-  /** Condition lost when a car comes back on the hook. */
+  /** Condition lost when a car comes back on the hook, at the default trigger. */
   repoConditionLoss: 0.18,
+  /**
+   * How much worse a repo comes back per missed payment you let ride past the
+   * default trigger — and how much better it comes back if you pull sooner.
+   *
+   * This is what makes the repo trigger a decision rather than a free lunch.
+   * Left flat, a longer leash is strictly better: the borrower gets more chances
+   * to cure, so expected collections rise and defaults fall, and a financed car
+   * occupies no lot space while it is out. Damage that scales with patience puts
+   * the cost where the real business puts it — the unit you finally recover has
+   * been driven by someone who stopped paying for it two months ago.
+   */
+  repoConditionLossPerExtraMiss: 0.25,
+  /** Floor on that multiplier, so a hair-trigger repo is not damage-free. */
+  repoConditionLossFloor: 0.5,
 
-  /** Active notes you can service before collections quality degrades. */
+  /**
+   * Active notes the collections desk will carry. This is a hard limit: the
+   * finance desk refuses to write past it.
+   *
+   * It used to be a soft one — you could write as much paper as you liked and
+   * pay for it in delinquency — which meant the number on the HUD was a
+   * suggestion, and the book ran ~3.5x over a fully-staffed desk by hour four.
+   */
   baseCollectionsCapacity: 8,
   collectionsCapacityPerLevel: 7,
-  /** Miss chance multiplier applied per 100% over collections capacity. */
+  /**
+   * Miss chance multiplier applied per 100% over collections capacity.
+   *
+   * Still load-bearing even though the cap is hard now: a save written before
+   * the cap, or one whose desk shrank, can sit over the line, and it should
+   * degrade rather than break.
+   */
   overCapacityMissPenalty: 0.9,
+
+  // ------------------------------------------------------- business management
+  /**
+   * The house rules a player can set, and the range they can set them over.
+   *
+   * `defaults` is the invariant: every one of these reproduces what the game did
+   * before the suite existed, so a fresh save and a migrated one behave the same
+   * and the only thing this feature changes on its own is what the player can
+   * now choose to change.
+   */
+  business: {
+    defaults: {
+      minWorkingCapital: 500,
+      repoAfterMissedPayments: 3,
+      minBuyMargin: 0,
+    },
+    /** Offered as a choice rather than a slider: these are decisions, not dials. */
+    workingCapitalChoices: [0, 500, 2_500, 10_000, 50_000],
+    repoTriggerMin: 1,
+    repoTriggerMax: 6,
+    buyMarginChoices: [0, 0.05, 0.1, 0.2],
+  },
 
   // -------------------------------------------------------------- progression
   /** Cash required to buy the lot and enter stage 2. */

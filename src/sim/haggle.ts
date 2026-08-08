@@ -260,6 +260,11 @@ export function readCounter(neg: Negotiation, counter: number): string {
   if (p >= 0.8) return 'Comfortable. They will probably say yes.';
   if (p >= 0.55) return 'Fair ask. Could go either way.';
   if (p >= 0.3) return 'That is a stretch for them.';
-  if (p >= 0.12) return 'Pushing it. You may lose them.';
+  // Deliberately blunter than it was. These bands describe acceptance odds, but
+  // what the player feels is the *consequence*, and a refused counter now loses
+  // the buyer roughly nine times in ten. "You may lose them" was written when a
+  // refusal usually just meant another round, and it undersold the risk by a
+  // long way once `baseWalkChance` went to 0.9.
+  if (p >= 0.12) return 'Pushing it. Turn that down and they are probably gone.';
   return 'They are going to walk.';
 }

@@ -9,6 +9,7 @@ import {
   reconCost,
 } from './cars';
 import { appraisalError, pessimisticWholesale } from './appraisal';
+import { businessDefaults, minBuyMargin, minWorkingCapital, repoThreshold } from './business';
 import { generateProspect } from './customers';
 import { deskCounter, resolveCounter } from './haggle';
 import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
@@ -17,6 +18,7 @@ import { LISTING_SOURCES, TIERS_BY_STAGE, modelsForTiers } from './models';
 import {
   activeNotes,
   applyDuePayment,
+  canWriteNote,
   missChance,
   openNote,
   overCapacityFactor,
@@ -45,7 +47,7 @@ import {
 } from './upgrades';
 import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -97,6 +99,7 @@ function blankState(seed: number, wallNow: number): GameState {
     upgrades: {},
     skills: blankSkills(),
     dealPolicy: 'manual',
+    business: businessDefaults(),
     stats: {
       carsSold: 0,
       cashDeals: 0,
@@ -254,6 +257,7 @@ function stepNotes(s: GameState): void {
   if (active.length === 0) return;
 
   const capFactor = overCapacityFactor(active.length, collectionsCapacity(s));
+  const repoAfter = repoThreshold(s);
 
   for (const note of active) {
     // A step is 1s and a payment period is a game week, so at most one payment
@@ -261,7 +265,7 @@ function stepNotes(s: GameState): void {
     if (note.nextDueAt > s.t) continue;
 
     const made = !chance(s.rng, missChance(note, capFactor));
-    const result = applyDuePayment(note, made);
+    const result = applyDuePayment(note, made, repoAfter);
 
     if (result.paid) {
       s.cash += result.amount;
@@ -332,12 +336,19 @@ function repossess(s: GameState, carId: string, customer: string, label: string)
 // ------------------------------------------------------------- automation
 
 function stepAutomation(s: GameState): void {
+  // Nothing unattended spends below the working capital floor. It is one number
+  // read once here so the shop order and the buyer cannot disagree about it —
+  // an automated business that runs its own float to zero is the failure mode
+  // this setting exists to prevent.
+  const reserve = minWorkingCapital(s);
+
   if (level(s, 'autoRecon') > 0) {
     const mods = reconModsFor(s);
     for (const car of s.cars) {
       if (!canRecon(car, mods)) continue;
       const cost = reconCost(car, mods);
-      if (cost > s.cash) continue;
+      // `s.cash` falls as jobs are booked, so the reserve holds across the loop.
+      if (cost > s.cash - reserve) continue;
       s.cash -= cost;
       car.costBasis += cost;
       beginRecon(car, mods);
@@ -350,7 +361,11 @@ function stepAutomation(s: GameState): void {
       // Leave cars alone if the shop still has work to do on them and the
       // standing shop order is going to pick them up next step.
       const mods = reconModsFor(s);
-      if (level(s, 'autoRecon') > 0 && canRecon(car, mods) && reconCost(car, mods) <= s.cash) {
+      if (
+        level(s, 'autoRecon') > 0 &&
+        canRecon(car, mods) &&
+        reconCost(car, mods) <= s.cash - reserve
+      ) {
         continue;
       }
       listCar(s, car);
@@ -360,14 +375,17 @@ function stepAutomation(s: GameState): void {
   if (level(s, 'autoBuy') > 0) {
     const capacity = carCapacity(s);
     const sigma = appraisalSigma(s);
+    // What the buyer insists on beyond "cheap": a margin against the worst case
+    // it can see, not against the estimate. Stacking a required discount on the
+    // pessimistic number is what keeps a stricter setting strictly stricter.
+    const ceilingFactor = 1 - minBuyMargin(s);
     for (const listing of [...s.listings]) {
       if (s.cars.filter((c) => c.status !== 'sold').length >= capacity) break;
       // The retainer buyer sees exactly what the player sees, and works from the
       // bad end of it. Left on ground truth it was omniscient, which made
       // automating strictly better than looking at the feed yourself.
-      if (listing.price > pessimisticWholesale(listing, sigma)) continue;
-      // Keep a working reserve so automation cannot spend the player broke.
-      if (s.cash - listing.price < 500) continue;
+      if (listing.price > pessimisticWholesale(listing, sigma) * ceilingFactor) continue;
+      if (s.cash - listing.price < reserve) continue;
       buyListingInternal(s, listing.id);
     }
   }
@@ -426,6 +444,10 @@ function chooseDeal(s: GameState, prospectId: string): 'cash' | 'finance' | 'non
   const prospect = s.prospects.find((p) => p.id === prospectId);
   if (!prospect) return 'none';
   if (s.stage !== 'bhph') return 'cash';
+  // A full book is not a reason to send a buyer away — it is a reason to sell
+  // them the car instead of the payment. Without this the desk would keep
+  // choosing paper it cannot write and then close nothing at all.
+  if (!canWriteNote(s)) return 'cash';
 
   switch (s.dealPolicy) {
     case 'cash':
@@ -514,6 +536,9 @@ export function cloneState(s: GameState): GameState {
     // Each skill is a nested object, so the record needs cloning entry by entry
     // for the same reason prospects do.
     skills: cloneSkills(s.skills),
+    // Nested and mutable: a shared policy object would let a rule change made
+    // now rewrite the rules a historical state was running under.
+    business: { ...s.business },
     stats: { ...s.stats },
     events: s.events.map((e) => ({ ...e })),
   };
@@ -604,6 +629,11 @@ function acceptFinance(s: GameState, prospectId: string): boolean {
   if (idx < 0) return false;
   const prospect = s.prospects[idx];
   if (s.stage !== 'bhph') return false;
+  // The book limit is enforced here, on the one path every contract goes
+  // through — the sales desk, the harness bot and the player's tap all land on
+  // this function, and a limit checked anywhere else would be a limit with a
+  // way around it.
+  if (!canWriteNote(s)) return false;
 
   const car = s.cars.find((c) => c.id === prospect.carId);
   if (!car || car.status !== 'listed') return false;
@@ -657,26 +687,37 @@ function expectedFinanceValue(s: GameState, prospectId: string, capacityFactor: 
       prospect.financeTerms.weeks,
       prospect.financeTerms.weeklyPayment,
       BALANCE.creditTiers[prospect.tier].missChance * capacityFactor,
+      repoThreshold(s),
     ).expectedCollected
   );
 }
 
+/**
+ * `repoAfter` widens the chain rather than being a constant, because the player
+ * sets it. The deal sheet quotes this number as exact, so it has to be the
+ * player's rule and not the house default the moment those differ.
+ */
 export function expectedCollections(
   weeks: number,
   paymentAmount: number,
   baseMissChance: number,
+  repoAfter: number = BALANCE.repoAfterMissedPayments,
 ): { expectedCollected: number; defaultProbability: number } {
+  const threshold = Math.max(1, Math.round(repoAfter));
   const pFresh = Math.min(0.95, baseMissChance);
   const pBehind = Math.min(0.95, baseMissChance * BALANCE.delinquencyMissMultiplier);
 
-  // states[k] = probability of being alive with k consecutive missed payments
-  let states = [1, 0, 0];
+  // states[k] = probability of being alive with k consecutive missed payments.
+  // The chain is `threshold` wide: the miss that takes k to `threshold` is the
+  // one that takes the car back, so there is no live state at that index.
+  let states = new Array<number>(threshold).fill(0);
+  states[0] = 1;
   let dead = 0;
   let expectedPayments = 0;
 
   for (let week = 0; week < weeks; week++) {
-    const next = [0, 0, 0];
-    for (let k = 0; k < 3; k++) {
+    const next = new Array<number>(threshold).fill(0);
+    for (let k = 0; k < threshold; k++) {
       const mass = states[k];
       if (mass === 0) continue;
       const p = k === 0 ? pFresh : pBehind;
@@ -684,7 +725,7 @@ export function expectedCollections(
       next[0] += mass * (1 - p);
       expectedPayments += mass * (1 - p);
       // Missed: advance, or die at the repo threshold.
-      if (k + 1 >= BALANCE.repoAfterMissedPayments) dead += mass * p;
+      if (k + 1 >= threshold) dead += mass * p;
       else next[k + 1] += mass * p;
     }
     states = next;

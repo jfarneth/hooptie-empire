@@ -1,4 +1,6 @@
+import { BALANCE } from './balance';
 import { SAVE_VERSION, advance, createInitialState } from './engine';
+import { activeNotes, bookRoom } from './notes';
 import { deserialize, migrate, serialize } from './save';
 import { SKILL_IDS } from './skills';
 
@@ -128,6 +130,70 @@ describe('migration chain', () => {
     expect(migrated.upgrades).toEqual({ lot: 2, collections: 1 });
 
     expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+  });
+
+  /**
+   * A v4 save has no `business` key, and the engine reads the repo trigger and
+   * the working capital floor on every tick. The values backfilled here are the
+   * ones that reproduce v4 exactly — a returning player's lot has to behave the
+   * same on load as it did on save, or the suite ships as a stealth nerf.
+   */
+  it('gives a v4 save the house rules it was already running under', () => {
+    const v4: any = JSON.parse(JSON.stringify(createInitialState(64, 0)));
+    v4.version = 4;
+    v4.cash = 412_000;
+    v4.stage = 'bhph';
+    v4.upgrades = { lot: 3, collections: 2 };
+    delete v4.business;
+
+    const migrated = migrate(v4, 4);
+
+    expect(migrated.version).toBe(SAVE_VERSION);
+    expect(migrated.business).toEqual({
+      minWorkingCapital: 500,
+      repoAfterMissedPayments: BALANCE.repoAfterMissedPayments,
+      minBuyMargin: 0,
+    });
+    expect(migrated.cash).toBe(412_000);
+    expect(migrated.upgrades).toEqual({ lot: 3, collections: 2 });
+
+    expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+  });
+
+  /**
+   * The book cap arrives with v5, and a v4 book can be well over it. Migrating
+   * must not settle the difference by deleting contracts — that is somebody's
+   * portfolio. It stops growing and shrinks back by attrition instead.
+   */
+  it('carries an over-capacity v4 book across intact rather than trimming it', () => {
+    const v4: any = JSON.parse(JSON.stringify(createInitialState(65, 0)));
+    v4.version = 4;
+    v4.stage = 'bhph';
+    delete v4.business;
+    v4.notes = Array.from({ length: 120 }, (_, i) => ({
+      id: `note_${i}`,
+      carId: `car_${i}`,
+      carLabel: 'Renwick Comet · 180k',
+      customerName: `Customer ${i}`,
+      customerTier: 'C',
+      originalPrincipal: 5_000,
+      principal: 5_000,
+      apr: 0.239,
+      paymentAmount: 260,
+      paymentsTotal: 24,
+      paymentsRemaining: 24,
+      nextDueAt: 10 * 60 * 1000,
+      missedPayments: 0,
+      collected: 0,
+      status: 'current',
+      openedAt: 0,
+    }));
+
+    const migrated = migrate(v4, 4);
+
+    expect(migrated.notes.length).toBe(120);
+    expect(activeNotes(migrated.notes).length).toBe(120);
+    expect(bookRoom(migrated)).toBe(0);
   });
 
   it('preserves counters a v2 save already had', () => {

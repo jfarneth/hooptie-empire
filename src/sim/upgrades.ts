@@ -1,4 +1,5 @@
 import { BALANCE } from './balance';
+import { repoDamageMultiplier, repoThreshold } from './business';
 import type { GameState, StageId } from './types';
 
 export type UpgradeCategory = 'capacity' | 'speed' | 'automation' | 'finance';
@@ -118,7 +119,7 @@ export const UPGRADES: readonly UpgradeDef[] = [
   {
     id: 'collections',
     name: 'Collections desk',
-    description: 'Service more active notes before delinquency starts climbing.',
+    description: 'Raises the hard limit on how many contracts you can carry at once.',
     category: 'finance',
     stage: 'bhph',
     maxLevel: 5,
@@ -200,7 +201,11 @@ export function carCapacity(state: GameState): number {
 // upgrade and the Buying skill are combined. Resolving it here would need this
 // module to import skills.ts, which already imports this one.
 
-export function collectionsCapacity(state: GameState): number {
+/**
+ * Active notes the desk will carry. A hard ceiling on the book — see
+ * `bookRoom()` in notes.ts, which is what the finance desk actually asks.
+ */
+export function collectionsCapacity(state: Pick<GameState, 'upgrades'>): number {
   return (
     BALANCE.baseCollectionsCapacity + level(state, 'collections') * BALANCE.collectionsCapacityPerLevel
   );
@@ -214,6 +219,18 @@ export function repoFee(state: GameState): number {
   return Math.round(BALANCE.repoFee * Math.pow(0.75, level(state, 'repoMan')));
 }
 
+/**
+ * Condition a repossessed car loses.
+ *
+ * Two independent terms: the recovery agent you pay for, and how long you let
+ * the borrower ride before pulling the trigger. Same shape as everywhere else
+ * that upgrades and player decisions touch one axis — they multiply rather than
+ * split it.
+ */
 export function repoConditionLoss(state: GameState): number {
-  return BALANCE.repoConditionLoss * Math.pow(0.7, level(state, 'repoMan'));
+  return (
+    BALANCE.repoConditionLoss *
+    repoDamageMultiplier(repoThreshold(state)) *
+    Math.pow(0.7, level(state, 'repoMan'))
+  );
 }
