@@ -43,6 +43,8 @@ export const BALANCE = {
   // ------------------------------------------------------------------ sourcing
   /** How many listings can sit on the feed at once (before upgrades). */
   baseListingSlots: 4,
+  /** Cars already on the feed when a new game starts, so there is no dead open. */
+  initialListings: 3,
   listingSlotsPerScoutLevel: 2,
   /** Mean gap between new listings appearing. */
   listingIntervalMs: 22_000,

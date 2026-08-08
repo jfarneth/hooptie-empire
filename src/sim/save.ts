@@ -35,6 +35,15 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {
+  // A save from a newer build than this one cannot be understood. Loading it
+  // anyway would either crash on missing fields or quietly corrupt a portfolio,
+  // so refuse and let the caller start clean.
+  if (fromVersion > SAVE_VERSION) {
+    throw new Error(
+      `Save is from a newer version (${fromVersion} > ${SAVE_VERSION}); no downgrade migration exists`,
+    );
+  }
+
   let state = raw;
   let version = fromVersion;
   while (version < SAVE_VERSION) {

@@ -1,5 +1,5 @@
 import { BALANCE } from './balance';
-import { clamp01 } from './economy';
+import { clamp01, conditionFreeValue, valuePerConditionPoint } from './economy';
 import { mintId } from './ids';
 import { BODY_COLORS, getModel } from './models';
 import { intRange, normalish } from './rng';
@@ -44,6 +44,7 @@ export function generateCar(
     acquiredAt: now,
     status: 'ready',
     reconRemainingMs: 0,
+    reconTotalMs: 0,
     reconTargetCondition: condition,
     askPrice: 0,
     listedAt: null,
@@ -56,9 +57,17 @@ export function reconLift(car: Car): number {
   return Math.max(0, Math.min(BALANCE.reconMaxLift, 1 - car.condition));
 }
 
+/**
+ * Cost of the recon job. Priced against what this specific car is worth, not
+ * against the model's showroom value — see conditionFreeValue().
+ */
 export function reconCost(car: Car): number {
-  const model = getModel(car.modelId);
-  return Math.round(reconLift(car) * model.baseValue * BALANCE.reconCostPerPoint);
+  return Math.round(reconLift(car) * conditionFreeValue(car) * BALANCE.reconCostPerPoint);
+}
+
+/** Retail value this recon job will add. Always the number the UI should quote. */
+export function reconValueGain(car: Car): number {
+  return Math.round(reconLift(car) * valuePerConditionPoint(car));
 }
 
 export function reconDurationMs(car: Car, mechanicLevel: number): Millis {
@@ -74,14 +83,17 @@ export function canRecon(car: Car): boolean {
 /** Puts the car in the shop. Caller is responsible for debiting `reconCost`. */
 export function beginRecon(car: Car, mechanicLevel: number): void {
   const lift = reconLift(car);
+  const total = reconDurationMs(car, mechanicLevel);
   car.status = 'recon';
-  car.reconRemainingMs = reconDurationMs(car, mechanicLevel);
+  car.reconRemainingMs = total;
+  car.reconTotalMs = total;
   car.reconTargetCondition = clamp01(car.condition + lift);
 }
 
 export function finishRecon(car: Car): void {
   car.condition = car.reconTargetCondition;
   car.reconRemainingMs = 0;
+  car.reconTotalMs = 0;
   car.status = 'ready';
 }
 
@@ -93,6 +105,7 @@ export function applyRepoDamage(car: Car, conditionLoss: number): void {
   car.askPrice = 0;
   car.listedAt = null;
   car.reconRemainingMs = 0;
+  car.reconTotalMs = 0;
   car.reconTargetCondition = car.condition;
 }
 

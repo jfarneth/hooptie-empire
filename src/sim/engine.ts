@@ -34,6 +34,40 @@ import type { Car, GameState, Millis, SimEvent } from './types';
 export const SAVE_VERSION = 1;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
+  const state = blankState(seed, wallNow);
+
+  // Seed the feed so a brand new player has something to look at immediately.
+  // Waiting out the first listing interval on a cold open is the worst possible
+  // first twenty seconds for an idle game.
+  //
+  // The first car is dealt rather than rolled: it is always a beater the player
+  // can afford, at a price that leaves a clear margin. Left to chance, roughly
+  // one opening in eight had nothing buyable on it at all.
+  spawnStarterListing(state);
+  for (let i = 1; i < BALANCE.initialListings; i++) spawnListing(state);
+
+  return state;
+}
+
+/** The guaranteed opening deal. Affordable, and obviously worth doing. */
+function spawnStarterListing(s: GameState): void {
+  const models = modelsForTiers(['beater']);
+  const model = pick(s.rng, models);
+  const car = generateCar(s, s.rng, model, s.t);
+
+  const affordable = BALANCE.startingCash * range(s.rng, 0.5, 0.72);
+  const price = Math.round(Math.min(wholesaleValue(car) * 0.95, affordable));
+
+  s.listings.push({
+    id: mintId(s, 'lst'),
+    car,
+    price,
+    expiresAt: s.t + BALANCE.listingLifetimeMs * 2,
+    source: pick(s.rng, LISTING_SOURCES),
+  });
+}
+
+function blankState(seed: number, wallNow: number): GameState {
   return {
     version: SAVE_VERSION,
     t: 0,
@@ -128,6 +162,11 @@ function stepListings(s: GameState): void {
   const ratePerSec = 1000 / listingIntervalMs(s);
   if (!chance(s.rng, arrivalChance(ratePerSec, TICK_MS))) return;
 
+  spawnListing(s);
+}
+
+/** Put one car on the sourcing feed. */
+function spawnListing(s: GameState): void {
   const tiers = TIERS_BY_STAGE[s.stage] ?? TIERS_BY_STAGE.curbstoner;
   const models = modelsForTiers(tiers);
   const model = pick(s.rng, models);

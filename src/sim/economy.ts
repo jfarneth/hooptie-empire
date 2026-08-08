@@ -27,13 +27,30 @@ export function conditionFactor(condition: number): number {
   return floor + (1 - floor) * clamp01(condition);
 }
 
-/** What the car will actually fetch in a straight cash sale. */
-export function retailValue(car: Car): number {
+/**
+ * What this car would be worth in showroom condition — value with the condition
+ * term factored out.
+ *
+ * This is the correct basis for anything that scales with "how much car is
+ * here": both the value a point of condition adds and the cost of adding it.
+ * Pricing recon off the model's base value instead makes bodywork on a
+ * 200k-mile beater cost as much as bodywork on a new one, which silently makes
+ * reconditioning a trap on every car in the opening stage.
+ */
+export function conditionFreeValue(car: Car): number {
   const model = getModel(car.modelId);
   const repoPenalty = Math.max(0.5, 1 - car.repoCount * BALANCE.repoValuePenalty);
-  return Math.round(
-    model.baseValue * mileageFactor(car.mileage) * conditionFactor(car.condition) * repoPenalty,
-  );
+  return model.baseValue * mileageFactor(car.mileage) * repoPenalty;
+}
+
+/** What the car will actually fetch in a straight cash sale. */
+export function retailValue(car: Car): number {
+  return Math.round(conditionFreeValue(car) * conditionFactor(car.condition));
+}
+
+/** Dollars of retail value one point of condition is worth on this car. */
+export function valuePerConditionPoint(car: Car): number {
+  return conditionFreeValue(car) * (1 - BALANCE.conditionFloorFactor);
 }
 
 /** What it is worth to a wholesaler — what you should be paying for it. */

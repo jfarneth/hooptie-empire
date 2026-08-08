@@ -38,6 +38,8 @@ export interface Car {
   status: CarStatus;
   /** Remaining reconditioning work, in sim ms. Only meaningful while status === 'recon'. */
   reconRemainingMs: number;
+  /** Duration of the current recon job, so progress is derivable for the UI. */
+  reconTotalMs: number;
   /** Condition this car will reach when the current recon job finishes. */
   reconTargetCondition: number;
   askPrice: number;
