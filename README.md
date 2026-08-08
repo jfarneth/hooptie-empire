@@ -29,6 +29,27 @@ npm run typecheck  # tsc --noEmit
 npm run sim        # headless balance harness (see below)
 ```
 
+## Where it runs
+
+Nowhere, until you want it to. The game is entirely client-side — no server, no
+database, no API, no accounts — so there is nothing to keep running and nothing
+to pay for.
+
+- **On your phone:** `npm start`, then scan the QR with Expo Go. Every native
+  module used here ships inside Expo Go, so no custom build is needed. This is
+  the real playtesting loop.
+- **On the web:** pushing to `master` publishes a playable build to GitHub Pages
+  via `.github/workflows/deploy-web.yml`. Good for sharing a link; React Native
+  Web is faithful but not identical to native, so judge game *feel* on a device.
+- **App stores:** not set up. When the game earns it, EAS Build produces
+  iOS/Android binaries without needing a Mac, and EAS Update pushes JS changes
+  over the air — useful when retuning `balance.ts` is most of the work.
+
+Note that **saves are local to the device.** Lose the phone, lose the portfolio.
+There is no cloud sync, and adding it is the one feature that would introduce a
+backend. The save layer carries versioning and migrations from day one so that
+stays a choice rather than a forced rewrite.
+
 ## Architecture
 
 The one rule worth enforcing in review:
