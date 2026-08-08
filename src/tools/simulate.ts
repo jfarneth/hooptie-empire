@@ -157,10 +157,17 @@ function runOne(seed: number, hours: number, verbose: boolean) {
     if (milestones[key] === undefined) milestones[key] = s.t;
   };
 
-  while (s.t < totalMs) {
-    s = advance(s, STEP_MS);
-    s = botTurn(s);
-
+  /**
+   * Checked either side of the bot's turn, because some milestones describe a
+   * state the bot immediately spends away.
+   *
+   * 'cash for lot' is the one that matters: botTurn buys the lot on its first
+   * line, so testing afterwards never sees the balance that paid for it. Read
+   * only after the turn, this milestone silently reported the time to earn
+   * $18k *back*, landing it after 'stage 2' and making stage 1 look about
+   * twenty minutes longer than it is.
+   */
+  const markMilestones = () => {
     if (s.cash >= BALANCE.lotPurchaseCost) mark('cash for lot');
     if (s.stage === 'bhph') mark('stage 2: BHPH');
     if (s.stats.financeDeals >= 1) mark('first note written');
@@ -168,6 +175,13 @@ function runOne(seed: number, hours: number, verbose: boolean) {
     if (s.notes.filter((n) => n.status === 'paid').length >= 1) mark('first note paid off');
     if (portfolioValue(s.notes) >= 50_000) mark('$50k portfolio');
     if (s.cash >= 100_000) mark('$100k cash');
+  };
+
+  while (s.t < totalMs) {
+    s = advance(s, STEP_MS);
+    markMilestones();
+    s = botTurn(s);
+    markMilestones();
 
     if (verbose && s.t - lastReport >= 15 * 60 * 1000) {
       lastReport = s.t;
