@@ -1,0 +1,66 @@
+{
+  "note": [
+    "Which kit model stands in for each archetype, and where that model's paint",
+    "lives in the shared palette atlas.",
+    "",
+    "Kenney's Car Kit puts every model on one material sampling one 512x512",
+    "palette texture, so a car is repainted by editing the texture rather than",
+    "by touching the model. Each model ships in its own colour, so there is no",
+    "single paint band -- the source hue is declared per model here.",
+    "",
+    "The bands were measured area-weighted off each body mesh's UVs, not by",
+    "vertex count: a big flat roof is few vertices and a detailed bumper is",
+    "many, so counting vertices reports the bumper as the car's colour.",
+    "",
+    "minSaturation is what separates paint from the shared chassis. Every model",
+    "carries a #66677c blue-grey underside at roughly 40% of its surface, which",
+    "sits inside the blue hue window but at a saturation of ~0.15. The van's",
+    "actual blue paint is ~0.53. That threshold is the only thing keeping a",
+    "repaint off the chassis, so do not lower it without re-checking a render.",
+    "",
+    "KNOWN AND ACCEPTED: lamp lenses share a hue window with paint on the red",
+    "and amber models, so they repaint along with the bodywork. They are a",
+    "fraction of a percent of the surface and invisible at lot scale. Splitting",
+    "them out would mean editing UVs, which is a model change, not a texture one."
+  ],
+
+  "archetypes": {
+    "sedanEconomy":  { "model": "sedan",            "scale": 1.0 },
+    "sedanPremium":  { "model": "sedan-sports",     "scale": 1.04 },
+    "coupePremium":  { "model": "sedan-sports",     "scale": 0.93 },
+    "hatchEconomy":  { "model": "hatchback-sports", "scale": 0.96 },
+    "suvEconomy":    { "model": "suv-luxury",       "scale": 0.94 },
+    "suvPremium":    { "model": "suv-luxury",       "scale": 1.08 },
+    "vanEconomy":    { "model": "van",              "scale": 1.04 },
+    "truckEconomy":  { "model": "truck",            "scale": 1.0 },
+    "truckPremium":  { "model": "truck",            "scale": 1.15 }
+  },
+
+  "unreachable": {
+    "note": [
+      "Declared in archetypes.ts but not produced by any model in the",
+      "catalogue, so nothing renders them. Left here so the reason is on the",
+      "record rather than looking like an oversight; if a premium hatch or a",
+      "plain two-door is ever added to models.ts, these need entries above and",
+      "the render matrix grows by nine frames each."
+    ],
+    "archetypes": ["coupeEconomy", "hatchPremium", "vanPremium"]
+  },
+
+  "paintBands": {
+    "sedan":            { "hueMin": 0.00, "hueMax": 0.09, "minSaturation": 0.35, "reference": "#fa6b41" },
+    "sedan-sports":     { "hueMin": 0.00, "hueMax": 0.09, "minSaturation": 0.35, "reference": "#fa6b41" },
+    "race":             { "hueMin": 0.00, "hueMax": 0.09, "minSaturation": 0.35, "reference": "#e76047" },
+    "hatchback-sports": { "hueMin": 0.38, "hueMax": 0.50, "minSaturation": 0.30, "reference": "#5ac487" },
+    "suv":              { "hueMin": 0.38, "hueMax": 0.50, "minSaturation": 0.30, "reference": "#43ac7c" },
+    "truck":            { "hueMin": 0.38, "hueMax": 0.50, "minSaturation": 0.30, "reference": "#3fa87a" },
+    "suv-luxury":       { "hueMin": 0.07, "hueMax": 0.17, "minSaturation": 0.40, "reference": "#ffbe52" },
+    "van":              { "hueMin": 0.55, "hueMax": 0.66, "minSaturation": 0.35, "reference": "#658ed6" }
+  },
+
+  "render": {
+    "size": 256,
+    "samples": 48,
+    "marginFactor": 1.06
+  }
+}

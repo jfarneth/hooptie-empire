@@ -48,36 +48,66 @@ describe('archetypeForModel', () => {
 
 describe('registry', () => {
   /**
-   * The fallback contract. While the table is empty every lookup must miss, so
-   * that `CarArt` draws vector art for the whole catalogue and the game renders
-   * with no sprites at all. When art starts landing this test changes shape —
-   * what must not change is that a *missing* archetype still returns null
-   * rather than throwing or returning a broken frame.
+   * Three archetypes are declared but unreachable from the catalogue, so the
+   * pipeline never renders them. They are the standing proof of the fallback
+   * contract: an archetype with no art must miss cleanly rather than throw or
+   * hand back a broken frame, which is what lets art land one archetype at a
+   * time. If models.ts ever gains a premium hatch, this list shrinks — what
+   * must not change is that a miss stays a clean null.
    */
+  const UNRENDERED = ['coupeEconomy', 'hatchPremium', 'vanPremium'] as const;
+
   it('misses cleanly for archetypes with no art', () => {
-    for (const archetype of ARCHETYPES) {
-      for (const angle of ['top', 'side'] as const) {
-        for (let i = 0; i < BODY_COLORS.length; i++) {
-          expect(spriteFor(archetype, angle, i)).toBeNull();
-        }
+    for (const archetype of UNRENDERED) {
+      for (let i = 0; i < BODY_COLORS.length; i++) {
+        expect(spriteFor(archetype, 'top', i)).toBeNull();
       }
     }
   });
 
-  it('reports nothing rendered while the table is empty', () => {
-    expect(renderedArchetypes('top')).toHaveLength(0);
+  it('has art for every archetype the catalogue can actually produce', () => {
+    const reachable = ARCHETYPES.filter((a) => !UNRENDERED.includes(a as never));
+    for (const archetype of reachable) {
+      expect(spriteFor(archetype, 'top', 0)).not.toBeNull();
+    }
+    expect(renderedArchetypes('top').sort()).toEqual([...reachable].sort());
+  });
+
+  it('renders the lot only — the feed keeps the vector side profile', () => {
     expect(renderedArchetypes('side')).toHaveLength(0);
+    for (const archetype of ARCHETYPES) {
+      expect(spriteFor(archetype, 'side', 0)).toBeNull();
+    }
   });
 
-  it('expects one frame per body colour', () => {
+  it('carries one frame per body colour, and they are distinct', () => {
     expect(COLOR_VARIANT_COUNT).toBe(BODY_COLORS.length);
+    const sources = new Set(
+      Array.from({ length: BODY_COLORS.length }, (_, i) =>
+        JSON.stringify(spriteFor('sedanEconomy', 'top', i)?.source),
+      ),
+    );
+    // Nine colours must be nine files. Sharing one would mean the repaint step
+    // silently produced identical atlases, which is exactly what a packed
+    // texture did until it was unpacked.
+    expect(sources.size).toBe(BODY_COLORS.length);
   });
 
-  it('survives a colour index outside the palette', () => {
-    // colorIndex is save data and the palette could grow or shrink; the lookup
-    // wraps rather than handing back undefined.
-    expect(spriteFor('sedanEconomy', 'top', 999)).toBeNull();
-    expect(spriteFor('sedanEconomy', 'top', -3)).toBeNull();
+  it('reports a frame size the layout can scale from', () => {
+    const frame = spriteFor('sedanEconomy', 'top', 0);
+    expect(frame!.width).toBeGreaterThan(0);
+    expect(frame!.height).toBeGreaterThan(frame!.width);
+    // The artboard aspect the lot positions against — see CAR_BOX in layout.ts.
+    expect(frame!.height / frame!.width).toBeCloseTo(124 / 60, 1);
+  });
+
+  it('wraps a colour index outside the palette rather than returning nothing', () => {
+    // colorIndex is save data and the palette could grow or shrink.
+    expect(spriteFor('sedanEconomy', 'top', 999)).not.toBeNull();
+    expect(spriteFor('sedanEconomy', 'top', -3)).not.toBeNull();
+    expect(spriteFor('sedanEconomy', 'top', BODY_COLORS.length)).toEqual(
+      spriteFor('sedanEconomy', 'top', 0),
+    );
   });
 });
 

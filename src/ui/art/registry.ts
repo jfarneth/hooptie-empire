@@ -1,6 +1,7 @@
 import type { ImageSourcePropType } from 'react-native';
 import { BODY_COLORS } from '../../sim/models';
 import type { Archetype } from './archetypes';
+import { SPRITE_HEIGHT, SPRITE_SOURCES, SPRITE_WIDTH } from './sprites';
 
 /**
  * Where rendered sprites live, and the reason nothing else has to change when
@@ -45,9 +46,25 @@ type ColorVariants = readonly SpriteFrame[];
 
 type SpriteTable = Partial<Record<Archetype, Partial<Record<CarAngle, ColorVariants>>>>;
 
-const SPRITES: SpriteTable = {
-  // Intentionally empty. See the note above.
-};
+/**
+ * Built from the generated table. Only the top-down angle is rendered: the lot
+ * is where sixty cars are on screen at once and where the shading earns its
+ * keep, while the feed and the sheets show one car at a time and the vector
+ * side profile reads perfectly well there. Rendering both angles would double
+ * the matrix and the bundle for the screen that needs it least.
+ */
+const SPRITES: SpriteTable = Object.fromEntries(
+  Object.entries(SPRITE_SOURCES).map(([archetype, sources]) => [
+    archetype,
+    {
+      top: sources.map((source) => ({
+        source,
+        width: SPRITE_WIDTH,
+        height: SPRITE_HEIGHT,
+      })),
+    },
+  ]),
+) as SpriteTable;
 
 export function spriteFor(
   archetype: Archetype,
