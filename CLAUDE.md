@@ -73,6 +73,47 @@ Consequences to respect:
   is set by actions only, so its real guard is the clone-isolation test in
   `business.test.ts`. Anything else in that shape needs the same treatment.
 
+## The lot is a scene, and cars are drawn through one seam
+
+The Lot screen is a top-down view of the dealership, not a grid of cards. Two
+directories carry it and both have rules worth knowing before you touch them.
+`docs/ui-3d-plan.md` is the design doc, including the four options this came out
+of and where the art is meant to come from.
+
+**`src/ui/art` is the only place that knows how a car is drawn.** `CarArt` takes
+a `modelId` and an angle and returns a picture; whether that is a rendered sprite
+or a vector drawing is decided there and nowhere else. `registry.ts` returns
+`null` for any archetype without art and the vector renderer takes over — that
+fallback is the contract, not a stopgap, and it is what will let a commissioned
+sprite pack land one archetype at a time with no broken build in between. Code
+that reaches past `CarArt` to a sprite table will crash on exactly the car nobody
+has drawn yet.
+
+The catalogue's 30 models map to **12 archetypes** (`archetypes.ts`): each body
+style split economy/premium at `PREMIUM_VALUE_THRESHOLD`. That mapping is not
+save data — `Car.modelId` is — so the split can be re-cut, or grown to thirty,
+without a migration.
+
+**`src/ui/lot/layout.ts` is pure and tested, and it is where the 5-to-62 car
+range is solved.** Give it a capacity and a width and it returns painted stalls;
+column count and car scale come out of a table, so the camera pulls back as the
+business grows and "Pave another row" literally paves another row. Two things it
+must keep doing:
+
+- **Parking derives from a hash of `car.id`, never from saved state.** No
+  `SAVE_VERSION` bump, nothing new for `cloneState()` to miss. It is hash-then-
+  probe rather than fill-in-order on purpose: filling in order means every car
+  behind the one you just sold shuffles forward, which on a 62-car lot is half
+  the screen moving because one car left. `layout.test.ts` guards it, and that
+  test is the one that goes red if you "simplify" it.
+- **Markers hang off the car, not off the stall.** A badge positioned above the
+  stall lands on the tail of the car in the row in front, which put price tags on
+  the wrong cars until it was caught in a screenshot.
+
+The HUD floats over the screens rather than sitting above them, so every scroll
+view pads its content by `HUD_HEIGHT`. A new screen that forgets starts under the
+cash readout.
+
 ## Verify
 
 ```bash

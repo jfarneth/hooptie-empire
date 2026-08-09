@@ -85,13 +85,17 @@ export default function App() {
     <SafeAreaProvider>
       <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
         <StatusBar style="light" />
-        <Hud state={state} />
 
         <View style={styles.body}>
           {tab === 'lot' ? <LotScreen state={state} /> : null}
           {tab === 'buy' ? <BuyScreen state={state} /> : null}
           {tab === 'notes' ? <NotesScreen state={state} /> : null}
           {tab === 'upgrades' ? <UpgradesScreen state={state} /> : null}
+
+          {/* Floats over the screen, which is why every screen pads by HUD_HEIGHT. */}
+          <View style={styles.hudLayer} pointerEvents="box-none">
+            <Hud state={state} />
+          </View>
         </View>
 
         <View style={styles.tabBar}>
@@ -127,6 +131,7 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.colors.bg },
   body: { flex: 1 },
+  hudLayer: { position: 'absolute', left: 0, right: 0, top: 0 },
   tabBar: {
     flexDirection: 'row',
     backgroundColor: theme.colors.surface,

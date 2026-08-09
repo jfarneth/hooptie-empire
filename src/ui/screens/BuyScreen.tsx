@@ -8,7 +8,8 @@ import { carCapacity } from '../../sim/upgrades';
 import type { GameState, Listing } from '../../sim/types';
 import { useGame } from '../../state/store';
 import { duration, money, theme } from '../theme';
-import { CarSvg } from '../components/CarSvg';
+import { HUD_HEIGHT } from '../components/Hud';
+import { CarArt } from '../art/CarArt';
 import { Chip, EmptyState, Label, Row } from '../components/ui';
 
 /**
@@ -82,8 +83,8 @@ function ListingRow({
       ]}
     >
       <View style={styles.thumb}>
-        <CarSvg
-          bodyStyle={model.bodyStyle}
+        <CarArt
+          modelId={listing.car.modelId}
           colorIndex={listing.car.colorIndex}
           condition={listing.car.condition}
           width={96}
@@ -132,7 +133,7 @@ function ListingRow({
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 8, paddingBottom: 32 },
+  content: { padding: 16, paddingTop: HUD_HEIGHT + 12, gap: 8, paddingBottom: 32 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
