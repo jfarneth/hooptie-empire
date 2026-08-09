@@ -8,6 +8,23 @@ Nothing in here touches `src/sim`. The purity rule holds throughout, the 186
 tests and the balance harness are unaffected, and no save migration is required
 if the recommendations below are followed.
 
+## Settled before you read on
+
+Two calls are already made, and the rest of the document assumes them.
+
+**The camera is top-down aerial**, not isometric and not a 3/4 hero shot: you are
+looking straight down at the dealership, and the lot scrolls as it gets bigger.
+That choice is doing more work than it looks. A top-down plate is the only camera
+that stays legible across the 5-to-62 car range (§1), it makes the lot a *map* the
+player pans rather than a diorama they admire, and it is the cheapest angle to
+render — one camera, no per-orientation art until cars need to turn.
+
+**Twelve car archetypes**, not six and not thirty. See §4.
+
+Mockups of every option below, shot at 390×844, are in `docs/mockups/`. They are
+drawn procedurally in SVG as stand-ins for rendered sprites — they show the
+composition and the lighting intent, not the real pipeline.
+
 ---
 
 ## 1. What is actually wrong
@@ -52,16 +69,18 @@ a seam gets.
 
 ## 2. Four options
 
-### Option A — Vector diorama
+### Option A — Flat vector, top-down
 
-Keep `react-native-svg`. Redraw the cars at a 3/4 isometric angle instead of side
-profile, and replace the bay grid with one continuous lot surface: a ground plane
-in perspective, painted stall lines converging toward a vanishing point, cars
-parked in rows that scale down with distance, a dealership facade across the top
-of the frame, sodium light pools as radial gradients, a night sky above.
+*Mockup: `docs/mockups/01-option-a.jpg`.*
 
-Depth comes from overlap, scale-by-row, ground contact shadows, and a warm-to-cool
-gradient into the distance. All procedural, all in code.
+Keep `react-native-svg`. Redraw the cars from directly above instead of in side
+profile, and replace the bay grid with one continuous lot surface: painted stall
+lines, drive aisles, a showroom roof across the top of the frame, street frontage
+with banner flags at the bottom. The car carries its own state — a price sticker
+floating over the roof, a wrench badge while it is in the shop — so no card exists
+until you tap one.
+
+Depth comes from contact shadows and overlap alone. All procedural, all in code.
 
 - **Asset cost:** zero.
 - **Build cost:** 3–4 days.
@@ -75,10 +94,13 @@ gradient into the distance. All procedural, all in code.
 
 ### Option B — Pre-rendered 2.5D sprites ← **recommended**
 
-Model each car once in 3D, render it offline from a fixed camera angle to a PNG
-atlas, ship the images. Same isometric lot scene as Option A, except every car is
-a properly lit, shaded, three-dimensional object with real ambient occlusion and
-a specular highlight that actually follows its bodywork.
+*Mockup: `docs/mockups/02-option-b.jpg`.*
+
+Model each car once in 3D, render it offline from a fixed overhead camera to a
+sprite atlas, ship the images. Same lot as Option A, except every car is a
+properly lit, shaded, three-dimensional object with real ambient occlusion under
+the sills and a specular highlight that follows its bodywork — and the tarmac
+gets grain, oil stains, tyre scuff and sodium light pools.
 
 This is what essentially every successful tycoon game looks like, from
 RollerCoaster Tycoon through the current mobile idle catalogue. It reads as 3D
@@ -94,8 +116,16 @@ because it *is* 3D — just photographed at build time instead of at run time.
 
 ### Option C — Real-time 3D (`expo-gl` + three.js)
 
+*Mockup: `docs/mockups/03-option-c.jpg`.*
+
 An actual 3D scene. Orbit the lot, real materials, dynamic lighting, day/night,
 a camera that pushes in when you tap a car and cars that turn as they drive in.
+
+The mockup surfaced the argument against it better than prose does: **at phone
+width a perspective camera gives you six or nine cars legible and the rest a
+smear.** Top-down gives you all sixty-two. Tilting the camera trades away exactly
+the property the game needs most at the top of the ladder, and no amount of
+render quality buys it back.
 
 - **Asset cost:** the same as Option B. You do not escape needing 3D models; you
   just load them at runtime instead of rendering them at build time.
@@ -149,9 +179,9 @@ difference over the life of the project is several times over.
 
 ### What you actually need
 
-| Asset | Minimum | Comfortable | Notes |
+| Asset | Minimum | **Chosen** | Notes |
 |---|---|---|---|
-| Car archetypes | **6** | **12** | 6 exactly matches today's fidelity |
+| Car archetypes | 6 | **12** | 6 matches today's fidelity; 12 is the call |
 | Paint colours | 9 | 9 | Free — a render loop, not an art task |
 | Camera angles | 1 | 4 | 1 for a static lot; 4 if cars turn on arrival |
 | Condition overlays | 3 | 5 | Grime, rust, dents — shared across all archetypes |
@@ -160,16 +190,21 @@ difference over the life of the project is several times over.
 | Props | 6 | 15 | Light poles, banner flags, price signs, tow truck |
 | Characters | 3 | 8 | The walk-up buyer, the mechanic, the repo man |
 
-**On archetype count.** The catalogue has 30 models but only 6 body styles, and
-the game currently distinguishes exactly those 6. Per-model art multiplies the
-commission by five and buys less than it looks like — nobody will notice that the
-Nakato Civet and the Bergstrom Vantage share a shell, because they already do.
+**On archetype count — settled at 12.** The catalogue has 30 models but only 6
+body styles, and the game currently distinguishes exactly those 6. Per-model art
+multiplies the commission by five and buys less than it looks like — nobody will
+notice that the Nakato Civet and the Bergstrom Vantage share a shell, because
+they already do.
 
-The high-value middle ground is **12 archetypes**: split each body style by
-roughly economy vs. premium. A Kessler Sovereign and a Renwick Comet are both
-`sedan` today and render identically apart from paint, which is the one place the
-current art genuinely misrepresents the game — the whole ladder is about moving
-upmarket, and the cars never look it.
+Twelve is the high-value middle: split each body style by roughly economy vs.
+premium. A Kessler Sovereign and a Renwick Comet are both `sedan` today and render
+identically apart from paint, which is the one place the current art genuinely
+misrepresents the game — the whole ladder is about moving upmarket, and the cars
+never look it.
+
+The mapping lives in `registry.ts` as `modelId → archetype`, so the split can be
+re-cut later without touching a call site, and the 30 model ids stay exactly as
+they are in save data.
 
 **On backdrops.** Six stage backdrops will do more for "this is a 3D game" than
 the cars will. A cracked suburban driveway under a streetlight, a gravel corner
@@ -293,6 +328,13 @@ the drafting table (Upgrades). Old idea, works every time.
 another row." The lot should gain a row of asphalt when you buy it. That single
 change turns the most boring upgrade in the game into the most satisfying one,
 and it costs one entry in `layout.ts`.
+
+Both ends of that range are mocked up: `docs/mockups/04-scale-small.jpg` is
+curbstoning at three cars with the camera pushed in, and
+`docs/mockups/05-scale-big.jpg` is a premium franchise at 62 with the camera
+pulled back and the lot scrolling past the frame. Columns, car scale and row
+pitch are all outputs of `layout.ts` given a capacity — which is why that function
+being pure and tested matters more than it sounds.
 
 ---
 
