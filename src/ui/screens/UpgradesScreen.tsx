@@ -6,6 +6,7 @@ import { SKILLS } from '../../sim/skills';
 import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
 import { money, theme } from '../theme';
+import { HUD_HEIGHT } from '../components/Hud';
 import { Button, Chip, Label, Row } from '../components/ui';
 import { AdminPanel } from '../components/AdminPanel';
 import { BusinessPanel } from '../components/BusinessPanel';
@@ -143,7 +144,7 @@ function UpgradeCard({
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 14, paddingBottom: 32 },
+  content: { padding: 16, paddingTop: HUD_HEIGHT + 12, gap: 14, paddingBottom: 32 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',

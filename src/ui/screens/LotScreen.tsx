@@ -15,17 +15,20 @@ import { carCapacity } from '../../sim/upgrades';
 import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
 import { money, theme } from '../theme';
+import { HUD_HEIGHT } from '../components/Hud';
 import { CarSheet } from '../components/CarSheet';
 import { StageCard } from '../components/StageCard';
 import { DealSheet } from '../components/DealSheet';
-import { LotGrid } from '../components/LotGrid';
-import { Card, EmptyState, Label } from '../components/ui';
+import { Sheet } from '../components/Sheet';
+import { LotScene } from '../lot/LotScene';
+import { Card, Label } from '../components/ui';
 
-/** The main screen: your inventory, your walk-ups, and the road to the lot. */
+/** The main screen: your lot, your walk-ups, and the road to a bigger store. */
 export function LotScreen({ state }: { state: GameState }) {
   const apply = useGame((s) => s.apply);
   const [carId, setCarId] = useState<string | null>(null);
   const [prospectId, setProspectId] = useState<string | null>(null);
+  const [ladderOpen, setLadderOpen] = useState(false);
 
   const car = carId ? (state.cars.find((c) => c.id === carId) ?? null) : null;
   const prospect = prospectId ? (state.prospects.find((p) => p.id === prospectId) ?? null) : null;
@@ -39,31 +42,48 @@ export function LotScreen({ state }: { state: GameState }) {
     if (carId && !car) setCarId(null);
   }, [carId, car]);
 
+  const stage = getStage(state.stage);
   const held = state.cars.filter((c) => c.status !== 'sold').length;
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <StageCard state={state} />
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        // The lot is a surface, not a list: it must not bounce away from the
+        // showroom at the top or the street at the bottom.
+        bounces={false}
+      >
+        <LotScene
+          state={state}
+          capacity={carCapacity(state)}
+          onSelectCar={setCarId}
+          onSelectProspect={setProspectId}
+          onPressSign={() => setLadderOpen(true)}
+        />
 
-        <Label>{getStage(state.stage).capacityUpgradeId === 'driveway' ? 'Driveway' : 'The lot'}</Label>
+        <View style={styles.below}>
+          {held === 0 ? (
+            <Card>
+              <Text style={styles.hint}>
+                Nothing on the lot yet. Head to <Text style={styles.hintStrong}>Buy</Text> and pick
+                something up — look for anything priced under wholesale.
+              </Text>
+            </Card>
+          ) : null}
 
-        {held === 0 ? (
-          <EmptyState
-            title="Nothing to sell"
-            hint="Head to Buy and pick something up. Look for anything priced under wholesale."
-          />
-        ) : (
-          <LotGrid
-            state={state}
-            capacity={carCapacity(state)}
-            onSelectCar={setCarId}
-            onSelectProspect={setProspectId}
-          />
-        )}
-
-        <RecentActivity state={state} />
+          <RecentActivity state={state} />
+        </View>
       </ScrollView>
+
+      <Sheet
+        visible={ladderOpen}
+        title={stage.name}
+        subtitle="The ladder, and the price of the next rung"
+        onClose={() => setLadderOpen(false)}
+      >
+        <StageCard state={state} />
+      </Sheet>
 
       <CarSheet
         state={state}
@@ -125,7 +145,7 @@ function RecentActivity({ state }: { state: GameState }) {
             : theme.colors.textDim;
 
   return (
-    <View style={{ gap: 6, marginTop: 8 }}>
+    <View style={{ gap: 6 }}>
       <Label>Activity</Label>
       <Card style={{ gap: 5, paddingVertical: 10 }}>
         {recent.map((e, i) => (
@@ -147,7 +167,10 @@ function RecentActivity({ state }: { state: GameState }) {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 10, paddingBottom: 32 },
+  content: { paddingTop: HUD_HEIGHT, paddingBottom: 32 },
+  below: { padding: 16, gap: 12 },
+  hint: { color: theme.colors.textDim, fontSize: 13, lineHeight: 19 },
+  hintStrong: { color: theme.colors.accent, fontWeight: '700' },
   eventRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   eventLabel: { color: theme.colors.textDim, fontSize: 12, flex: 1 },
   eventAmount: { fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },

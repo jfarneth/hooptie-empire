@@ -344,12 +344,21 @@ You asked whether to build the engine and stub the sprites while a package gets
 commissioned, or to build something good enough to launch. **With this pipeline
 those are the same work, done in this order:**
 
-**Phase 1 — the scene, no assets. ~3–4 days.**
-`LotScene`, pure `layout.ts`, the `CarArt` seam, diegetic HUD, buyer figures,
-capacity-driven lot growth. The renderer is still today's vector art, improved to
-a 3/4 angle. **This ships on its own as a real improvement and none of it is
-thrown away.** If you never commission anything, this is Option A and it is a
-perfectly respectable place to stop.
+**Phase 1 — the scene, no assets. ✅ Done.**
+`LotScene`, pure `layout.ts` with a test file, the `CarArt` seam, the twelve
+archetypes, top-down vector art, a HUD that floats over the scene, buyer figures,
+and capacity-driven lot growth. The renderer is still vector — this is Option A,
+and if you never commission anything it is a perfectly respectable place to stop.
+**None of it is thrown away when sprites arrive.**
+
+Three things this shook out that the mockups did not:
+
+- Markers positioned relative to the *stall* land on the car in the row in front.
+  They hang off the car now.
+- Light glass covers most of a car's plan view and washes the paint out — nine
+  body colours became shades of the same grey until the glass went dark.
+- At 62 cars there can be thirty walk-ups on screen at once. An unringed figure
+  is a brown speck on tarmac, so the buyer got a ring in the accent colour.
 
 **Phase 2 — the pipeline, free assets. ~2 days.**
 `tools/render-sprites` built against Kenney's CC0 models. At the end of this the

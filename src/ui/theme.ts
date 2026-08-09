@@ -53,6 +53,21 @@ export function weatheredColor(hex: string, condition: number): string {
   return `#${to2(mix(r, target.r))}${to2(mix(g, target.g))}${to2(mix(b, target.b))}`;
 }
 
+/**
+ * Push a hex colour toward white (positive) or black (negative).
+ *
+ * The lot is drawn from one paint colour per car, so every panel that needs to
+ * read as lit or shadowed derives from it here rather than being picked by hand
+ * — otherwise nine body colours would need nine hand-tuned palettes.
+ */
+export function shadeColor(hex: string, amount: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (c: number) =>
+    Math.max(0, Math.min(255, Math.round(amount > 0 ? c + (255 - c) * amount : c * (1 + amount))));
+  const to2 = (v: number) => v.toString(16).padStart(2, '0');
+  return `#${to2(ch((n >> 16) & 255))}${to2(ch((n >> 8) & 255))}${to2(ch(n & 255))}`;
+}
+
 export function money(n: number): string {
   const rounded = Math.round(n);
   const sign = rounded < 0 ? '-' : '';

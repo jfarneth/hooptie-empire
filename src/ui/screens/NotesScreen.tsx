@@ -7,6 +7,7 @@ import { getStage } from '../../sim/stages';
 import { collectionsCapacity } from '../../sim/upgrades';
 import type { GameState, Note } from '../../sim/types';
 import { TIER_COLOR, duration, money, moneyShort, theme } from '../theme';
+import { HUD_HEIGHT } from '../components/Hud';
 import { Card, Chip, EmptyState, Label, Meter, Row } from '../components/ui';
 
 /**
@@ -178,7 +179,7 @@ function NoteRow({ note, now }: { note: Note; now: number }) {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 8, paddingBottom: 32 },
+  content: { padding: 16, paddingTop: HUD_HEIGHT + 12, gap: 8, paddingBottom: 32 },
   headline: {
     color: theme.colors.text,
     fontSize: 22,

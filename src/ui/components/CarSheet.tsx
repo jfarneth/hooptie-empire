@@ -8,7 +8,7 @@ import { getStage } from '../../sim/stages';
 import { windowPrice } from '../../sim/engine';
 import type { Car, GameState } from '../../sim/types';
 import { duration, money, theme } from '../theme';
-import { CarSvg } from './CarSvg';
+import { CarArt } from '../art/CarArt';
 import { Sheet } from './Sheet';
 import { Button, Meter, Row } from './ui';
 
@@ -55,8 +55,8 @@ export function CarSheet({
       onClose={onClose}
     >
       <View style={styles.hero}>
-        <CarSvg
-          bodyStyle={model.bodyStyle}
+        <CarArt
+          modelId={car.modelId}
           colorIndex={car.colorIndex}
           condition={car.condition}
           width={220}
