@@ -7,6 +7,7 @@ import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
 import { money, theme } from '../theme';
 import { Button, Chip, Label, Row } from '../components/ui';
+import { AdminPanel } from '../components/AdminPanel';
 import { BusinessPanel } from '../components/BusinessPanel';
 import { SkillCard } from '../components/SkillCard';
 
@@ -17,18 +18,20 @@ const CATEGORY_TITLE: Record<string, string> = {
   finance: 'The book',
 };
 
-type OfficeTab = 'upgrades' | 'skills' | 'business';
+type OfficeTab = 'upgrades' | 'skills' | 'business' | 'admin';
 
 const TAB_LABEL: Record<OfficeTab, string> = {
   upgrades: 'Upgrades',
   skills: 'Skills',
   business: 'Business',
+  admin: 'Admin',
 };
 
 /**
- * The office: the three things that are true about the business rather than
- * about any one car. What money buys, what the work has taught you, and the
- * rules the place runs under while you are not in it.
+ * The office: the things that are true about the business rather than about any
+ * one car. What money buys, what the work has taught you, the rules the place
+ * runs under while you are not in it — and, on the last tab, the constants the
+ * whole simulation is built from.
  *
  * The standing order lives on the Business tab rather than next to the upgrade
  * that unlocks it, because it is the same kind of object as the house rules —
@@ -68,6 +71,8 @@ export function UpgradesScreen({ state }: { state: GameState }) {
         </View>
       ) : tab === 'business' ? (
         <BusinessPanel state={state} />
+      ) : tab === 'admin' ? (
+        <AdminPanel state={state} />
       ) : (
         <>
           {categories.map((category) => {
@@ -153,7 +158,7 @@ const styles = StyleSheet.create({
   name: { color: theme.colors.text, fontSize: 14, fontWeight: '700' },
   description: { color: theme.colors.textDim, fontSize: 12, lineHeight: 16 },
   buyButton: { minWidth: 92 },
-  tabs: { flexDirection: 'row', gap: 6 },
-  tab: { flex: 1 },
+  tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tab: { flexGrow: 1, flexBasis: 70, paddingHorizontal: 6 },
   skillsHint: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 16 },
 });

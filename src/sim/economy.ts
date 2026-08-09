@@ -65,11 +65,14 @@ export function wholesaleValue(car: Car): number {
  *
  * `multiplier` is the store's, not the game's: it falls as you move upmarket,
  * because a premium franchise is selling to someone who could have walked into a
- * bank. Absolute dollars still climb, because the cars do. Defaults to the
- * buy-here-pay-here number so callers with no stage in hand get the small-lot
- * behaviour the constant has always described.
+ * bank. Absolute dollars still climb, because the cars do.
+ *
+ * Deliberately required. It used to default to the small lot's 1.5x, and the one
+ * caller that took the default (the inventory sheet) quietly quoted subprime
+ * money on a Valmont. A wrong number shown confidently is worse than a compile
+ * error.
  */
-export function bhphPrice(car: Car, multiplier: number = BALANCE.bhphPriceMultiplier): number {
+export function bhphPrice(car: Car, multiplier: number): number {
   return Math.round(retailValue(car) * multiplier);
 }
 

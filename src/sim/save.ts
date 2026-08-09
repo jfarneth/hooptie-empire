@@ -132,6 +132,15 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
     ...s,
     stage: s.stage === 'bhph' ? 'smallUsed' : s.stage === 'curbstoner' ? 'curbstone' : 'curbstone',
   }),
+
+  /**
+   * v6 -> v7: the admin console.
+   *
+   * An empty override map is exactly the shipped game, so every existing save
+   * carries forward untouched. `cloneState` spreads this key on every tick, so
+   * it has to exist rather than be left undefined.
+   */
+  6: (s) => ({ ...s, tuning: s.tuning ?? {} }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

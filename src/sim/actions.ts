@@ -14,6 +14,7 @@ import {
 import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
 import { nextStage, type StageDef } from './stages';
+import { applyTuning, coerceTunable, defaultValue, getTunable, pruneTuning } from './tuning';
 import { haggleSkillFor, reconModsFor } from './skills';
 import { UPGRADES, collectionsCapacity, getUpgrade, level, upgradeCost, upgradeUnlocked } from './upgrades';
 import type { BusinessPolicy, DealPolicy, GameState } from './types';
@@ -282,4 +283,58 @@ export function advanceStage(state: GameState): GameState {
 export function financeExpectedValue(state: GameState, prospectId: string): number {
   const capFactor = overCapacityFactor(activeNotes(state.notes).length, collectionsCapacity(state));
   return expectedFinanceValue(state, prospectId, capFactor);
+}
+
+// ------------------------------------------------------------- admin console
+
+/**
+ * Change one tuning constant.
+ *
+ * Writes the override onto the save *and* into the live globals, because those
+ * globals are what every valuation and negotiation actually reads. Doing both
+ * here keeps the two in step on the only path that can change them from inside
+ * the app; the other path is load, in the store. See tuning.ts for why the
+ * simulation is allowed a global at all.
+ *
+ * Setting a knob back to its shipped value removes the override rather than
+ * storing it, so `tuning` stays a record of what the player deliberately
+ * changed instead of a snapshot of everything.
+ */
+export function setTuning(state: GameState, path: string, value: number): GameState {
+  return act(state, (s) => {
+    const def = getTunable(path);
+    if (!def) return false;
+
+    const coerced = coerceTunable(def, value);
+    const wasSet = path in s.tuning;
+    const nowSet = coerced !== defaultValue(path);
+    if (!wasSet && !nowSet) return false;
+    if (wasSet && nowSet && s.tuning[path] === coerced) return false;
+
+    const next = { ...s.tuning };
+    if (nowSet) next[path] = coerced;
+    else delete next[path];
+
+    s.tuning = next;
+    applyTuning(s.tuning);
+    return true;
+  });
+}
+
+/** Put every constant back to the value the game shipped with. */
+export function resetTuning(state: GameState): GameState {
+  return act(state, (s) => {
+    if (Object.keys(s.tuning ?? {}).length === 0) return false;
+    s.tuning = {};
+    applyTuning(s.tuning);
+    return true;
+  });
+}
+
+/** Drop overrides for knobs this build no longer has, and re-apply the rest. */
+export function reconcileTuning(state: GameState): GameState {
+  const pruned = pruneTuning(state.tuning ?? {});
+  applyTuning(pruned);
+  if (Object.keys(pruned).length === Object.keys(state.tuning ?? {}).length) return state;
+  return { ...cloneState(state), tuning: pruned };
 }

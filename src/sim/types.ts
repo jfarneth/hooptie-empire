@@ -287,6 +287,13 @@ export interface GameState {
   dealPolicy: DealPolicy;
   /** House rules the whole business runs under. See BusinessPolicy. */
   business: BusinessPolicy;
+  /**
+   * Admin console overrides on the tuning constants, keyed by dotted path.
+   * Sparse — only knobs that differ from the shipped value. Lives on the save so
+   * a run still replays identically; see tuning.ts for why this is the one place
+   * the simulation is allowed to write a global.
+   */
+  tuning: Record<string, number>;
   stats: Stats;
   /** Ring buffer of recent events; trimmed to BALANCE.eventLogSize. */
   events: SimEvent[];

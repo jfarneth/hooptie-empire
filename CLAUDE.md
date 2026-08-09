@@ -18,6 +18,13 @@ suite** (Office → Business) lets the player set three house rules that the
 business then runs under offline: a working capital floor, the repo trigger, and
 the retainer buyer's minimum margin. `src/sim/business.ts` resolves them.
 
+An **admin console** (Office → Admin, visible to everyone) edits the tuning
+constants live. `src/sim/tuning.ts` is the registry; adding a knob is one entry
+in `TUNABLES` and nothing else. It is the one place the sim writes a global —
+read the header comment there before touching it, and note that overrides live
+on the save and are re-applied *before* offline catch-up, which is what keeps a
+given save replaying identically.
+
 ## The two axes of the stage ladder
 
 Worth internalising before touching anything stage-shaped, because almost every
@@ -69,7 +76,7 @@ Consequences to respect:
 ## Verify
 
 ```bash
-npm test        # 164 tests
+npm test        # 186 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=32 --seeds=16   # the whole ladder, ~15s
@@ -116,16 +123,21 @@ the economy and the ladder table above for pacing. Earlier deliberate retunes
 moved the rest: the book cap took end cash from $1.36M to $935k, and the
 risk/negotiation tune-up took it to ~$503k pre-ladder.
 
-All pacing constants live in `src/sim/balance.ts`. Nothing else should hard-code
-a number that affects the curve.
+Pacing constants live in `src/sim/balance.ts`, except the ones that vary by store
+— entry costs, capacities, sourcing, staff and markup multipliers — which live in
+the `STAGES` table in `src/sim/stages.ts`. Those two files are the whole surface;
+nothing else should hard-code a number that affects the curve. Office → Admin
+edits both at runtime, which is the fastest way to feel a change before
+committing it.
 
-## Tuning the economy — read before touching `balance.ts`
+## Tuning the economy — read before touching `balance.ts` or `stages.ts`
 
 Hard-won during the skills work. Every one of these cost a wrong turn.
 
-- **The ask band (`listingAskMin/Max`) is the sharpest knob in the game.** It
-  sets both the share of listings worth buying *and* the margin on the ones that
-  are, and an idle economy compounds margin over four hours. Holding its width
+- **The ask band (`STAGES[].sourcing.askMin/Max`) is the sharpest knob in the
+  game.** It moved out of balance.ts with the ladder — a franchise buys at
+  invoice, a used lot buys at auction — so it is per stage now. It sets both the
+  share of listings worth buying *and* the margin on the ones that are, and an idle economy compounds margin over four hours. Holding its width
   and shifting position up by 0.06 took end cash from $1.52M to $282k; another
   0.06 took it to $28k. Results track the bot's buyable pass rate almost
   exactly. Do not widen or move it without a 64-seed run.
@@ -261,11 +273,17 @@ Most have a guarding test; check before "simplifying" the code around them.
 - **Integer skill effects round, they don't floor.** Flooring a 0→1 curve only
   reaches 1 at exactly max level, which left the feed-slot bonus dead for nine
   of the ten levels it was meant to span while `balance.ts` claimed level 5.
+- **A constant that moves into a table leaves a corpse behind.** The ladder
+  copied the ask band, base capacities and the window markup into `STAGES` and
+  left the originals in `balance.ts`, where they read as live tuning for two
+  commits — including the one CLAUDE.md called the sharpest knob in the game.
+  Nothing failed, because dead constants never do. When you move a number, grep
+  `BALANCE.<key>` and delete what has no readers.
 - **A test that asserts `sum >= count` cannot fail.** The first automation test
   written for skills passed on a run that accrued zero XP. Mutation-test any
   test guarding a regression: break the code, watch it go red, put it back.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v6**. Saves are long-lived and local to the device; "we wiped
+  Currently **v7**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4
