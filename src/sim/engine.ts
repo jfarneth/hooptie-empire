@@ -50,7 +50,7 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -103,6 +103,7 @@ function blankState(seed: number, wallNow: number): GameState {
     skills: blankSkills(),
     dealPolicy: 'manual',
     business: businessDefaults(),
+    tuning: {},
     stats: {
       carsSold: 0,
       cashDeals: 0,
@@ -621,6 +622,7 @@ export function cloneState(s: GameState): GameState {
     // Nested and mutable: a shared policy object would let a rule change made
     // now rewrite the rules a historical state was running under.
     business: { ...s.business },
+    tuning: { ...s.tuning },
     stats: { ...s.stats },
     events: s.events.map((e) => ({ ...e })),
   };

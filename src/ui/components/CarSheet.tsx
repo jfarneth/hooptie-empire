@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { canRecon, reconCost, reconDurationMs, reconLift, reconValueGain } from '../../sim/cars';
 import { reconModsFor } from '../../sim/skills';
-import { bhphPrice, retailValue, wholesaleValue } from '../../sim/economy';
+import { retailValue, wholesaleValue } from '../../sim/economy';
 import { getModel } from '../../sim/models';
 import { getStage } from '../../sim/stages';
 import { windowPrice } from '../../sim/engine';
@@ -67,7 +67,7 @@ export function CarSheet({
         <Figure label="You paid" value={money(car.costBasis)} />
         <Figure label="Cash retail" value={money(retail)} />
         {getStage(state.stage).financing ? (
-          <Figure label="Lot price" value={money(bhphPrice(car))} accent />
+          <Figure label="Lot price" value={money(windowPrice(state, car))} accent />
         ) : (
           <Figure label="Wholesale" value={money(wholesaleValue(car))} />
         )}

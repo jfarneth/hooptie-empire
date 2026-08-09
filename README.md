@@ -144,6 +144,14 @@ underwrites on expected value — so making borrowers riskier makes it write saf
 paper, and the number can move the *opposite* way to the knob you turned. Tune
 credit risk against the odds the deal sheet quotes instead.
 
+**Everything is tunable in-app.** Office → Admin exposes the simulation's
+constants — the ask band, negotiation odds, credit risk, collections capacity,
+the cost of every rung on the ladder — as live fields. Changes apply
+immediately, save with your game, and hold while the app is closed; they do not
+rewrite history, so cars you already own keep their cost basis and contracts
+already written keep their terms. Every row shows its shipped default and can be
+reset individually.
+
 ## Design notes
 
 **Time compression.** A game day is 20 real seconds, so a game week — the beat

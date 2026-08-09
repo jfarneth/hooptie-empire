@@ -50,24 +50,9 @@ export const BALANCE = {
   listingIntervalMs: 22_000,
   listingIntervalPerScoutLevel: 0.78,
   listingLifetimeMs: 150_000,
-  /**
-   * Seller ask relative to wholesale. Below 1.0 is a genuine deal.
-   *
-   * Wider than it was, and load-bearing rather than flavour. The ask is derived
-   * from the car's *true* condition, so a narrow band lets a sharp player
-   * back-solve the condition from the price and defeat the appraisal. Width is
-   * what blunts that, not position — at ±0.20 the price signal is noisy enough
-   * against 0.18 of condition noise that back-solving stops paying.
-   *
-   * Do not widen this further without re-running the harness. The economy is
-   * violently sensitive to it, because the band sets both the share of listings
-   * worth buying and the margin on the ones that are, and an idle economy
-   * compounds margin over four hours. The originally planned 0.72-1.30 measured
-   * +23% end cash; nudging the same width up to 0.84-1.42 measured -98%. This
-   * pair is where throughput and margin land closest to where they were.
-   */
-  listingAskMin: 0.8,
-  listingAskMax: 1.2,
+  // The seller ask band moved into `STAGES[].sourcing` in stages.ts when the
+  // ladder landed, because a franchise buys at invoice and a used lot does not.
+  // It is still the sharpest knob in the game; it just lives per stage now.
   /** Condition points of appraisal miss worth telling the player about. */
   appraisalSurpriseThreshold: 0.08,
 
@@ -161,15 +146,14 @@ export const BALANCE = {
   },
 
   // ---------------------------------------------------------------- capacities
-  /** Cars you can hold at once. */
-  drivewayCapacity: 2,
+  // Base capacity per store is `STAGES[].baseCarCapacity`. What survives here is
+  // only what each *upgrade level* adds, which does not vary by stage.
   capacityPerDrivewayLevel: 1,
-  lotCapacity: 6,
   capacityPerLotLevel: 4,
 
   // ---------------------------------------------------------------------- BHPH
-  /** Lot price on a buy-here-pay-here deal, as a multiple of cash retail. */
-  bhphPriceMultiplier: 1.5,
+  // The window markup is per stage (`STAGES[].bhphMultiplier`) — it falls as the
+  // store moves upmarket, so there is no single house number any more.
   /** Contract length options, in game weeks. */
   termWeeks: [18, 24, 30, 36] as const,
 
