@@ -112,16 +112,36 @@ def add_lights() -> None:
     fobj.rotation_euler = (math.radians(28), math.radians(-18), 0)
 
 
-def add_camera(ortho_scale: float) -> bpy.types.Object:
+def add_camera(ortho_scale: float, tilt_degrees: float) -> bpy.types.Object:
+    """
+    Near-top-down, tilted a few degrees off vertical.
+
+    Straight down reads as a floor plan: nothing has height, and a car is a
+    coloured rectangle. A small tilt gives every vertical surface a sliver of
+    itself — the sides of a car, the front of a building, the mast of a light —
+    which is what makes the lot read as a place rather than a diagram.
+
+    Deliberately small. The tilt has to stay mild enough that the ground plan is
+    still effectively unforeshortened (cos 12 degrees is 0.98), because the whole
+    parking layout in layout.ts is computed in flat 2D and would otherwise need
+    to become a perspective projection.
+
+    MUST MATCH `LOT_TILT_DEGREES` in src/ui/lot/environment.ts. The buildings and
+    light masts are extruded by sin(tilt) in the UI; if these disagree, the cars
+    are lit from one camera and everything around them from another.
+    """
     cam = bpy.data.cameras.new("Cam")
     cam.type = "ORTHO"
     cam.ortho_scale = ortho_scale
     obj = bpy.data.objects.new("Cam", cam)
     bpy.context.collection.objects.link(obj)
-    # Straight down. Camera local +Y becomes image up, so a car whose nose
-    # points world +Y renders nose-up.
-    obj.location = (0, 0, 12)
-    obj.rotation_euler = (0, 0, 0)
+    tilt = math.radians(tilt_degrees)
+    distance = 12
+    # Orbit the camera off vertical while keeping it aimed at the origin, which
+    # is the car's footprint centre — so the sprite's anchor does not move and
+    # the lot can keep positioning frames exactly as it did when flat.
+    obj.location = (0, -distance * math.sin(tilt), distance * math.cos(tilt))
+    obj.rotation_euler = (tilt, 0, 0)
     bpy.context.scene.camera = obj
     return obj
 
@@ -221,7 +241,7 @@ def main() -> None:
             clear_scene()
             setup_world(int(rcfg["samples"]), width, height)
             add_lights()
-            add_camera(ortho)
+            add_camera(ortho, float(rcfg.get("tiltDegrees", 12)))
             add_shadow_catcher()
 
             objs = import_model(os.path.join(HERE, "models", model + ".glb"))
