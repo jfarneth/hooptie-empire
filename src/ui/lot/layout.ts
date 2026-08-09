@@ -24,8 +24,13 @@
 export const CAR_BOX_W = 60;
 export const CAR_BOX_L = 124;
 
-/** Gap between the lot edge and the outermost stall. */
-const EDGE_PAD = 12;
+/**
+ * Default gap between the lot edge and the outermost stall. Each store can
+ * widen it: a driveway is a narrow strip of concrete with lawn either side, and
+ * spreading its stalls the full width of the screen makes it read as a car park
+ * attached to a house rather than as somebody's home.
+ */
+export const DEFAULT_EDGE_PAD = 12;
 /**
  * Share of a stall's width the car artboard takes up. The rest is paint.
  *
@@ -43,8 +48,12 @@ const ROW_GAP = 14;
 /** A drive aisle every this many rows, so the lot reads as a lot. */
 const AISLE_EVERY = 2;
 const AISLE_DEPTH = 46;
-/** Showroom band across the top, and the run-in between it and row one. */
-const SHOWROOM_DEPTH = 96;
+/**
+ * Default depth of the building band across the top, and the run-in between it
+ * and row one. Each store overrides the depth — a house needs more room than a
+ * portable office — so this is only the fallback.
+ */
+export const DEFAULT_SHOWROOM_DEPTH = 96;
 const SHOWROOM_GAP = 22;
 /** Curb, sidewalk and road along the bottom edge. */
 const FRONTAGE_DEPTH = 128;
@@ -106,13 +115,21 @@ export function columnsFor(capacity: number): number {
  * paint, occupied or not. Empty stalls are the point: an eight-car lot holding
  * three cars should look like a lot with room, not like a three-car lot.
  */
-export function lotLayout(capacity: number, viewportWidth: number): LotLayout {
+export function lotLayout(
+  capacity: number,
+  viewportWidth: number,
+  showroomDepth: number = DEFAULT_SHOWROOM_DEPTH,
+  edgePad: number = DEFAULT_EDGE_PAD,
+): LotLayout {
   const stalls = Math.max(1, Math.floor(capacity));
+  const building = Math.max(0, showroomDepth);
   const width = Math.max(240, viewportWidth);
+  // Never let the inset eat the lot on a narrow screen.
+  const pad = Math.max(0, Math.min(edgePad, width * 0.22));
   const cols = columnsFor(stalls);
   const rows = Math.ceil(stalls / cols);
 
-  const stallWidth = (width - EDGE_PAD * 2) / cols;
+  const stallWidth = (width - pad * 2) / cols;
   const carScale = clamp((stallWidth * CAR_FILL) / CAR_BOX_W, MIN_SCALE, MAX_SCALE);
   const carWidth = CAR_BOX_W * carScale;
   const carLength = CAR_BOX_L * carScale;
@@ -121,13 +138,13 @@ export function lotLayout(capacity: number, viewportWidth: number): LotLayout {
   const aisleDepth = AISLE_DEPTH * carScale;
 
   const slots: LotSlot[] = [];
-  let y = SHOWROOM_DEPTH + SHOWROOM_GAP;
+  let y = building + SHOWROOM_GAP;
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const index = row * cols + col;
       if (index >= stalls) break;
-      const x = EDGE_PAD + col * stallWidth;
+      const x = pad + col * stallWidth;
       slots.push({
         index,
         row,
@@ -158,7 +175,7 @@ export function lotLayout(capacity: number, viewportWidth: number): LotLayout {
     slots,
     width,
     height: frontageY + FRONTAGE_DEPTH,
-    showroomDepth: SHOWROOM_DEPTH,
+    showroomDepth: building,
     frontageY,
     frontageDepth: FRONTAGE_DEPTH,
   };

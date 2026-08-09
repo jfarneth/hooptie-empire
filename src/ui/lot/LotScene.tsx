@@ -7,6 +7,7 @@ import type { Car, GameState, Prospect } from '../../sim/types';
 import { CarArt } from '../art/CarArt';
 import { duration, money, moneyShort, theme } from '../theme';
 import { LotGround } from './LotGround';
+import { environmentFor } from './environment';
 import { assignSlots, lotLayout, variantOf, type LotSlot } from './layout';
 
 /**
@@ -40,7 +41,13 @@ export function LotScene({ state, capacity, onSelectCar, onSelectProspect, onPre
   const stage = getStage(state.stage);
 
   const held = useMemo(() => state.cars.filter((c) => c.status !== 'sold'), [state.cars]);
-  const layout = useMemo(() => lotLayout(capacity, width), [capacity, width]);
+  // Building depth varies by store — a house needs more room than a portable
+  // office — so the environment feeds the layout rather than the other way round.
+  const env = environmentFor(state.stage);
+  const layout = useMemo(
+    () => lotLayout(capacity, width, env.buildingDepth, env.edgePad),
+    [capacity, width, env.buildingDepth, env.edgePad],
+  );
 
   // Parking is derived from the car id, never stored: see `assignSlots`.
   const parked = useMemo(() => {
@@ -53,7 +60,12 @@ export function LotScene({ state, capacity, onSelectCar, onSelectProspect, onPre
 
   return (
     <View style={{ width: layout.width, height: layout.height }}>
-      <LotGround layout={layout} signText={stage.shortName} financing={stage.financing} />
+      <LotGround
+        layout={layout}
+        stage={state.stage}
+        signText={stage.shortName}
+        financing={stage.financing}
+      />
 
       {/* the sign opens the ladder — the store you are in is the store you leave */}
       <Pressable
