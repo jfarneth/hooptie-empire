@@ -21,6 +21,32 @@ import type { StageId } from '../../sim/types';
  * moves when the lot re-renders is a crack the player notices.
  */
 
+/**
+ * How far the camera is tilted off straight-down, in degrees.
+ *
+ * Small on purpose. A pure plan view gives nothing height and a car reads as a
+ * coloured rectangle; a few degrees gives every vertical surface a sliver of
+ * itself. Staying under ~15 degrees is what lets `layout.ts` keep computing the
+ * parking plan in flat 2D — at 12 degrees the ground foreshortens by 2%, which
+ * is not worth a perspective projection and a rewrite of the 5-to-62 range.
+ *
+ * MUST MATCH `tiltDegrees` in tools/render-sprites/config.json, which is the
+ * angle the car sprites are rendered at. If these disagree, the cars are lit
+ * from one camera and everything around them from another.
+ */
+export const LOT_TILT_DEGREES = 12;
+
+/**
+ * On-screen rise for something of a given height, under the tilt above.
+ *
+ * A vertical object projects upward by `height x sin(tilt)`; its footprint stays
+ * exactly where it was. That is the whole trick — the ground plan never moves,
+ * so nothing about parking, stalls or hit targets has to change.
+ */
+export function tiltRise(height: number): number {
+  return height * Math.sin((LOT_TILT_DEGREES * Math.PI) / 180);
+}
+
 export type BuildingKind = 'house' | 'shack' | 'brick' | 'showroom' | 'showroomWide' | 'flagship';
 export type PerimeterKind = 'lawn' | 'chainlink' | 'kerb' | 'planting' | 'planters' | 'manicured';
 export type LightKind = 'porch' | 'flood' | 'sodium' | 'led' | 'uplight';
@@ -42,7 +68,23 @@ export interface EnvironmentDef {
   stallLine: { color: string; opacity: number; width: number; wobble: number } | null;
 
   building: BuildingKind;
+  /**
+   * Total depth of the building band. Split by the renderer into a roof plate
+   * and, below it, the front elevation the tilt reveals.
+   */
   buildingDepth: number;
+  /**
+   * Height of the building, before the tilt turns it into a front elevation.
+   *
+   * DELIBERATELY EXAGGERATED, unlike the cars. At a true 12 degrees a real
+   * single-storey showroom projects about 25px of frontage, which cannot hold a
+   * door, never mind glazing and a sign — the building ends up as a large empty
+   * roof with everything crushed into a strip along its bottom edge. These are
+   * set so the elevation takes roughly half the band, which is the standard
+   * cheat in near-plan games and reads correctly because buildings are the one
+   * thing the player never compares against a car for scale.
+   */
+  buildingHeight: number;
   /** How far the stalls sit in from the screen edge. Wide on a driveway. */
   edgePad: number;
   wall: string;
@@ -54,6 +96,8 @@ export interface EnvironmentDef {
   lightColor: string;
   /** Roughly how far apart the pole lights sit, in lot pixels. */
   lightSpacing: number;
+  /** Mast height. A porch bulb has none; a franchise pole is tall. */
+  lightHeight: number;
 
   perimeter: PerimeterKind;
   plantColor: string;
@@ -78,12 +122,14 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: null, // nobody paints stalls on their own driveway
     building: 'house',
     buildingDepth: 126,
+    buildingHeight: 268,
     edgePad: 62,
     wall: '#3f362f',
     trim: '#6b5d51',
     light: 'porch',
     lightColor: '#ffe0a8',
     lightSpacing: 999, // one bulb over the door, and that is the lighting plan
+    lightHeight: 0,
     perimeter: 'lawn',
     plantColor: '#3f5b39',
     flags: false,
@@ -104,12 +150,14 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: { color: '#b9b19a', opacity: 0.24, width: 2.4, wobble: 5 },
     building: 'shack',
     buildingDepth: 132,
+    buildingHeight: 248,
     edgePad: 16,
     wall: '#4a453c',
     trim: '#5b544a',
     light: 'flood',
     lightColor: '#ffd89a',
     lightSpacing: 420,
+    lightHeight: 210,
     perimeter: 'chainlink',
     plantColor: '#3f5b39',
     flags: false,
@@ -130,12 +178,14 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: { color: '#d8d2bc', opacity: 0.32, width: 2.5, wobble: 0 },
     building: 'brick',
     buildingDepth: 130,
+    buildingHeight: 298,
     edgePad: 12,
     wall: '#4a3b35',
     trim: '#6a5a50',
     light: 'sodium',
     lightColor: '#ffd89a',
     lightSpacing: 300,
+    lightHeight: 250,
     perimeter: 'kerb',
     plantColor: '#3f5b39',
     flags: true,
@@ -156,6 +206,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: { color: '#f0ecd8', opacity: 0.42, width: 2.5, wobble: 0 },
     building: 'showroom',
     buildingDepth: 128,
+    buildingHeight: 306,
     edgePad: 12,
     wall: '#39424f',
     trim: '#7c8797',
@@ -163,6 +214,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     light: 'led',
     lightColor: '#e8f0ff',
     lightSpacing: 290,
+    lightHeight: 265,
     perimeter: 'planting',
     plantColor: '#4a6b45',
     flags: true,
@@ -183,6 +235,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: { color: '#f6f3e4', opacity: 0.5, width: 2.5, wobble: 0 },
     building: 'showroomWide',
     buildingDepth: 146,
+    buildingHeight: 354,
     edgePad: 10,
     wall: '#3b4552',
     trim: '#93a0b2',
@@ -190,6 +243,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     light: 'led',
     lightColor: '#dceaff',
     lightSpacing: 280,
+    lightHeight: 280,
     perimeter: 'planters',
     plantColor: '#31513f',
     flags: false,
@@ -210,6 +264,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: { color: '#ffffff', opacity: 0.32, width: 2, wobble: 0 },
     building: 'flagship',
     buildingDepth: 164,
+    buildingHeight: 420,
     edgePad: 10,
     wall: '#38414e',
     trim: '#a9b8cb',
@@ -217,6 +272,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     light: 'uplight',
     lightColor: '#cfe6ff',
     lightSpacing: 260,
+    lightHeight: 150,
     perimeter: 'manicured',
     plantColor: '#33553f',
     flags: false,

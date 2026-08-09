@@ -114,6 +114,23 @@ time and the vector side profile reads fine. Two things that bite:
 The lot draws cars at ~45px at franchise scale and ~110px on a driveway, so
 sprites ship at 192px wide and the whole set is ~2.9MB.
 
+**The camera is tilted 12 degrees off straight-down, and that number lives in two
+files.** `LOT_TILT_DEGREES` in `environment.ts` and `render.tiltDegrees` in
+`tools/render-sprites/config.json` must agree, or the cars are photographed from
+one camera and everything around them drawn from another. The tilt is what gives
+vertical things a sliver of themselves — the nose of a car, the front of a
+building, the mast of a light — and it is deliberately small: at 12 degrees the
+ground foreshortens by 2%, so `layout.ts` keeps computing the parking plan in
+flat 2D instead of becoming a perspective projection. Anything vertical rises on
+screen by `tiltRise(height)` and its footprint does not move, which is why the
+tilt cost nothing in stalls, hit targets or the 5-to-62 range.
+
+Buildings are the one exception, and knowingly so: their heights are exaggerated
+about 3x. A true 12-degree elevation on a real single-storey showroom is ~25px,
+which cannot hold glazing and a sign, so the building becomes a large empty roof
+with everything crushed along its bottom edge. Cars are never compared against a
+building for scale, so the cheat is invisible.
+
 **`src/ui/lot/layout.ts` is pure and tested, and it is where the 5-to-62 car
 range is solved.** Give it a capacity and a width and it returns painted stalls;
 column count and car scale come out of a table, so the camera pulls back as the

@@ -23,19 +23,44 @@
     "fraction of a percent of the surface and invisible at lot scale. Splitting",
     "them out would mean editing UVs, which is a model change, not a texture one."
   ],
-
   "archetypes": {
-    "sedanEconomy":  { "model": "sedan",            "scale": 1.0 },
-    "sedanPremium":  { "model": "sedan-sports",     "scale": 1.04 },
-    "coupePremium":  { "model": "sedan-sports",     "scale": 0.93 },
-    "hatchEconomy":  { "model": "hatchback-sports", "scale": 0.96 },
-    "suvEconomy":    { "model": "suv-luxury",       "scale": 0.94 },
-    "suvPremium":    { "model": "suv-luxury",       "scale": 1.08 },
-    "vanEconomy":    { "model": "van",              "scale": 1.04 },
-    "truckEconomy":  { "model": "truck",            "scale": 1.0 },
-    "truckPremium":  { "model": "truck",            "scale": 1.15 }
+    "sedanEconomy": {
+      "model": "sedan",
+      "scale": 1.0
+    },
+    "sedanPremium": {
+      "model": "sedan-sports",
+      "scale": 1.04
+    },
+    "coupePremium": {
+      "model": "sedan-sports",
+      "scale": 0.93
+    },
+    "hatchEconomy": {
+      "model": "hatchback-sports",
+      "scale": 0.96
+    },
+    "suvEconomy": {
+      "model": "suv-luxury",
+      "scale": 0.94
+    },
+    "suvPremium": {
+      "model": "suv-luxury",
+      "scale": 1.08
+    },
+    "vanEconomy": {
+      "model": "van",
+      "scale": 1.04
+    },
+    "truckEconomy": {
+      "model": "truck",
+      "scale": 1.0
+    },
+    "truckPremium": {
+      "model": "truck",
+      "scale": 1.15
+    }
   },
-
   "unreachable": {
     "note": [
       "Declared in archetypes.ts but not produced by any model in the",
@@ -44,23 +69,66 @@
       "plain two-door is ever added to models.ts, these need entries above and",
       "the render matrix grows by nine frames each."
     ],
-    "archetypes": ["coupeEconomy", "hatchPremium", "vanPremium"]
+    "archetypes": [
+      "coupeEconomy",
+      "hatchPremium",
+      "vanPremium"
+    ]
   },
-
   "paintBands": {
-    "sedan":            { "hueMin": 0.00, "hueMax": 0.09, "minSaturation": 0.35, "reference": "#fa6b41" },
-    "sedan-sports":     { "hueMin": 0.00, "hueMax": 0.09, "minSaturation": 0.35, "reference": "#fa6b41" },
-    "race":             { "hueMin": 0.00, "hueMax": 0.09, "minSaturation": 0.35, "reference": "#e76047" },
-    "hatchback-sports": { "hueMin": 0.38, "hueMax": 0.50, "minSaturation": 0.30, "reference": "#5ac487" },
-    "suv":              { "hueMin": 0.38, "hueMax": 0.50, "minSaturation": 0.30, "reference": "#43ac7c" },
-    "truck":            { "hueMin": 0.38, "hueMax": 0.50, "minSaturation": 0.30, "reference": "#3fa87a" },
-    "suv-luxury":       { "hueMin": 0.07, "hueMax": 0.17, "minSaturation": 0.40, "reference": "#ffbe52" },
-    "van":              { "hueMin": 0.55, "hueMax": 0.66, "minSaturation": 0.35, "reference": "#658ed6" }
+    "sedan": {
+      "hueMin": 0.0,
+      "hueMax": 0.09,
+      "minSaturation": 0.35,
+      "reference": "#fa6b41"
+    },
+    "sedan-sports": {
+      "hueMin": 0.0,
+      "hueMax": 0.09,
+      "minSaturation": 0.35,
+      "reference": "#fa6b41"
+    },
+    "race": {
+      "hueMin": 0.0,
+      "hueMax": 0.09,
+      "minSaturation": 0.35,
+      "reference": "#e76047"
+    },
+    "hatchback-sports": {
+      "hueMin": 0.38,
+      "hueMax": 0.5,
+      "minSaturation": 0.3,
+      "reference": "#5ac487"
+    },
+    "suv": {
+      "hueMin": 0.38,
+      "hueMax": 0.5,
+      "minSaturation": 0.3,
+      "reference": "#43ac7c"
+    },
+    "truck": {
+      "hueMin": 0.38,
+      "hueMax": 0.5,
+      "minSaturation": 0.3,
+      "reference": "#3fa87a"
+    },
+    "suv-luxury": {
+      "hueMin": 0.07,
+      "hueMax": 0.17,
+      "minSaturation": 0.4,
+      "reference": "#ffbe52"
+    },
+    "van": {
+      "hueMin": 0.55,
+      "hueMax": 0.66,
+      "minSaturation": 0.35,
+      "reference": "#658ed6"
+    }
   },
-
   "render": {
     "size": 256,
     "samples": 48,
-    "marginFactor": 1.06
+    "marginFactor": 1.06,
+    "tiltDegrees": 12
   }
 }
