@@ -84,15 +84,35 @@ of and where the art is meant to come from.
 a `modelId` and an angle and returns a picture; whether that is a rendered sprite
 or a vector drawing is decided there and nowhere else. `registry.ts` returns
 `null` for any archetype without art and the vector renderer takes over — that
-fallback is the contract, not a stopgap, and it is what will let a commissioned
-sprite pack land one archetype at a time with no broken build in between. Code
-that reaches past `CarArt` to a sprite table will crash on exactly the car nobody
-has drawn yet.
+fallback is the contract, not a stopgap, and it is what lets art land one
+archetype at a time with no broken build in between. Code that reaches past
+`CarArt` to a sprite table will crash on exactly the car nobody has drawn yet.
 
 The catalogue's 30 models map to **12 archetypes** (`archetypes.ts`): each body
 style split economy/premium at `PREMIUM_VALUE_THRESHOLD`. That mapping is not
 save data — `Car.modelId` is — so the split can be re-cut, or grown to thirty,
-without a migration.
+without a migration. Three of the twelve (`coupeEconomy`, `hatchPremium`,
+`vanPremium`) are unreachable from the current catalogue and deliberately have no
+art; they are the standing test of the fallback path.
+
+**The lot is drawn with rendered sprites; everything else is still vector.**
+`tools/render-sprites` turns the `.glb` models into 81 top-down frames — nine
+archetypes by nine body colours — and generates `src/ui/art/sprites/index.ts`.
+Only the top-down angle is rendered: the lot is where sixty cars share a screen
+and the shading earns its keep, while the feed and the sheets show one car at a
+time and the vector side profile reads fine. Two things that bite:
+
+- **Paint is baked per colour, never tinted at runtime.** A flat tint destroys
+  the shading that is the whole reason for having sprites. Condition is the
+  opposite — continuous, so it is composited: the same sprite, flattened to
+  grey, laid over itself at `weatherAmount`. Both renderers read that one
+  function so a car cannot change condition just because its archetype got art.
+- **Paint in the kit is a texture edit, not a material**, and every model ships
+  in its own colour. `tools/render-sprites/README.md` has the details, including
+  why paint bands must be measured area-weighted rather than by vertex count.
+
+The lot draws cars at ~45px at franchise scale and ~110px on a driveway, so
+sprites ship at 192px wide and the whole set is ~2.9MB.
 
 **`src/ui/lot/layout.ts` is pure and tested, and it is where the 5-to-62 car
 range is solved.** Give it a capacity and a width and it returns painted stalls;

@@ -26,8 +26,15 @@ export const CAR_BOX_L = 124;
 
 /** Gap between the lot edge and the outermost stall. */
 const EDGE_PAD = 12;
-/** Share of a stall's width the car itself takes up. The rest is paint. */
-const CAR_FILL = 0.74;
+/**
+ * Share of a stall's width the car artboard takes up. The rest is paint.
+ *
+ * This is the artboard, not the car: both renderers draw a car smaller than the
+ * box it sits in, because the box is sized for the longest vehicle in the set
+ * and a hatchback is not a crew-cab pickup. Tuned by looking at a full lot —
+ * lower and the cars float in their stalls with the tarmac reading as empty.
+ */
+const CAR_FILL = 0.84;
 /** Cars never get sillier than this, in either direction. */
 const MIN_SCALE = 0.42;
 const MAX_SCALE = 1.85;

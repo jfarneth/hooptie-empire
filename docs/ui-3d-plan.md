@@ -360,11 +360,28 @@ Three things this shook out that the mockups did not:
 - At 62 cars there can be thirty walk-ups on screen at once. An unringed figure
   is a brown speck on tarmac, so the buyer got a ring in the accent colour.
 
-**Phase 2 — the pipeline, free assets. ~2 days.**
-`tools/render-sprites` built against Kenney's CC0 models. At the end of this the
-game is genuinely 2.5D and genuinely launchable. This is also your insurance
-policy: if the commission falls through or takes three months, you have already
-shipped.
+**Phase 2 — the pipeline, free assets. ✅ Done.**
+`tools/render-sprites` built against Kenney's CC0 Car Kit: `recolor.py` repaints
+the palette atlas, `render.py` renders 81 top-down frames in headless Blender,
+`pack.py` shrinks them and generates the sprite table. The lot is now rendered
+2.5D; the feed and sheets stay vector.
+
+What the plan got wrong, and what it cost:
+
+- **The kit puts paint in a texture, not a material**, and every model ships in
+  its own colour — so there is no one paint band to remap. Bands are declared
+  per model in `config.json`.
+- **Measuring those bands by vertex count is wrong.** A flat roof is four
+  vertices and a bumper is forty, so the first pass concluded every car in the
+  kit was green. Area-weighted sampling matched the previews immediately.
+- **A packed texture ignores a new filepath.** The GLB embeds its atlas, so
+  `reload()` re-read the packed bytes and every colour rendered identically —
+  distinguishable only by Cycles' sampling noise, which is just close enough to
+  look like it worked.
+- **Two mappings were wrong on sight and only on sight.** Kenney's `suv` has an
+  unpainted grey roof, so from directly above it never showed its paint at all;
+  and `race` is an open-wheel formula car, which at a Valmont franchise filled
+  the screen with F1 cars. Both were invisible in the numbers.
 
 **Phase 3 — the real pack. Weeks, mostly external.**
 Commission against the §4 spec. It drops into the same registry and the same
