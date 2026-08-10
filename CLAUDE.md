@@ -288,6 +288,17 @@ hire (`wageOfCost`), so an expensive hire is expensive to keep and a new staff
 upgrade gets a sensible wage for free; floorplan is interest on the cost basis of
 everything unsold.
 
+**THE STICKER IS CASH RETAIL, NOT THE FINANCE WINDOW.** `listCar` defaults the
+ask to `retailValue`, and the subprime premium is applied where the contract is
+written (`bhphPrice`, in `customers.ts`). It used to default to the window —
+retail x `bhphMultiplier` — which was incoherent twice over: a cash offer is
+capped at `min(askPrice, retail)` so nine buyers in ten could never pay it, and
+`askPrice / retail` feeds the overpricing model, so the default price was
+simultaneously unreachable and read by the game as greedy. A $11.8k car showed a
+$16.8k sticker. Traffic is judged against the same number the sticker is
+denominated in, for the same reason — with the window as reference, a car priced
+at exactly what it is worth looked like a 30% discount.
+
 **Margin is shaped along the ladder, and it is the strongest lever on run rate
 there is.** `STAGES[].sourcing.askMin/askMax` is a share of true wholesale, so
 margin as a share of retail is `1 - wholesaleOfRetail x ask` and break-even sits
@@ -321,6 +332,15 @@ one $34k car, so it could never restock, never earn, and died with the rent stil
 running. The working-capital floor is now `max(player floor, weeks of expenses,
 price of N cars at this store)` — denominated in the unit that actually matters.
 `reopeningFloat` is sized the same way.
+
+**The premium franchise still kills the economy, and it is the top open bug.**
+The ladder is completable — 8/8 seeds buy the premium store at ~321h — but the
+business then flatlines and never trades again. The tell is the one this file
+already names: lifetime profit is identical to the dollar at 350h and 420h,
+which means cash is pinned at zero. It dies rebuilding an 18x-priced office on
+4.5-9% margins. Raising `reopeningCars` to 12 was measured and made it worse —
+it gated every earlier rung harder without saving the last one. The likely fix
+is the upgrade multiplier at the top, not the float.
 
 **The upgrade table is badly out of scale with the ladder, and it is the next
 thing to fix.** A sales manager costs 1:18 of the store at a small lot and
@@ -375,11 +395,11 @@ The ladder, median at `--seeds=16 --hours=32`, reached by 16/16:
 
 | | |
 |---|---|
-| Small used dealership | ~2h29m |
-| Large used dealership | ~6h00m |
-| Low-cost franchise | ~14h16m |
-| Midsize franchise | ~76h03m |
-| Premium franchise | beyond 350h |
+| Small used dealership | ~4h32m |
+| Large used dealership | ~9h15m |
+| Low-cost franchise | ~19h44m |
+| Midsize franchise | ~55h08m |
+| Premium franchise | ~320h59m |
 
 Measured at `--hours=350 --seeds=8`, because the ladder no longer fits in 32h.
 Roughly a tripling per rung now, steepening at the top — the shape to preserve. A 4h run only ever

@@ -179,18 +179,26 @@ describe('minimum working capital', () => {
    * with the floor and the test proves nothing.
    */
   function retainerLot(floor: number): GameState {
-    const s = cloneState(createInitialState(31, 0));
-    s.upgrades = { autoBuy: 1, driveway: 3 };
-    s.business = { ...businessDefaults(), minWorkingCapital: floor };
+    // Search for an opening hand that deals something the buyer would take. One
+    // fixed seed used to do; since the ask band tightened, the retainer buyer —
+    // which works from the WORST case, not the estimate — passes on most of the
+    // feed, and a single seed frequently deals it nothing. That is correct
+    // behaviour, so the fixture adapts rather than the buyer.
+    for (let seed = 31; seed < 400; seed++) {
+      const s = cloneState(createInitialState(seed, 0));
+      s.upgrades = { autoBuy: 1, driveway: 3 };
+      s.business = { ...businessDefaults(), minWorkingCapital: floor };
 
-    const sigma = appraisalSigma(s);
-    const buyable = s.listings
-      .filter((l) => l.price <= pessimisticWholesale(l, sigma))
-      .sort((a, b) => a.price - b.price)[0];
-    if (!buyable) throw new Error('fixture: seed dealt nothing the retainer buyer would take');
+      const sigma = appraisalSigma(s);
+      const buyable = s.listings
+        .filter((l) => l.price <= pessimisticWholesale(l, sigma))
+        .sort((a, b) => a.price - b.price)[0];
+      if (!buyable) continue;
 
-    s.cash = buyable.price + 100;
-    return s;
+      s.cash = buyable.price + 100;
+      return s;
+    }
+    throw new Error('fixture: no seed in range dealt anything the retainer buyer would take');
   }
 
   it('stops the retainer buyer at the floor instead of running the till dry', () => {

@@ -536,7 +536,11 @@ describe('skills in game state', () => {
     s0.dealPolicy = 'cash';
     s0.cash = 40_000;
 
-    const s = advance(s0, 45 * 60 * 1000);
+    // Ninety minutes rather than forty-five: the retainer buyer got choosier when
+    // the ask band tightened, so an automated curbstone trades more slowly than
+    // it used to and three skills need a little longer to clear level 1. The
+    // property under test is that XP accrues here at all, not how fast.
+    const s = advance(s0, 90 * 60 * 1000);
 
     expect(s.stats.carsSold).toBeGreaterThan(0);
     for (const id of SKILL_IDS) expect(s.skills[id].level).toBeGreaterThan(1);

@@ -312,6 +312,13 @@ export const BALANCE = {
     /** ...and never below the price of this many cars at the current store. */
     reserveCars: 2,
     /** Cars you must be able to buy at the new store before the move is allowed. */
+    /**
+     * Cars you must be able to buy at the new store before the move is allowed.
+     *
+     * Six. Raising it to twelve was measured and made everything worse — it
+     * gated every rung harder without saving the top one, which dies for a
+     * different reason (see the note on the premium franchise in CLAUDE.md).
+     */
     reopeningCars: 6,
   },
 

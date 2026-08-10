@@ -190,7 +190,7 @@ export const STAGES: readonly StageDef[] = [
     rentPerWeek: 0,
     bhphMultiplier: 1,
     creditShift: 0,
-    sourcing: { ...OPEN_MARKET, tiers: ['beater', 'commuter'], askMin: 0.62, askMax: 1.42 },
+    sourcing: { ...OPEN_MARKET, tiers: ['beater', 'commuter'], askMin: 0.8, askMax: 1.42 },
   },
   {
     id: 'smallUsed',
@@ -198,7 +198,7 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Small lot',
     blurb:
       'A real lot and a finance desk. Instead of selling a car once, you sell it once for the down payment and again as paper.',
-    entryCost: 110_000,
+    entryCost: 70_000,
     baseCarCapacity: 6,
     capacityUpgradeId: 'lot',
     financing: true,
@@ -209,7 +209,7 @@ export const STAGES: readonly StageDef[] = [
     sourcing: {
       ...OPEN_MARKET,
       tiers: ['beater', 'commuter', 'family', 'truck'],
-      askMin: 0.66,
+      askMin: 0.84,
       askMax: 1.38,
     },
   },
@@ -219,7 +219,7 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Big lot',
     blurb:
       'Rows instead of a row. The beaters go to the wholesaler now — you are buying cars people finance on purpose rather than out of desperation.',
-    entryCost: 1_500_000,
+    entryCost: 900_000,
     baseCarCapacity: 14,
     capacityUpgradeId: 'lot',
     financing: true,
@@ -230,7 +230,7 @@ export const STAGES: readonly StageDef[] = [
     sourcing: {
       ...OPEN_MARKET,
       tiers: ['commuter', 'family', 'truck', 'luxury'],
-      askMin: 0.74,
+      askMin: 0.9,
       askMax: 1.3,
     },
   },
@@ -240,7 +240,7 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Halvorsen',
     blurb:
       'A sign with somebody else’s name on it. Every car is new, every car is a Halvorsen, and every price comes off an invoice — the guesswork is over and the volume starts.',
-    entryCost: 9_000_000,
+    entryCost: 5_400_000,
     baseCarCapacity: 22,
     capacityUpgradeId: 'lot',
     financing: true,
@@ -256,7 +256,7 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Okabe',
     blurb:
       'The full Okabe lineup, trucks included. Thinner margin on every unit and a great many more units.',
-    entryCost: 34_000_000,
+    entryCost: 20_000_000,
     baseCarCapacity: 32,
     capacityUpgradeId: 'lot',
     financing: true,
@@ -272,7 +272,7 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Valmont',
     blurb:
       'Valmont. Six figures a car, customers with real credit, and a finance desk that finally has nothing to apologise for.',
-    entryCost: 120_000_000,
+    entryCost: 70_000_000,
     baseCarCapacity: 42,
     capacityUpgradeId: 'lot',
     financing: true,

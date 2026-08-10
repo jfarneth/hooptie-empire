@@ -341,9 +341,10 @@ function stepProspects(s: GameState): void {
     // One shopper at a time per car keeps the decision surface small.
     if (s.prospects.some((p) => p.carId === car.id)) continue;
 
-    // Cars are shopped against what the buyer could pay for them: cash retail in
-    // stage 1, the marked-up window price once there is a finance desk.
-    const reference = windowPrice(s, car);
+    // Shopped against cash retail, which is what the sticker is now denominated
+    // in. Judging the ask against the finance window instead made a car priced
+    // at what it is worth look like a 30% discount to the traffic model.
+    const reference = retailValue(car);
     const rate = prospectRate(car.askPrice, reference, advertising);
     if (!chance(s.rng, arrivalChance(rate, TICK_MS))) continue;
 
@@ -676,8 +677,23 @@ export function acquisitionCeiling(
   return basis * keepBack;
 }
 
+/**
+ * Put a car on the lot.
+ *
+ * THE DEFAULT ASK IS CASH RETAIL, not the finance window. It used to be the
+ * window — retail x `bhphMultiplier` — which was incoherent in two ways at once:
+ * a cash offer is capped at `min(askPrice, retail)` so nine buyers in ten would
+ * never pay it, and `askPrice / retail` feeds the overpricing model, so the
+ * default price was simultaneously unreachable and read by the game as greedy,
+ * inviting harder lowballs.
+ *
+ * The subprime premium belongs on the deal, not on the windscreen: someone
+ * paying cash pays what the car is worth, and someone who needs financing pays
+ * more for the approval. That is what `bhphPrice` is for, and it is applied
+ * where the contract is written.
+ */
 export function listCar(s: GameState, car: Car, askPrice?: number): void {
-  const reference = windowPrice(s, car);
+  const reference = retailValue(car);
   car.askPrice = Math.round(askPrice ?? reference * BALANCE.defaultAskRatio);
   car.status = 'listed';
   car.listedAt = s.t;

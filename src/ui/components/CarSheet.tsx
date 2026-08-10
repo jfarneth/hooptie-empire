@@ -65,9 +65,12 @@ export function CarSheet({
 
       <View style={styles.figures}>
         <Figure label="You paid" value={money(car.costBasis)} />
-        <Figure label="Cash retail" value={money(retail)} />
+        <Figure label="Cash retail" value={money(retail)} accent />
         {getStage(state.stage).financing ? (
-          <Figure label="Lot price" value={money(windowPrice(state, car))} accent />
+          // What somebody who needs financing pays for the same car. The premium
+          // is the price of getting approved and it belongs on the contract, not
+          // on the windscreen — a cash buyer never sees this number.
+          <Figure label="Financed" value={money(windowPrice(state, car))} />
         ) : (
           <Figure label="Wholesale" value={money(wholesaleValue(car))} />
         )}
