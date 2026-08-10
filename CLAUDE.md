@@ -32,8 +32,8 @@ bug in this area comes from missing one of them.
 
 **Moving resets the payroll — in both directions.** Staff (`staff: true` in
 `upgrades.ts`) drop to zero and cost `staffCostMultiplier` more to rehire at the
-new store. Property, process, cash, inventory, the loan book and skills all
-carry. The line is "would this person have to be hired again", which is why
+new store. Property, process, cash, the loan book and skills all carry. The lot
+does not — see below. The line is "would this person have to be hired again", which is why
 `scout` (a book of contacts) and `advertising` (a spend) stay, and why walking
 back *down* the ladder resets the payroll too — at a different store they would.
 **Skills never reset** — they are the carry-over currency and always have been.
@@ -47,15 +47,33 @@ into generosity without a test noticing:
   Skipping does not compound. Grinding out $32M at a small lot really does buy a
   Valmont store — you just arrive with a two-man payroll and a book sized for a
   small lot, which is punishment enough and is what the confirmation says.
-- **Going down is free and refunds nothing.** Cash, cars, paper and skills come
+- **Going down is free and refunds nothing.** Cash, paper and skills come
   with you; every dollar the store you leave cost is written off, and there is
   deliberately no discount coming back up, so a round trip pays the entry price
   twice. That is what stops it being a way to park money. `StageMovePreview`
   carries `direction`, `cost`, `forfeit`, `rungsSkipped`, `bookAfter` and
   `lotAfter` for exactly one reason: the UI must never compute any of it itself.
 
-The harness bot only ever climbs one rung at a time, so **nothing measures either
-of these** — the same caveat the house rules carry.
+**Moving clears the lot, in both directions.** Every car physically on the lot is
+sold to a wholesaler at `BALANCE.stageMoveLiquidation` (0.8) of its true
+wholesale value and the cash lands with the move. `lotLiquidation(state)` is the
+only place that figure is worked out — `stageMovePreview` reports it and
+`moveToStage` pays it, so the confirmation cannot promise a cheque the move does
+not honour.
+
+What is emphatically *not* sold is the paper. A financed car is still in
+`state.cars` marked `sold` so a repossession can bring it back, so the sweep is
+`status !== 'sold'` and nothing else; clearing the lot naively strands every note
+on the book. There is a test named for it.
+
+The decision this creates is the point: sell the lot down at retail *before* you
+move, or take the wholesaler's price and start clean. The haircut is what stops a
+move being a free way to convert stock to cash at full value. Note also that the
+old "walk down and land thirty cars on a driveway with room for five" case can no
+longer happen — only a repo can put a lot over capacity now.
+
+The harness bot only ever climbs one rung at a time, so **nothing measures the
+skipping or the walking back down** — the same caveat the house rules carry.
 
 **Franchise stages are a different game.** The three used stages buy on the open
 market: condition is hidden, the ask swings ±20%, and judgement is the game. The
@@ -212,8 +230,9 @@ must keep doing:
   the wrong cars until it was caught in a screenshot.
 
 **The lot is paved for `max(capacity, cars held)`, not for capacity.** A lot can
-legitimately be over capacity — a repo comes back to a full lot, and walking back
-down the ladder lands thirty cars on a driveway with room for five. A car with no
+still legitimately be over capacity: a repo comes back to a full lot. (The other
+way in — walking down the ladder onto a smaller store — closed when moving
+started clearing the lot, but the repo case is enough to keep this.) A car with no
 stall is a car that cannot be tapped, which is a car that can never be sold; the
 HUD still reports the real `held / capacity`, so nothing pretends the space was
 bought.
@@ -237,7 +256,7 @@ cash readout.
 ## Verify
 
 ```bash
-npm test        # 253 tests
+npm test        # 254 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=32 --seeds=16   # the whole ladder, ~15s
@@ -248,10 +267,10 @@ The ladder, median at `--seeds=16 --hours=32`, reached by 16/16:
 | | |
 |---|---|
 | Small used dealership | ~1h11m |
-| Large used dealership | ~3h16m |
-| Low-cost franchise | ~5h40m |
-| Midsize franchise | ~12h03m |
-| Premium franchise | ~27h36m |
+| Large used dealership | ~3h36m |
+| Low-cost franchise | ~6h07m |
+| Midsize franchise | ~12h33m |
+| Premium franchise | ~28h05m |
 
 Roughly a doubling per rung, which is the shape to preserve. A 4h run only ever
 reaches large used, so **a default `npm run sim` cannot tell you anything about
@@ -263,24 +282,32 @@ compare against for everything below the franchise:
 | | |
 |---|---|
 | stage 2 reached | ~1h11m |
-| first repossession | ~1h43m |
+| first repossession | ~1h58m |
 | take-it-back odds on the deal sheet | ~30% |
 | harness `default rate` | ~24% (see below — not the same number) |
-| walk-away rate | ~53% |
-| bad-buy rate | ~26% |
-| Buying / Closing / Wrenching to level 5 | 1h24m / 1h15m / 1h52m |
-| large used reached | ~3h13m |
-| end cash at 4h | ~$63k |
-| end portfolio at 4h | ~$420k |
+| walk-away rate | ~55% |
+| bad-buy rate | ~25% |
+| Buying / Closing / Wrenching to level 5 | 1h34m / 1h16m / 2h16m |
+| large used reached | ~3h37m |
+| end cash at 4h | ~$20k |
+| end portfolio at 4h | ~$245k |
 
 **Always state the seed count.** Seed count moves these numbers further than most
 features do, and comparing a 6-seed run against a 64-seed target is the single
 easiest way to conclude you broke something you didn't.
 
 End cash at 4h is low and that is not a regression: the bot buys the large used
-dealership at ~3h13m, which spends the balance and resets the payroll, so the 4h
-snapshot lands mid-rebuild. Read `lifetime profit` (~$1.86M) for the health of
-the economy and the ladder table above for pacing. Earlier deliberate retunes
+dealership at ~3h37m, which spends the balance, resets the payroll *and now sells
+the lot*, so the 4h snapshot lands squarely mid-rebuild — it is the most
+liquidation-sensitive number in the table and should be read as noise unless it
+moves by a lot. Read `lifetime profit` (~$1.30M) for the health of the economy
+and the ladder table above for pacing.
+
+Clearing the lot on a move cost the ladder about 5-8% per rung (large used 3h16m
+to 3h36m, premium 27h36m to 28h05m at 16 seeds) and took 4h lifetime profit from
+~$1.86M to ~$1.30M. That is the bot paying the haircut on every rung and never
+once selling down at retail first, which is the play the feature exists to
+create — so treat it as the worst case, not the expected one. Earlier deliberate retunes
 moved the rest: the book cap took end cash from $1.36M to $935k, and the
 risk/negotiation tune-up took it to ~$503k pre-ladder.
 
@@ -387,10 +414,14 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   a financed car occupies no lot space while it is out. Repo condition damage
   scales with the trigger so patience is paid for in the unit you recover. If a
   future setting looks free, it is not a setting.
-- **Property carries, people do not.** That single line is the whole design of
-  the stage reset, and it is what makes moving up a decision instead of a button.
-  Anything new on the upgrade table needs a deliberate answer to "would this have
-  to be hired again at a bigger store".
+- **Property carries, people do not, and the stock is sold.** The first half is
+  the whole design of the stage reset, and it is what makes moving up a decision
+  instead of a button — anything new on the upgrade table needs a deliberate
+  answer to "would this have to be hired again at a bigger store". The stock is
+  sold at a haircut because hauling beaters to a franchise store was never the
+  fantasy, and unwinding a mismatched lot by hand was bookkeeping rather than a
+  decision. The loan book is the exception and always will be: it is the business,
+  and it moves intact.
 - **The ladder reads both ways, and only one direction is generous.** A player
   can page through all six stores from the sign — including ones they cannot
   afford — because a ladder whose card only ever names the next rung hides four
