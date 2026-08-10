@@ -354,13 +354,56 @@ function repossess(s: GameState, carId: string, customer: string, label: string)
   s.stats.reposCompleted += 1;
 
   const car = s.cars.find((c) => c.id === carId);
-  if (car) {
-    // The car was marked sold at delivery; bring it back to inventory.
-    applyRepoDamage(car, repoConditionLossFor(s));
-    logEvent(s, { t: s.t, kind: 'repo', label: `Repo: ${label} back from ${customer}`, amount: -fee });
-  } else {
+  if (!car) {
     logEvent(s, { t: s.t, kind: 'repo', label: `Repo: ${label} (${customer})`, amount: -fee });
+    return;
   }
+
+  // The car was marked sold at delivery; this brings it back to inventory,
+  // damaged by however hard it had to be taken.
+  applyRepoDamage(car, repoConditionLossFor(s));
+
+  // ...but only if there is a stall for it. THE LOT IS A HARD LIMIT: every
+  // buying path is gated on capacity, and a repo is the one event that can add
+  // to inventory without anybody choosing to. Left ungated it was the only way
+  // to hold more cars than the lot has room for, which reads as a bug because
+  // it is one — the HUD says 18/18 and there are twenty cars on the tarmac.
+  //
+  // A full lot does not cancel the repossession. Same shape as the collections
+  // desk, which sells the customer the car instead of the payment rather than
+  // sending them away: the car is still taken, it just never comes home. It goes
+  // from the tow truck straight to the auction at `forcedSaleRate`, which is
+  // less than it is worth, so a full lot costs you the difference. That is the
+  // right pressure — it is a reason to keep a stall free, not a wall.
+  if (overLotCapacity(s)) {
+    const dumped = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
+    s.cash += dumped;
+    s.stats.lifetimeProfit += dumped - car.costBasis;
+    removeCar(s, car.id);
+    logEvent(s, {
+      t: s.t,
+      kind: 'repo',
+      label: `Repo: ${label} straight to auction — no room on the lot`,
+      amount: dumped - fee,
+    });
+    return;
+  }
+
+  logEvent(s, { t: s.t, kind: 'repo', label: `Repo: ${label} back from ${customer}`, amount: -fee });
+}
+
+/**
+ * Is the lot holding more than it has room for?
+ *
+ * Counted AFTER the car in question has been put back, so this is "did that one
+ * tip us over", not "were we already full". An existing save can legitimately be
+ * over the line — the admin console can shrink a stage's capacity under a lot
+ * that is already full — and the rule there is the same one the loan book
+ * follows: a new limit never retroactively destroys what a save already holds.
+ * It drains by attrition, and nothing new is allowed to arrive.
+ */
+function overLotCapacity(s: GameState): boolean {
+  return s.cars.filter((c) => c.status !== 'sold').length > carCapacity(s);
 }
 
 // ------------------------------------------------------------- automation

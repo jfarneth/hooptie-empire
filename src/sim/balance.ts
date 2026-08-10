@@ -270,23 +270,28 @@ export const BALANCE = {
   // two files would mean every tuning pass had to edit both.
 
   /**
-   * What the wholesaler pays for the lot when the business moves stores, as a
-   * share of each car's true wholesale value.
+   * What the wholesaler pays when a car has to be sold RIGHT NOW, as a share of
+   * its true wholesale value.
    *
-   * Moving clears the lot in both directions, so this is the price of a forced
-   * sale: the wholesaler knows you are leaving and there is nobody else to sell
-   * twelve cars to this afternoon. Under 1 on purpose — at 1 a stage move would
-   * be a free way to convert stock to cash at full value, and the ladder's rule
-   * is that a move has to cost something.
+   * Two things force a sale and both are the same trade, which is why they share
+   * one number rather than two that would always be set alike:
    *
-   * It does NOT vary by stage. The haircut is the wholesaler's leverage over
-   * somebody who has already signed for the next store, and that is the same
-   * whether the lot holds five beaters or forty Valmonts.
+   *   - CHANGING STORES clears the lot. The wholesaler knows you have already
+   *     signed for the next store and there is nobody else to sell twelve cars
+   *     to this afternoon.
+   *   - A REPOSSESSION LANDING ON A FULL LOT goes straight from the tow truck to
+   *     the auction, because there is physically nowhere to put it.
    *
-   * Note the player loses more than this number says: the retail spread they
-   * were holding the car for, and any recon already paid, both go with it.
+   * Under 1 on purpose. At 1 a stage move would be a free way to convert stock
+   * to cash at book value, and a full lot would stop costing anything at all.
+   *
+   * It does NOT vary by stage: the haircut is the buyer's leverage over somebody
+   * with no choice, which is the same whether the car is a beater or a Valmont.
+   *
+   * The player loses more than this number says — the retail spread they were
+   * holding the car for, and any recon already paid, go with it.
    */
-  stageMoveLiquidation: 0.8,
+  forcedSaleRate: 0.8,
 
   // -------------------------------------------------------------------- skills
   /**

@@ -1,5 +1,7 @@
+import { moveToStage, purchaseUpgrade, setDealPolicy } from './actions';
 import { TICK_MS } from './balance';
 import { advance, createInitialState } from './engine';
+import { canBuyUpgrade, carCapacity } from './upgrades';
 import { SKILL_IDS } from './skills';
 import type { GameState } from './types';
 
@@ -137,5 +139,67 @@ describe('offline catch-up performance', () => {
     // Generous ceiling: the point is to catch an accidental O(n^2), not to
     // benchmark the machine this happens to run on.
     expect(elapsed).toBeLessThan(4_000);
+  });
+});
+
+/**
+ * The lot is a hard limit.
+ *
+ * Every buying path is gated on capacity, but a repossession adds to inventory
+ * without anybody choosing to — it was the one way to end up holding more cars
+ * than the lot has stalls, which reads to a player as a bug because it is one:
+ * the HUD says 18/18 and there are twenty cars on the tarmac.
+ *
+ * This is a property test on purpose. The bug was not in any single line, it was
+ * in the absence of a check on one path, and the only reliable way to catch a
+ * missing gate is to assert the invariant continuously over a run that actually
+ * exercises it.
+ */
+describe('lot capacity is strict', () => {
+  function busyLot(): GameState {
+    let s = createInitialState(90210, 0);
+    s = { ...s, cash: 400_000_000 };
+    s = moveToStage(s, 'smallUsed');
+    for (const id of ['autoBuy', 'autoList', 'autoRecon', 'salesDesk', 'scout', 'collections']) {
+      if (canBuyUpgrade(s, id)) s = purchaseUpgrade(s, id);
+    }
+    // The desk has to be writing paper, or nothing is ever repossessed and the
+    // whole point of this fixture goes untested.
+    s = setDealPolicy(s, 'finance');
+    return { ...s, cash: 250_000 };
+  }
+
+  it('never holds more cars than there are stalls, however many come back', () => {
+    let s = busyLot();
+    const held = (g: GameState) => g.cars.filter((c) => c.status !== 'sold').length;
+
+    let sawFullLot = false;
+    let reposOntoFullLot = 0;
+    let auctioned = 0;
+
+    for (let i = 0; i < 4_000; i++) {
+      const wasFull = held(s) >= carCapacity(s);
+      const before = { repos: s.stats.reposCompleted, cars: held(s) };
+
+      s = advance(s, 5_000);
+
+      expect(held(s)).toBeLessThanOrEqual(carCapacity(s));
+      if (held(s) === carCapacity(s)) sawFullLot = true;
+
+      if (s.stats.reposCompleted > before.repos && wasFull) {
+        reposOntoFullLot += 1;
+        // The car was taken but could not park, so the lot did not grow.
+        expect(held(s)).toBeLessThanOrEqual(before.cars);
+        if (s.events.some((e) => e.label.includes('straight to auction'))) auctioned += 1;
+      }
+    }
+
+    // Without these the assertion above could pass on a run that never filled
+    // the lot and never repossessed anything, which is the kind of test that
+    // guards nothing.
+    expect(sawFullLot).toBe(true);
+    expect(s.stats.reposCompleted).toBeGreaterThan(0);
+    expect(reposOntoFullLot).toBeGreaterThan(0);
+    expect(auctioned).toBeGreaterThan(0);
   });
 });

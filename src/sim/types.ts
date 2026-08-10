@@ -258,7 +258,8 @@ export interface SimEvent {
     | 'stage-up'
     | 'stage-down'
     | 'skill-up'
-    | 'appraisal';
+    | 'appraisal'
+    | 'admin';
   label: string;
   amount?: number;
 }
