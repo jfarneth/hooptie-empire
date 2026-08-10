@@ -220,6 +220,22 @@ export function upgradeCost(def: UpgradeDef, currentLevel: number, stage?: Stage
 }
 
 /** True once the store is big enough for this line item to exist at all. */
+/**
+ * What one level of this upgrade costs to keep, per game week.
+ *
+ * Derived from the hire's own price rather than a flat per-level figure, so a
+ * sales manager costs more to keep than a lot mechanic without anybody
+ * maintaining a second table. Non-staff lines return 0: paving does not eat.
+ *
+ * Scaled by the store for the same reason the purchase price is — the wage bill
+ * at a Valmont franchise is not the wage bill at a corner lot.
+ */
+export function weeklyWage(def: UpgradeDef, stage?: StageId): number {
+  if (!def.staff) return 0;
+  const storeScale = stage ? getStage(stage).upgradeCostMultiplier : 1;
+  return Math.round(def.baseCost * BALANCE.expenses.wageOfCost * storeScale);
+}
+
 export function upgradeUnlocked(state: Pick<GameState, 'stage'>, def: UpgradeDef): boolean {
   return hasReached(state.stage, def.stage);
 }

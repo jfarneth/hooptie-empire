@@ -277,10 +277,15 @@ export const BALANCE = {
    */
   expenses: {
     /**
-     * Wage bill per upgrade level per week, before the store's own multiplier.
-     * Only `staff: true` upgrades draw a wage: a paved row does not eat.
+     * Weekly wage for one level of a staff upgrade, as a share of what that
+     * level cost to buy — so an expensive hire is expensive to keep, and a
+     * sales manager is not billed at the same rate as a lot mechanic.
+     *
+     * Derived rather than tabulated on purpose: a new staff line on the upgrade
+     * table gets a sensible wage for free, and it cannot drift out of step with
+     * the hire's price the way a second column would.
      */
-    payrollPerLevelPerWeek: 160,
+    wageOfCost: 0.02,
     /**
      * Weekly interest on the money tied up in unsold inventory, as a share of
      * cost basis. This is floorplan financing, and it is what makes a lot full

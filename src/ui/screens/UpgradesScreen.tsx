@@ -1,11 +1,19 @@
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { purchaseUpgrade } from '../../sim/actions';
-import { UPGRADES, getUpgrade, level, upgradeCost, upgradeUnlocked, type UpgradeDef } from '../../sim/upgrades';
+import {
+  UPGRADES,
+  getUpgrade,
+  level,
+  upgradeCost,
+  upgradeUnlocked,
+  weeklyWage,
+  type UpgradeDef,
+} from '../../sim/upgrades';
 import { SKILLS } from '../../sim/skills';
 import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
-import { money, theme } from '../theme';
+import { money, moneyShort, theme } from '../theme';
 import { HUD_HEIGHT } from '../components/Hud';
 import { Button, Chip, Label, Row } from '../components/ui';
 import { AdminPanel } from '../components/AdminPanel';
@@ -112,6 +120,11 @@ function UpgradeCard({
   const maxed = lvl >= def.maxLevel;
   const cost = upgradeCost(getUpgrade(def.id), lvl, state.stage);
   const affordable = state.cash >= cost;
+  // What this level adds to the weekly bill, for ever. A hire is a standing
+  // commitment, not a purchase, and the button has to say so before the tap —
+  // finding out afterwards, from a ledger line, is how a player ends up staffed
+  // past what the lot can carry.
+  const wage = weeklyWage(def, state.stage);
 
   return (
     <View style={[styles.card, maxed && styles.cardMaxed]}>
@@ -133,6 +146,7 @@ function UpgradeCard({
       {!maxed ? (
         <Button
           label={money(cost)}
+          sublabel={wage > 0 ? `+${moneyShort(wage)}/wk` : 'no wage'}
           tone={affordable ? 'money' : 'ghost'}
           disabled={!affordable}
           onPress={onBuy}
@@ -158,7 +172,7 @@ const styles = StyleSheet.create({
   cardMaxed: { opacity: 0.6, borderColor: theme.colors.moneyDim },
   name: { color: theme.colors.text, fontSize: 14, fontWeight: '700' },
   description: { color: theme.colors.textDim, fontSize: 12, lineHeight: 16 },
-  buyButton: { minWidth: 92 },
+  buyButton: { minWidth: 104 },
   tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   tab: { flexGrow: 1, flexBasis: 70, paddingHorizontal: 6 },
   skillsHint: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 16 },

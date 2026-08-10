@@ -44,6 +44,7 @@ import {
   carCapacity,
   collectionsCapacity,
   level,
+  weeklyWage,
   repoConditionLoss as repoConditionLossFor,
   repoFee as repoFeeFor,
 } from './upgrades';
@@ -222,11 +223,7 @@ export function weeklyExpenses(s: GameState): WeeklyExpenses {
   const rent = stage.rentPerWeek;
 
   let payroll = 0;
-  for (const def of UPGRADES) {
-    if (!def.staff) continue;
-    payroll += level(s, def.id) * BALANCE.expenses.payrollPerLevelPerWeek;
-  }
-  payroll = Math.round(payroll * stage.upgradeCostMultiplier);
+  for (const def of UPGRADES) payroll += level(s, def.id) * weeklyWage(def, s.stage);
 
   // Only cars still on the lot. A financed car is out with the customer and is
   // the book's problem, not the floorplan's.

@@ -66,8 +66,8 @@ export const TUNABLES: readonly TunableDef[] = [
     help: 'What you get when a car must go now: the lot on a stage move, or a repo with nowhere to park. At 1 neither costs anything.' },
 
   // ---------------------------------------------------------- running costs
-  { path: 'balance.expenses.payrollPerLevelPerWeek', label: 'Wages per level per week', group: 'Running costs', kind: 'money', min: 0, max: 50_000,
-    help: 'Before the store’s upgrade multiplier. Only staff draw a wage.' },
+  { path: 'balance.expenses.wageOfCost', label: 'Weekly wage, share of hire cost', group: 'Running costs', kind: 'percent', min: 0, max: 0.5,
+    help: 'A hire’s weekly wage as a share of what that level cost to buy, so an expensive hire is expensive to keep. Staff only.' },
   { path: 'balance.expenses.floorplanWeeklyRate', label: 'Floorplan interest per week', group: 'Running costs', kind: 'percent', min: 0, max: 0.2,
     help: 'Charged on the cost basis of everything unsold on the lot. This is what makes dead stock cost money.' },
 

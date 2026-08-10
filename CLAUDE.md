@@ -283,8 +283,23 @@ cash readout.
 
 **The business pays rent, wages and floorplan interest every game week**
 (`weeklyExpenses`, charged by `stepBills` on the same beat note payments land
-on). Rent is per stage; wages scale with staff levels and the store; floorplan is
-interest on the cost basis of everything unsold. This is what stops a franchise
+on). Rent is per stage; a staff line's wage is a share of what that level cost to
+hire (`wageOfCost`), so an expensive hire is expensive to keep and a new staff
+upgrade gets a sensible wage for free; floorplan is interest on the cost basis of
+everything unsold.
+
+**The upgrade table is badly out of scale with the ladder, and it is the next
+thing to fix.** A sales manager costs 1:18 of the store at a small lot and
+1:1111 at a premium franchise — the store gets 1000x dearer and the hire only
+18x. Raising `upgradeCostMultiplier` to hold that ratio near 1:38 was measured
+and it makes the midsize franchise unreachable inside 350h, even with entry
+costs cut to $16M. The franchise stages simply cannot accumulate that much once
+upgrades are priced properly, which says the fix is not the multiplier alone:
+the absolute dollar figures are inflated because entry costs were raised to gate
+time against a ~26% gross margin. Thinner margins would let the same pacing be
+gated by realistic figures, and the ratio would fall out of a smaller spread. A
+retune that moves margins, entry costs and the multiplier together is one job,
+not three. This is what stops a franchise
 being pure upside once its entry cost clears.
 
 **Cash at zero is an ABSORBING state, and that is the whole difficulty.** No
