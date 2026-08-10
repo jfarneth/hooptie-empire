@@ -163,7 +163,7 @@ function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
       // one car at a small lot. It then had no stock, no income, and a rent
       // bill, which is the definition of the spiral. A player learns to keep
       // cars on the lot before they buy a nicer office.
-      const keep = float + typicalCarPrice(getStage(s.stage)) * 2;
+      const keep = float + typicalCarPrice(getStage(s.stage)) * 4;
       if (s.cash - cost < keep) continue;
       s = purchaseUpgrade(s, id);
       if (id === 'salesDesk') s = setDealPolicy(s, 'auto');

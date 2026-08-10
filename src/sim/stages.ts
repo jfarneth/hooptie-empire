@@ -50,6 +50,29 @@ export interface StageSourcing {
    * franchise store makes its money on volume and on the finance desk, which is
    * exactly where this game already says the money is.
    */
+  /**
+   * Seller ask, as a share of the car's true wholesale value. THE SHARPEST KNOB
+   * IN THE GAME, and now the thing that gives each rung its character.
+   *
+   * Margin as a share of retail is `1 - wholesaleOfRetail x ask`, so break-even
+   * sits at an ask of about 1.35 and anything above it is a car bought for more
+   * than it can be sold for. The ladder is deliberately shaped along that line:
+   *
+   *   used stages       WIDE, straddling break-even. A curbstoner can clear 50%
+   *                     on a car or lose money on it, and which one it turns out
+   *                     to be is decided by whether they read the condition
+   *                     right — the band only sets the stakes, the appraisal
+   *                     decides the outcome. This is what makes Buying the skill
+   *                     that matters early.
+   *   franchise stages  NARROW and thin. Single digits to low teens, no
+   *                     judgement involved (`appraisalSigmaMult: 0` means the
+   *                     feed tells the truth), and the money comes from the cars
+   *                     being worth six figures rather than from the percentage.
+   *
+   * The percentage falls as you climb and the dollars rise, which is how a real
+   * dealership ladder works and is the reason the top of the game is a volume
+   * business rather than a bargain-hunting one.
+   */
   askMin: number;
   askMax: number;
   /** Condition of what arrives. Franchise cars are new. */
@@ -147,8 +170,10 @@ const FROM_THE_MANUFACTURER = {
   mileageMin: 4,
   mileageMax: 90,
   appraisalSigmaMult: 0,
-  askMin: 1.05,
-  askMax: 1.15,
+  // Every franchise overrides these — the invoice thins as the marque moves
+  // upmarket. Kept as a fallback so the shape is defined if a stage forgets.
+  askMin: 1.16,
+  askMax: 1.24,
 } as const;
 
 export const STAGES: readonly StageDef[] = [
@@ -165,7 +190,7 @@ export const STAGES: readonly StageDef[] = [
     rentPerWeek: 0,
     bhphMultiplier: 1,
     creditShift: 0,
-    sourcing: { ...OPEN_MARKET, tiers: ['beater', 'commuter'], askMin: 0.8, askMax: 1.2 },
+    sourcing: { ...OPEN_MARKET, tiers: ['beater', 'commuter'], askMin: 0.62, askMax: 1.42 },
   },
   {
     id: 'smallUsed',
@@ -184,8 +209,8 @@ export const STAGES: readonly StageDef[] = [
     sourcing: {
       ...OPEN_MARKET,
       tiers: ['beater', 'commuter', 'family', 'truck'],
-      askMin: 0.8,
-      askMax: 1.2,
+      askMin: 0.66,
+      askMax: 1.38,
     },
   },
   {
@@ -199,14 +224,14 @@ export const STAGES: readonly StageDef[] = [
     capacityUpgradeId: 'lot',
     financing: true,
     upgradeCostMultiplier: 2.4,
-    rentPerWeek: 2600,
+    rentPerWeek: 2000,
     bhphMultiplier: 1.42,
     creditShift: 0.4,
     sourcing: {
       ...OPEN_MARKET,
       tiers: ['commuter', 'family', 'truck', 'luxury'],
-      askMin: 0.8,
-      askMax: 1.2,
+      askMin: 0.74,
+      askMax: 1.3,
     },
   },
   {
@@ -220,10 +245,10 @@ export const STAGES: readonly StageDef[] = [
     capacityUpgradeId: 'lot',
     financing: true,
     upgradeCostMultiplier: 5,
-    rentPerWeek: 9000,
+    rentPerWeek: 4000,
     bhphMultiplier: 1.3,
     creditShift: 0.9,
-    sourcing: { ...FROM_THE_MANUFACTURER, makeId: 'halvorsen' },
+    sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.16, askMax: 1.24, makeId: 'halvorsen' },
   },
   {
     id: 'midsizeFranchise',
@@ -236,10 +261,10 @@ export const STAGES: readonly StageDef[] = [
     capacityUpgradeId: 'lot',
     financing: true,
     upgradeCostMultiplier: 10,
-    rentPerWeek: 20000,
+    rentPerWeek: 9000,
     bhphMultiplier: 1.22,
     creditShift: 1.6,
-    sourcing: { ...FROM_THE_MANUFACTURER, makeId: 'okabe' },
+    sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.2, askMax: 1.27, makeId: 'okabe' },
   },
   {
     id: 'premiumFranchise',
@@ -252,10 +277,10 @@ export const STAGES: readonly StageDef[] = [
     capacityUpgradeId: 'lot',
     financing: true,
     upgradeCostMultiplier: 18,
-    rentPerWeek: 45000,
+    rentPerWeek: 20000,
     bhphMultiplier: 1.15,
     creditShift: 2.6,
-    sourcing: { ...FROM_THE_MANUFACTURER, makeId: 'valmont' },
+    sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.23, askMax: 1.29, makeId: 'valmont' },
   },
 ];
 

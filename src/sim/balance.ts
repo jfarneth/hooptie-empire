@@ -285,14 +285,14 @@ export const BALANCE = {
      * table gets a sensible wage for free, and it cannot drift out of step with
      * the hire's price the way a second column would.
      */
-    wageOfCost: 0.02,
+    wageOfCost: 0.012,
     /**
      * Weekly interest on the money tied up in unsold inventory, as a share of
      * cost basis. This is floorplan financing, and it is what makes a lot full
      * of cars nobody wants an actively bad place to be rather than a neutral
      * one.
      */
-    floorplanWeeklyRate: 0.009,
+    floorplanWeeklyRate: 0.004,
     /**
      * Weeks of running costs automation always holds back, on top of whatever
      * floor the player set in the business suite.
@@ -309,8 +309,10 @@ export const BALANCE = {
      * that keeps enough float to make rent, and buys with what is left.
      */
     reserveWeeks: 3,
+    /** ...and never below the price of this many cars at the current store. */
+    reserveCars: 2,
     /** Cars you must be able to buy at the new store before the move is allowed. */
-    reopeningCars: 3,
+    reopeningCars: 6,
   },
 
   // -------------------------------------------------------------- progression

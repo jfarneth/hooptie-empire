@@ -288,6 +288,40 @@ hire (`wageOfCost`), so an expensive hire is expensive to keep and a new staff
 upgrade gets a sensible wage for free; floorplan is interest on the cost basis of
 everything unsold.
 
+**Margin is shaped along the ladder, and it is the strongest lever on run rate
+there is.** `STAGES[].sourcing.askMin/askMax` is a share of true wholesale, so
+margin as a share of retail is `1 - wholesaleOfRetail x ask` and break-even sits
+at an ask of ~1.35. The bands now straddle that line on the used stages and sit
+well under it on the franchises:
+
+| | ask band | margin, best to worst |
+|---|---|---|
+| Curbstone | 0.62–1.42 | +54% to **−5%** |
+| Small used | 0.66–1.38 | +51% to **−2%** |
+| Large used | 0.74–1.30 | +45% to +4% |
+| Low-cost franchise | 1.16–1.24 | +14% to +8% |
+| Midsize franchise | 1.20–1.27 | +11% to +6% |
+| Premium franchise | 1.23–1.29 | +9% to +4.5% |
+
+The percentage falls as the dollars rise, which is what makes the top a volume
+business and the bottom a judgement one. Two measured facts about it:
+
+- **Widening the early band costs nothing in pace.** Going from 0.8–1.2 to
+  0.62–1.42 left the stage-2 milestone flat (2h36m → 2h29m). A selective buyer
+  is *helped* by a wider spread — more junk to skip, but better cars when they
+  land. What it buys is character, not slowdown: the band only sets the stakes,
+  and the appraisal decides whether a given car actually loses money.
+- **Thinning the franchise band is enormous.** Cutting franchise margin from
+  15–22% to 4.5–14% moved the midsize milestone 49h38m → 76h03m and pushed
+  premium out past 350h. If the late game needs to move, this is the knob.
+
+**A reserve measured in weeks of rent is not a reserve.** Thin franchise margins
+exposed this: a business would arrive at a midsize store with $18k, which is not
+one $34k car, so it could never restock, never earn, and died with the rent still
+running. The working-capital floor is now `max(player floor, weeks of expenses,
+price of N cars at this store)` — denominated in the unit that actually matters.
+`reopeningFloat` is sized the same way.
+
 **The upgrade table is badly out of scale with the ladder, and it is the next
 thing to fix.** A sales manager costs 1:18 of the store at a small lot and
 1:1111 at a premium franchise — the store gets 1000x dearer and the hire only
@@ -341,11 +375,11 @@ The ladder, median at `--seeds=16 --hours=32`, reached by 16/16:
 
 | | |
 |---|---|
-| Small used dealership | ~2h36m |
-| Large used dealership | ~6h33m |
-| Low-cost franchise | ~14h53m |
-| Midsize franchise | ~50h03m |
-| Premium franchise | ~165h50m (4/8) |
+| Small used dealership | ~2h29m |
+| Large used dealership | ~6h00m |
+| Low-cost franchise | ~14h16m |
+| Midsize franchise | ~76h03m |
+| Premium franchise | beyond 350h |
 
 Measured at `--hours=350 --seeds=8`, because the ladder no longer fits in 32h.
 Roughly a tripling per rung now, steepening at the top — the shape to preserve. A 4h run only ever

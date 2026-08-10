@@ -15,7 +15,7 @@ import { deskCounter, resolveCounter } from './haggle';
 import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
 import { mintId } from './ids';
 import { LISTING_SOURCES, makeName, modelsForMake, modelsForTiers } from './models';
-import { getStage } from './stages';
+import { getStage, typicalCarPrice } from './stages';
 import {
   activeNotes,
   applyDuePayment,
@@ -493,6 +493,10 @@ function stepAutomation(s: GameState): void {
   const reserve = Math.max(
     minWorkingCapital(s),
     weeklyExpenses(s).total * BALANCE.expenses.reserveWeeks,
+    // Always enough left to replace stock. Denominated in cars because that is
+    // the unit that matters: at a franchise a single car is more than three
+    // weeks of rent, and a lot that empties out has no way to earn its way back.
+    typicalCarPrice(getStage(s.stage)) * BALANCE.expenses.reserveCars,
   );
 
   if (level(s, 'autoRecon') > 0) {

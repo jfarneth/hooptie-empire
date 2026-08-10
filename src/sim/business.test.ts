@@ -9,7 +9,7 @@ import {
 } from './business';
 import { generateProspect } from './customers';
 import { generateCar } from './cars';
-import { getStage } from './stages';
+import { getStage, typicalCarPrice } from './stages';
 import { pessimisticWholesale } from './appraisal';
 import {
   advance,
@@ -208,7 +208,16 @@ describe('minimum working capital', () => {
     // but not sufficient, so the fixture is topped up past the expense reserve
     // to isolate the thing under test.
     const s = retainerLot(0);
-    s.cash += weeklyExpenses(s).total * BALANCE.expenses.reserveWeeks;
+    // The floor the buyer respects is the highest of: the player's setting, a few
+    // weeks of running costs, and the price of a couple of cars at this store —
+    // the last of these landed when thin franchise margins showed that a reserve
+    // measured in rent is not a reserve at all once one car costs $34k. Clearing
+    // the player's floor is necessary but not sufficient, so top the fixture past
+    // all three to isolate the thing under test.
+    s.cash = Math.max(
+      s.cash + weeklyExpenses(s).total * BALANCE.expenses.reserveWeeks,
+      s.cash + typicalCarPrice(getStage(s.stage)) * BALANCE.expenses.reserveCars,
+    );
     const after = advance(s, 5_000);
 
     expect(after.cars.length).toBeGreaterThan(0);
@@ -265,7 +274,10 @@ describe("the retainer buyer's minimum margin", () => {
     const base = cloneState(createInitialState(808, 0));
     base.upgrades = { autoBuy: 1, autoList: 1, driveway: 3, salesDesk: 1, advertising: 3 };
     base.dealPolicy = 'cash';
-    base.cash = 20_000;
+    // Comfortably clear of the working-capital floor, which is now denominated
+    // in cars — at $20k the buyer could not have bought anything at all and both
+    // arms of this comparison returned zero, which is a pass that proves nothing.
+    base.cash = 90_000;
 
     const run = (margin: number) => {
       const s = cloneState(base);
