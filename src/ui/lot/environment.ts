@@ -21,31 +21,10 @@ import type { StageId } from '../../sim/types';
  * moves when the lot re-renders is a crack the player notices.
  */
 
-/**
- * How far the camera is tilted off straight-down, in degrees.
- *
- * Small on purpose. A pure plan view gives nothing height and a car reads as a
- * coloured rectangle; a few degrees gives every vertical surface a sliver of
- * itself. Staying under ~15 degrees is what lets `layout.ts` keep computing the
- * parking plan in flat 2D — at 12 degrees the ground foreshortens by 2%, which
- * is not worth a perspective projection and a rewrite of the 5-to-62 range.
- *
- * MUST MATCH `tiltDegrees` in tools/render-sprites/config.json, which is the
- * angle the car sprites are rendered at. If these disagree, the cars are lit
- * from one camera and everything around them from another.
+/*
+ * The camera — tilt, yaw and every projection — lives in `camera.ts`. This file
+ * is only the stage data it photographs.
  */
-export const LOT_TILT_DEGREES = 12;
-
-/**
- * On-screen rise for something of a given height, under the tilt above.
- *
- * A vertical object projects upward by `height x sin(tilt)`; its footprint stays
- * exactly where it was. That is the whole trick — the ground plan never moves,
- * so nothing about parking, stalls or hit targets has to change.
- */
-export function tiltRise(height: number): number {
-  return height * Math.sin((LOT_TILT_DEGREES * Math.PI) / 180);
-}
 
 /**
  * Width of the strip at the right-hand end of the building band kept clear for
@@ -89,13 +68,13 @@ export interface EnvironmentDef {
   /**
    * Height of the building, before the tilt turns it into a front elevation.
    *
-   * DELIBERATELY EXAGGERATED, unlike the cars. At a true 12 degrees a real
-   * single-storey showroom projects about 25px of frontage, which cannot hold a
-   * door, never mind glazing and a sign — the building ends up as a large empty
-   * roof with everything crushed into a strip along its bottom edge. These are
-   * set so the elevation takes roughly half the band, which is the standard
-   * cheat in near-plan games and reads correctly because buildings are the one
-   * thing the player never compares against a car for scale.
+   * DELIBERATELY EXAGGERATED, unlike the cars — but by less than it used to be.
+   * At the old 12-degree tilt a real single-storey showroom projected about
+   * 25px of frontage, which cannot hold a door, never mind glazing and a sign,
+   * so these carried a roughly 3x cheat. At 25 degrees the tilt does more of the
+   * work and the cheat came down to about 2x; buildings are still the one thing
+   * the player never compares against a car for scale, which is why the cheat is
+   * allowed at all.
    */
   buildingHeight: number;
   /** How far the stalls sit in from the screen edge. Wide on a driveway. */
@@ -135,7 +114,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: null, // nobody paints stalls on their own driveway
     building: 'house',
     buildingDepth: 126,
-    buildingHeight: 268,
+    buildingHeight: 188,
     edgePad: 62,
     wall: '#3f362f',
     trim: '#6b5d51',
@@ -163,7 +142,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: { color: '#b9b19a', opacity: 0.24, width: 2.4, wobble: 5 },
     building: 'shack',
     buildingDepth: 132,
-    buildingHeight: 248,
+    buildingHeight: 174,
     edgePad: 16,
     wall: '#4a453c',
     trim: '#5b544a',
@@ -191,7 +170,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: { color: '#d8d2bc', opacity: 0.32, width: 2.5, wobble: 0 },
     building: 'brick',
     buildingDepth: 130,
-    buildingHeight: 298,
+    buildingHeight: 208,
     edgePad: 12,
     wall: '#4a3b35',
     trim: '#6a5a50',
@@ -219,7 +198,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: { color: '#f0ecd8', opacity: 0.42, width: 2.5, wobble: 0 },
     building: 'showroom',
     buildingDepth: 128,
-    buildingHeight: 306,
+    buildingHeight: 214,
     edgePad: 12,
     wall: '#39424f',
     trim: '#7c8797',
@@ -248,7 +227,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: { color: '#f6f3e4', opacity: 0.5, width: 2.5, wobble: 0 },
     building: 'showroomWide',
     buildingDepth: 146,
-    buildingHeight: 354,
+    buildingHeight: 248,
     edgePad: 10,
     wall: '#3b4552',
     trim: '#93a0b2',
@@ -277,7 +256,7 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     stallLine: { color: '#ffffff', opacity: 0.32, width: 2, wobble: 0 },
     building: 'flagship',
     buildingDepth: 164,
-    buildingHeight: 420,
+    buildingHeight: 294,
     edgePad: 10,
     wall: '#38414e',
     trim: '#a9b8cb',
@@ -323,7 +302,7 @@ export interface Clump {
  * sessions — decoration that reshuffles is worse than no decoration, because
  * the eye reads the movement as something having happened.
  */
-function mulberry(seed: number): () => number {
+export function seededRandom(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -343,7 +322,7 @@ export function stageSeed(stage: StageId): number {
 }
 
 export function specks(seed: number, width: number, height: number, count: number): Speck[] {
-  const r = mulberry(seed);
+  const r = seededRandom(seed);
   return Array.from({ length: Math.max(0, Math.floor(count)) }, () => ({
     x: r() * width,
     y: r() * height,
@@ -362,7 +341,7 @@ export function crackPaths(
   bottom: number,
   count: number,
 ): string[] {
-  const r = mulberry(seed ^ 0x9e37);
+  const r = seededRandom(seed ^ 0x9e37);
   const span = Math.max(1, bottom - top);
   return Array.from({ length: Math.max(0, Math.floor(count)) }, () => {
     let x = r() * width;
@@ -385,7 +364,7 @@ export function weedClumps(
   bottom: number,
   count: number,
 ): Clump[] {
-  const r = mulberry(seed ^ 0x51ed);
+  const r = seededRandom(seed ^ 0x51ed);
   const span = Math.max(1, bottom - top);
   return Array.from({ length: Math.max(0, Math.floor(count)) }, () => {
     const x = r() * width;

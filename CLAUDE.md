@@ -122,6 +122,18 @@ Only the top-down angle is rendered: the lot is where sixty cars share a screen
 and the shading earns its keep, while the feed and the sheets show one car at a
 time and the vector side profile reads fine. Two things that bite:
 
+**The sprites are still shot at 12 degrees and the scene camera is at 25.**
+`SPRITE_TILT_DEGREES` in `camera.ts` is the honest record of that, and
+`tools/render-sprites/config.json` must match THAT number, not
+`LOT_TILT_DEGREES`. The tool needs Blender, which a normal checkout does not
+have, so the scene moved ahead of the art. What it costs is small and bounded: a
+car is laid on the ground plane through the same affine transform as the tarmac
+under it, so it parks in the right place at the right angle with the right
+foreshortening, and only its own shading is from a shallower camera. Re-running
+the tool with `tiltDegrees: 25` and a yaw closes the gap. Do not "fix" the
+mismatch by editing one constant to match the other — that just makes the comment
+lie.
+
 - **Paint is baked per colour, never tinted at runtime.** A flat tint destroys
   the shading that is the whole reason for having sprites. Condition is the
   opposite — continuous, so it is composited: the same sprite, flattened to
@@ -131,25 +143,57 @@ time and the vector side profile reads fine. Two things that bite:
   in its own colour. `tools/render-sprites/README.md` has the details, including
   why paint bands must be measured area-weighted rather than by vertex count.
 
-The lot draws cars at ~45px at franchise scale and ~110px on a driveway, so
-sprites ship at 192px wide and the whole set is ~2.9MB.
+The lot draws cars at ~34px on a small lot and ~60px on a driveway under the
+isometric camera, so sprites ship at 192px wide and the whole set is ~2.9MB.
 
-**The camera is tilted 12 degrees off straight-down, and that number lives in two
-files.** `LOT_TILT_DEGREES` in `environment.ts` and `render.tiltDegrees` in
-`tools/render-sprites/config.json` must agree, or the cars are photographed from
-one camera and everything around them drawn from another. The tilt is what gives
-vertical things a sliver of themselves — the nose of a car, the front of a
-building, the mast of a light — and it is deliberately small: at 12 degrees the
-ground foreshortens by 2%, so `layout.ts` keeps computing the parking plan in
-flat 2D instead of becoming a perspective projection. Anything vertical rises on
-screen by `tiltRise(height)` and its footprint does not move, which is why the
-tilt cost nothing in stalls, hit targets or the 5-to-62 range.
+**The camera is isometric — 25 degrees of tilt and 25 degrees of yaw — and it
+lives in `camera.ts`, which is the only file that knows how to get from the plan
+to the screen.** Everything else still works in flat lot coordinates. That is
+affordable because an orthographic camera maps every horizontal plane to the
+screen *affinely*: a rectangle of tarmac becomes a parallelogram, never a
+trapezium. Three consequences carry the whole design:
 
-Buildings are the one exception, and knowingly so: their heights are exaggerated
-about 3x. A true 12-degree elevation on a real single-storey showroom is ~25px,
-which cannot hold glazing and a sign, so the building becomes a large empty roof
-with everything crushed along its bottom edge. Cars are never compared against a
-building for scale, so the cheat is invisible.
+- **The ground plate is one svg matrix.** Grain, cracks, weeds, stall paint and
+  the road are still authored exactly as they were when the camera pointed
+  straight down, wrapped in a single `G` carrying `camera.planeMatrix(0)`. The
+  yaw cost the tarmac art nothing.
+- **A wall is also an affine image of a rectangle**, so `camera.wall(...)` hands
+  back a matrix plus an ISOTROPIC local space, and a facade is drawn as if the
+  building had been unfolded onto a page. That is why six storefronts survived
+  the yaw unrewritten. Signs and glazing shear with the wall, which is what a
+  sign on a wall does.
+- **Verticals stay vertical.** Height moves a point straight up the screen with
+  no sideways component, so masts, posts and fence uprights are still "a rect
+  from the base going up".
+
+`layout.ts` never learned any of this and `layout.test.ts` still tests a flat
+plan. `camera.test.ts` is the guard that matters: it checks the svg matrix and
+`project()` agree to a hundredth of a pixel, because the ground is drawn with one
+and the cars are positioned with the other, and a disagreement looks like a
+layout bug rather than a projection one.
+
+**The yaw is the expensive angle and it is paid for in car size.** Rotating a
+long thin lot inside a screen-shaped box leaves two big empty triangles at the
+corners, so the same lot needs roughly 1.8x the width it used to. Cars land at
+~34px on a small lot against ~75px before. Below `MIN_CAR_WIDTH` (30px) the
+camera stops shrinking, reports `panned`, and `LotScene` puts the scene in a
+horizontal scroller — which is why a premium franchise pans sideways and the
+early stages never do. Those corner triangles are not waste: they are where
+`surroundings.ts` goes.
+
+Buildings are still exaggerated, but by about 2x rather than 3x — at 25 degrees
+the tilt does more of the work. Cars are never compared against a building for
+scale, so the cheat is invisible.
+
+**`src/ui/lot/surroundings.ts` decides what is next door**, and it is what stops
+the lot filling the screen edge to edge. Each stage gets a neighbourhood — houses
+beside a driveway, light industrial beside a small lot, a retail park beside a
+low-cost franchise, mature planting beside a premium one — generated from a
+per-stage seed into three strips: left, right and behind. **Nothing is ever
+placed in front of the lot.** The camera stands at the street, so a neighbour on
+the near side would be nearer than the cars and would have to occlude them — and
+cars are pressables in a layer *above* the ground svg, so it could not. That rule
+has a test, and it is the one that goes red if someone adds a fourth strip.
 
 **`src/ui/lot/layout.ts` is pure and tested, and it is where the 5-to-62 car
 range is solved.** Give it a capacity and a width and it returns painted stalls;
@@ -193,7 +237,7 @@ cash readout.
 ## Verify
 
 ```bash
-npm test        # 229 tests
+npm test        # 253 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=32 --seeds=16   # the whole ladder, ~15s
@@ -310,7 +354,8 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
 - **The loan book is the game.** Buy-here-pay-here modelled as real note objects
   is the differentiator; car flipping is the tutorial. Resist changes that make
   flipping the main event.
-- **Illustrated lot**, not a data-dense dashboard.
+- **Illustrated lot**, not a data-dense dashboard. Isometric since the camera
+  moved: a diorama with a neighbourhood around it, not a plan view.
 - **Countering is a gamble, not free money.** Since the tune-up, a refused
   counter loses the buyer ~9 times in 10 at level-1 Closing. Walk-aways are only
   ever triggered by a counter — take the opening offer and nothing can go wrong —
@@ -429,9 +474,11 @@ These will waste your time if you discover them the hard way:
   `EXPO_WEB_BASE_URL=/hooptie-empire` and serve it locally under a matching
   `/hooptie-empire/` subpath — the base path bug only shows up on a subpath.
   Serving at root proves nothing about the deploy.
-- **Don't play 40 minutes to reach stage 2.** Generate a mid-game save by running
-  the harness bot forward, then inject it into `localStorage` under the key
-  `hooptie.save` before the page loads (`page.addInitScript`).
+- **Don't play 40 minutes to reach stage 2.** `npx tsx src/tools/dumpsave.ts
+  smallUsed save.json` writes a real save at any stage — it buys the store, turns
+  on the automation upgrades and lets the engine fill the lot. Inject it into
+  `localStorage` under the key `hooptie.save` before the page loads
+  (`page.addInitScript`).
 - **Playwright + Chromium** at `/opt/pw-browsers/chromium` works for driving the
   app; `npm i -D playwright` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is not in
   `package.json` on purpose. Look at the running game, not just the suite — the

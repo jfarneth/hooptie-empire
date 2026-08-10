@@ -427,3 +427,35 @@ risk.
 - **Verify in a browser at a real stage, not just in the harness.** CLAUDE.md's
   own note applies double here: generate a premium-franchise save, inject it, and
   look at 62 cars on a phone-width viewport before believing any of this works.
+
+## The camera moved to isometric (25° tilt, 25° yaw)
+
+The original plan called for a shallow tilt off straight-down — 12 degrees, small
+enough that the parking plan could stay flat 2D. That shipped and held. This is
+the note on why it changed and what it cost.
+
+**What changed.** The camera now carries two angles: 25 degrees of tilt and 25
+degrees of yaw to the right. The lot reads as a diorama rather than a plan, a
+building shows two faces instead of one elevation, and the rows run diagonally.
+`src/ui/lot/camera.ts` is new and owns every projection; `surroundings.ts` is new
+and fills the corners the rotation opens up with a neighbourhood that changes per
+stage.
+
+**What it did not cost.** `layout.ts` was not touched. An orthographic camera
+maps horizontal planes affinely, so the whole ground plate is still authored in
+flat lot coordinates and posted through one svg matrix, and a wall gets an
+isotropic local space that let the six storefronts port over nearly verbatim.
+
+**What it did cost, and this is the real trade.** A rotated rectangle needs about
+1.8x the width of an unrotated one, and that comes straight out of car size: ~34px
+on a small lot against ~75px before. There is no way around it — the corner
+triangles are geometry, not a bug — so the honest options were smaller cars or a
+scene that pans. Both are in: the camera shrinks to fit until a car would go
+under 30px, then stops and lets the scene be panned sideways. The early stages
+never pan; a premium franchise always does.
+
+**What is still owed.** The sprites were shot at 12 degrees and cannot be re-shot
+without Blender, so they are laid on the ground plane at the right angle and the
+right foreshortening but lit from a shallower camera. Re-running
+`tools/render-sprites` with `tiltDegrees: 25` and a matching yaw is the fix, and
+it is the one piece of this change that is deferred rather than done.

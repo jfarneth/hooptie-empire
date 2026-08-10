@@ -2,7 +2,8 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Ellipse, G, Rect, Text as SvgText } from 'react-native-svg';
 import { theme } from '../theme';
-import { PYLON_RESERVE, tiltRise, type EnvironmentDef } from './environment';
+import type { Camera } from './camera';
+import { PYLON_RESERVE, type EnvironmentDef } from './environment';
 import type { LotLayout } from './layout';
 
 /**
@@ -23,12 +24,19 @@ import type { LotLayout } from './layout';
  * still reach the sign target underneath — which already opens the ladder.
  *
  * Its footprint is `PYLON_RESERVE` wide and it rises out of the foot of the
- * building, so it never overlaps a stall: the tilt means a vertical thing grows
- * upward on screen and its base does not move.
+ * building, so it never overlaps a stall: a vertical thing grows straight up the
+ * screen under this camera and its base does not move.
+ *
+ * SHRINKS WITH THE SCENE, BUT NOT ALL THE WAY. Everything else on the lot is
+ * scenery and scales with the camera; this is a readout, and a gauge that says
+ * READY in four pixels says nothing. So it takes the camera's scale with a floor
+ * under it — at a driveway it stands down and lets the house be the subject, and
+ * at a premium franchise it stays legible over forty cars.
  */
 
 interface Props {
   layout: LotLayout;
+  camera: Camera;
   env: EnvironmentDef;
   /** Cash as a share of the next store's entry cost. Clamped here. */
   progress: number;
@@ -38,13 +46,13 @@ interface Props {
   atTop: boolean;
 }
 
-export function LadderPylon({ layout, env, progress, targetName, atTop }: Props) {
+export function LadderPylon({ layout, camera, env, progress, targetName, atTop }: Props) {
   const pct = Math.max(0, Math.min(1, progress));
   const ready = atTop || pct >= 1;
 
   // Roughly as tall as the building it stands beside, and never so short that
   // the gauge stops being readable on a driveway.
-  const mast = tiltRise(env.buildingHeight * 0.95);
+  const mast = camera.rise(env.buildingHeight * 0.95);
   const totalH = Math.max(66, mast + 14);
   const capH = 13;
   const gaugeH = Math.min(78, Math.max(40, totalH - 20));
@@ -63,6 +71,9 @@ export function LadderPylon({ layout, env, progress, targetName, atTop }: Props)
   const capFill = ready ? theme.colors.money : (env.signColor ?? theme.colors.accent);
   const barFill = ready ? theme.colors.money : theme.colors.accent;
   const capText = atTop ? 'TOP' : targetName.toUpperCase();
+  // Standing in the reserved strip at the right-hand end of the building band.
+  const base = camera.project(layout.width - PYLON_RESERVE / 2, layout.showroomDepth);
+  const k = Math.max(0.6, Math.min(1, camera.scale * 1.15));
   const readout = atTop ? '★' : ready ? 'READY' : `${Math.round(pct * 100)}%`;
 
   return (
@@ -70,7 +81,13 @@ export function LadderPylon({ layout, env, progress, targetName, atTop }: Props)
       pointerEvents="none"
       style={[
         styles.host,
-        { left: layout.width - PYLON_RESERVE, top: layout.showroomDepth - totalH },
+        {
+          left: base.x - PYLON_RESERVE / 2,
+          // Scaled about its own centre, so this is what puts the foot of the
+          // post back on the tarmac where the camera says it stands.
+          top: base.y - (totalH * (1 + k)) / 2,
+          transform: [{ scale: k }],
+        },
       ]}
     >
       <Svg width={PYLON_RESERVE} height={totalH + 6}>
