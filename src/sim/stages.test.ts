@@ -1,4 +1,10 @@
-import { advanceStage, purchaseUpgrade, setDealPolicy, stageMovePreview } from './actions';
+import {
+  advanceStage,
+  moveToStage,
+  purchaseUpgrade,
+  setDealPolicy,
+  stageMovePreview,
+} from './actions';
 import { appraisalBand } from './appraisal';
 import { BALANCE } from './balance';
 import { advance, cloneState, createInitialState } from './engine';
@@ -197,7 +203,7 @@ describe('taking on the next dealership', () => {
   it('stops at the top of the ladder', () => {
     const s = stateAt('premiumFranchise');
     expect(advanceStage(s)).toBe(s);
-    expect(stageMovePreview(s).next).toBeNull();
+    expect(stageMovePreview(s).target).toBeNull();
   });
 
   it('takes the whole payroll and nothing else', () => {
@@ -269,7 +275,7 @@ describe('taking on the next dealership', () => {
     const preview = stageMovePreview(before);
     const after = advanceStage(before);
 
-    expect(preview.next?.id).toBe(after.stage);
+    expect(preview.target?.id).toBe(after.stage);
     expect(preview.cost).toBe(before.cash - after.cash);
     // The warning is the truth: everyone it names is gone, and nobody else is.
     const named = preview.staffLost.map((s) => s.name).sort();
@@ -280,6 +286,135 @@ describe('taking on the next dealership', () => {
       .sort();
     expect(named).toEqual(actuallyLost);
     expect(preview.bookAfter.capacity).toBe(collectionsCapacity(after));
+  });
+});
+
+// ------------------------------------------ jumping rungs, and walking back
+
+/**
+ * The ladder is climbable out of order in both directions, which is two rules:
+ * a dealership costs its own entry price no matter which rung you were standing
+ * on, and leaving one refunds nothing. Both are easy to break in a way no other
+ * test would notice — a jump that charged the sum of the rungs, or a downgrade
+ * that quietly handed back the entry cost, would look like generosity rather
+ * than like a bug.
+ */
+describe('jumping rungs and walking back down', () => {
+  function goingConcern(stage: StageId, cash: number): GameState {
+    const s = stateAt(stage);
+    s.cash = cash;
+    s.upgrades = { lot: 2, mechanic: 3, salesDesk: 1, collections: 2, scout: 1 };
+    s.dealPolicy = 'auto';
+    s.skills.buy.level = 7;
+    return s;
+  }
+
+  it('buys straight past a rung for the target’s price and nothing more', () => {
+    const before = goingConcern('smallUsed', 2_000_000);
+    const after = moveToStage(before, 'lowCostFranchise');
+
+    expect(after.stage).toBe('lowCostFranchise');
+    expect(after.cash).toBe(before.cash - getStage('lowCostFranchise').entryCost);
+    // Explicitly NOT the rungs added up: the store you skipped was never bought.
+    expect(after.cash).toBeGreaterThan(
+      before.cash - getStage('lowCostFranchise').entryCost - getStage('largeUsed').entryCost,
+    );
+    expect(stageMovePreview(before, 'lowCostFranchise').rungsSkipped).toBe(1);
+  });
+
+  it('refuses a jump the cash does not cover', () => {
+    const s = goingConcern('smallUsed', getStage('lowCostFranchise').entryCost - 1);
+    expect(moveToStage(s, 'lowCostFranchise')).toBe(s);
+    expect(stageMovePreview(s, 'lowCostFranchise').allowed).toBe(false);
+  });
+
+  it('takes the payroll on a jump exactly as it does on a step', () => {
+    const after = moveToStage(goingConcern('smallUsed', 40_000_000), 'premiumFranchise');
+    for (const def of UPGRADES) {
+      if (def.staff) expect(level(after, def.id)).toBe(0);
+    }
+    expect(after.dealPolicy).toBe('manual');
+    expect(after.listings).toEqual([]);
+  });
+
+  it('costs nothing to go down, and the cash comes with you', () => {
+    const before = goingConcern('largeUsed', 90_000);
+    const after = moveToStage(before, 'smallUsed');
+
+    expect(after.stage).toBe('smallUsed');
+    expect(after.cash).toBe(before.cash);
+    expect(stageMovePreview(before, 'smallUsed').cost).toBe(0);
+  });
+
+  it('writes off the store you leave, and charges full price to come back', () => {
+    const before = goingConcern('largeUsed', 300_000);
+    const preview = stageMovePreview(before, 'smallUsed');
+    expect(preview.forfeit).toBe(getStage('largeUsed').entryCost);
+
+    const down = moveToStage(before, 'smallUsed');
+    const backUp = moveToStage(down, 'largeUsed');
+    // The round trip is pure loss: no credit for the store already paid for.
+    expect(backUp.cash).toBe(before.cash - getStage('largeUsed').entryCost);
+  });
+
+  it('leaves the cars, the book and the skills alone on the way down', () => {
+    const before = goingConcern('largeUsed', 900_000);
+    before.upgrades.autoBuy = 1;
+    before.cars = advance(before, 40 * 60_000).cars;
+    expect(before.cars.length).toBeGreaterThan(0);
+    before.notes = [
+      {
+        id: 'n1', carId: 'c1', carLabel: 'x', customerName: 'y', customerTier: 'C',
+        originalPrincipal: 5_000, principal: 5_000, apr: 0.239, paymentAmount: 260,
+        paymentsTotal: 24, paymentsRemaining: 24, nextDueAt: 999_999_999,
+        missedPayments: 0, collected: 0, status: 'current', openedAt: 0,
+      },
+    ];
+
+    const after = moveToStage(before, 'curbstone');
+    expect(after.cars).toEqual(before.cars);
+    expect(after.notes).toEqual(before.notes);
+    expect(after.skills).toEqual(before.skills);
+    // And the driveway it lands on really is too small for what it is carrying,
+    // which is the warning the card has to be able to show.
+    const preview = stageMovePreview(before, 'curbstone');
+    expect(preview.lotAfter.capacity).toBe(carCapacity(after));
+    expect(preview.lotAfter.held).toBeGreaterThan(preview.lotAfter.capacity);
+  });
+
+  it('stands the sales desk down and clears the feed going down too', () => {
+    const before = goingConcern('largeUsed', 50_000);
+    before.listings = advance(before, 60_000).listings;
+    expect(before.listings.length).toBeGreaterThan(0);
+
+    const after = moveToStage(before, 'smallUsed');
+    expect(after.listings).toEqual([]);
+    expect(after.dealPolicy).toBe('manual');
+  });
+
+  it('describes a store you cannot afford without letting you move there', () => {
+    const s = goingConcern('curbstone', 500);
+    const preview = stageMovePreview(s, 'premiumFranchise');
+
+    expect(preview.target?.id).toBe('premiumFranchise');
+    expect(preview.direction).toBe('up');
+    expect(preview.cost).toBe(getStage('premiumFranchise').entryCost);
+    expect(preview.rungsSkipped).toBe(4);
+    expect(preview.allowed).toBe(false);
+    expect(moveToStage(s, 'premiumFranchise')).toBe(s);
+  });
+
+  it('does nothing when asked to move to the store you are already in', () => {
+    const s = goingConcern('largeUsed', 5_000_000);
+    expect(stageMovePreview(s, 'largeUsed').direction).toBe('stay');
+    expect(stageMovePreview(s, 'largeUsed').allowed).toBe(false);
+    expect(moveToStage(s, 'largeUsed')).toBe(s);
+  });
+
+  it('ignores a stage id this build does not know', () => {
+    const s = goingConcern('smallUsed', 5_000_000);
+    expect(moveToStage(s, 'usedSpaceships' as StageId)).toBe(s);
+    expect(stageMovePreview(s, 'usedSpaceships' as StageId).target).toBeNull();
   });
 });
 

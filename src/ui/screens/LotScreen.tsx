@@ -56,7 +56,13 @@ export function LotScreen({ state }: { state: GameState }) {
       >
         <LotScene
           state={state}
-          capacity={carCapacity(state)}
+          // Paved for whichever is larger: the space you own, or the cars you
+          // are actually holding. A lot can be over capacity — a repo comes back
+          // to a full lot, and walking back down the ladder lands thirty cars on
+          // a driveway — and a car with no stall is a car the player cannot tap,
+          // which is a car they can never sell. The HUD still reports the real
+          // number, so nothing here pretends the space was bought.
+          capacity={Math.max(carCapacity(state), held)}
           onSelectCar={setCarId}
           onSelectProspect={setProspectId}
           onPressSign={() => setLadderOpen(true)}
@@ -78,8 +84,8 @@ export function LotScreen({ state }: { state: GameState }) {
 
       <Sheet
         visible={ladderOpen}
-        title={stage.name}
-        subtitle="The ladder, and the price of the next rung"
+        title="The ladder"
+        subtitle={`Every store, what it costs, and what it takes. You are at ${stage.shortName}.`}
         onClose={() => setLadderOpen(false)}
       >
         <StageCard state={state} />
@@ -134,7 +140,7 @@ function RecentActivity({ state }: { state: GameState }) {
   if (recent.length === 0) return null;
 
   const color = (kind: string) =>
-    kind === 'repo' || kind === 'note-default'
+    kind === 'repo' || kind === 'note-default' || kind === 'stage-down'
       ? theme.colors.danger
       : kind === 'payment' || kind === 'sale-cash' || kind === 'sale-finance'
         ? theme.colors.money

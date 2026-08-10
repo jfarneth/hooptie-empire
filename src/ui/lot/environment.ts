@@ -47,6 +47,19 @@ export function tiltRise(height: number): number {
   return height * Math.sin((LOT_TILT_DEGREES * Math.PI) / 180);
 }
 
+/**
+ * Width of the strip at the right-hand end of the building band kept clear for
+ * the ladder pylon — the sign out front that reads how close you are to the next
+ * store.
+ *
+ * Lives here because two files have to agree about it and neither owns the
+ * other: `LadderPylon` draws inside this strip, and `LotGround` keeps the
+ * building's own furniture — the service bay, the showroom glazing, the shack's
+ * hand-painted board — out of it. Without the reservation the pylon lands on top
+ * of a service department at three of the six stores.
+ */
+export const PYLON_RESERVE = 46;
+
 export type BuildingKind = 'house' | 'shack' | 'brick' | 'showroom' | 'showroomWide' | 'flagship';
 export type PerimeterKind = 'lawn' | 'chainlink' | 'kerb' | 'planting' | 'planters' | 'manicured';
 export type LightKind = 'porch' | 'flood' | 'sodium' | 'led' | 'uplight';

@@ -256,6 +256,7 @@ export interface SimEvent {
     | 'walkaway'
     | 'recon-done'
     | 'stage-up'
+    | 'stage-down'
     | 'skill-up'
     | 'appraisal';
   label: string;

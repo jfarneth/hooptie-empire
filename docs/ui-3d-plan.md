@@ -318,7 +318,18 @@ design risk in this whole document.
 
 **The HUD goes diegetic.** Cash and book value on a lit dealership sign, and the
 sign changes with the stage. Six signs is six pieces of art that carry the entire
-progression narrative.
+progression narrative. ✅ **Half done**: the pylon sign at the right-hand end of
+the building now carries progress toward the next store — the cap names it, the
+column fills with cash, and it reads READY when the cheque would clear. Cash and
+book value are still typography at the top of the screen.
+
+**The ladder becomes browsable.** ✅ **Done.** Tapping the sign opens all six
+stores, one at a time, including ones the player cannot afford: entry cost, lot
+size, what the feed carries, whether the finance desk is theirs, what the payroll
+costs. A card that only ever named the next rung hid four fifths of the game from
+somebody deciding whether to keep grinding. It also carries the two moves that
+were not possible before — jumping rungs, and walking back down and eating the
+loss.
 
 **The Office becomes a room** with objects instead of a list of lists: a desk
 (Business), a filing cabinet (Admin), a certificate wall (Skills), blueprints on
