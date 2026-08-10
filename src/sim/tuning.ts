@@ -49,6 +49,7 @@ export const TUNABLE_GROUPS = [
   'Capacity',
   'Skills',
   'The ladder',
+  'Running costs',
 ] as const;
 
 export const TUNABLES: readonly TunableDef[] = [
@@ -63,6 +64,12 @@ export const TUNABLES: readonly TunableDef[] = [
   { path: 'balance.repoValuePenalty', label: 'Value lost per prior repo', group: 'Economy', kind: 'ratio', min: 0, max: 0.5 },
   { path: 'balance.forcedSaleRate', label: 'Forced sale, share of wholesale', group: 'Economy', kind: 'ratio', min: 0, max: 1,
     help: 'What you get when a car must go now: the lot on a stage move, or a repo with nowhere to park. At 1 neither costs anything.' },
+
+  // ---------------------------------------------------------- running costs
+  { path: 'balance.expenses.payrollPerLevelPerWeek', label: 'Wages per level per week', group: 'Running costs', kind: 'money', min: 0, max: 50_000,
+    help: 'Before the store’s upgrade multiplier. Only staff draw a wage.' },
+  { path: 'balance.expenses.floorplanWeeklyRate', label: 'Floorplan interest per week', group: 'Running costs', kind: 'percent', min: 0, max: 0.2,
+    help: 'Charged on the cost basis of everything unsold on the lot. This is what makes dead stock cost money.' },
 
   // ----------------------------------------------------------------- the feed
   { path: 'balance.baseListingSlots', label: 'Feed slots', group: 'The feed', kind: 'int', min: 1, max: 30 },
@@ -159,8 +166,16 @@ export const TUNABLES: readonly TunableDef[] = [
       max: 300,
     });
     rows.push({
-      path: `stages.${stage.id}.staffCostMultiplier`,
-      label: `${stage.name} — staff cost ×`,
+      path: `stages.${stage.id}.rentPerWeek`,
+      label: `${stage.name} — rent per week`,
+      group: 'Running costs',
+      kind: 'money',
+      min: 0,
+      max: 10_000_000,
+    });
+    rows.push({
+      path: `stages.${stage.id}.upgradeCostMultiplier`,
+      label: `${stage.name} — upgrade cost ×`,
       group: 'The ladder',
       kind: 'ratio',
       min: 0.1,

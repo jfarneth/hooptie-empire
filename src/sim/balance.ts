@@ -262,6 +262,52 @@ export const BALANCE = {
     buyMarginChoices: [0, 0.05, 0.1, 0.2],
   },
 
+  /**
+   * Running the place. Charged every game week, whether or not a car sells.
+   *
+   * The game had no recurring costs at all until this landed, which is why a
+   * franchise was pure upside the moment its entry cost cleared and why
+   * accumulation was close to linear. A sink changes the *rate* rather than the
+   * target, so it slows the curve without making any single number bigger, and
+   * it gives three things that already existed a reason to matter: the working
+   * capital floor, a lot full of unsold stock, and the size of the payroll.
+   *
+   * Rent is per stage and lives in `STAGES[].rentPerWeek` — it is meaningless
+   * apart from the store it is charged for.
+   */
+  expenses: {
+    /**
+     * Wage bill per upgrade level per week, before the store's own multiplier.
+     * Only `staff: true` upgrades draw a wage: a paved row does not eat.
+     */
+    payrollPerLevelPerWeek: 160,
+    /**
+     * Weekly interest on the money tied up in unsold inventory, as a share of
+     * cost basis. This is floorplan financing, and it is what makes a lot full
+     * of cars nobody wants an actively bad place to be rather than a neutral
+     * one.
+     */
+    floorplanWeeklyRate: 0.009,
+    /**
+     * Weeks of running costs automation always holds back, on top of whatever
+     * floor the player set in the business suite.
+     *
+     * This is what stops recurring costs being a cliff instead of a dial. Cash
+     * at zero is an ABSORBING state: no cash buys no inventory, no inventory
+     * earns nothing, and the bill still arrives — so a business that spends its
+     * last dollar on stock never recovers. Measured before this existed, light
+     * expenses killed 12 of 16 harness seeds outright while the surviving 4 ran
+     * at the old pace: a bimodal result, which is the signature of a spiral
+     * rather than a tax.
+     *
+     * Holding a few weeks back turns that into what it should be — an operation
+     * that keeps enough float to make rent, and buys with what is left.
+     */
+    reserveWeeks: 3,
+    /** Cars you must be able to buy at the new store before the move is allowed. */
+    reopeningCars: 3,
+  },
+
   // -------------------------------------------------------------- progression
   // Entry costs, staff cost multipliers, per-stage capacities and per-stage
   // sourcing all live in the STAGES table in stages.ts, following the precedent

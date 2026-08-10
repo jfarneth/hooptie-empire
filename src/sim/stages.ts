@@ -1,3 +1,5 @@
+import { BALANCE } from './balance';
+import { modelsForMake, modelsForTiers } from './models';
 import type { CarTier, StageId } from './types';
 
 /**
@@ -83,7 +85,24 @@ export interface StageDef {
    * Multiplier on what every employee costs to hire at this store. Staffing a
    * franchise service department is not staffing a guy with a socket set.
    */
-  staffCostMultiplier: number;
+  /**
+   * What every upgrade costs at this store, as a multiple of its base price.
+   *
+   * Applies to ALL of them, not just the payroll. Moving stores now clears the
+   * whole upgrade table — the office you built was that store's office — so
+   * every line on it is bought again here, at this store's prices. That is the
+   * single biggest thing standing between rungs, and it is why a bigger store is
+   * a bigger commitment rather than just a bigger number.
+   */
+  upgradeCostMultiplier: number;
+  /**
+   * Rent, rates and the standing overheads of the premises, per game week.
+   *
+   * Charged whether or not a single car sells. This is what stops a franchise
+   * being pure upside the moment its entry cost clears, and it is the reason
+   * the working-capital floor in the business suite means anything.
+   */
+  rentPerWeek: number;
   /**
    * Markup the finance desk can put on the window price, as a multiple of cash
    * retail. It falls as you move upmarket: a buy-here-pay-here lot sells
@@ -142,7 +161,8 @@ export const STAGES: readonly StageDef[] = [
     baseCarCapacity: 2,
     capacityUpgradeId: 'driveway',
     financing: false,
-    staffCostMultiplier: 1,
+    upgradeCostMultiplier: 1,
+    rentPerWeek: 0,
     bhphMultiplier: 1,
     creditShift: 0,
     sourcing: { ...OPEN_MARKET, tiers: ['beater', 'commuter'], askMin: 0.8, askMax: 1.2 },
@@ -153,11 +173,12 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Small lot',
     blurb:
       'A real lot and a finance desk. Instead of selling a car once, you sell it once for the down payment and again as paper.',
-    entryCost: 18_000,
+    entryCost: 110_000,
     baseCarCapacity: 6,
     capacityUpgradeId: 'lot',
     financing: true,
-    staffCostMultiplier: 1,
+    upgradeCostMultiplier: 1,
+    rentPerWeek: 400,
     bhphMultiplier: 1.5,
     creditShift: 0,
     sourcing: {
@@ -173,11 +194,12 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Big lot',
     blurb:
       'Rows instead of a row. The beaters go to the wholesaler now — you are buying cars people finance on purpose rather than out of desperation.',
-    entryCost: 220_000,
+    entryCost: 1_500_000,
     baseCarCapacity: 14,
     capacityUpgradeId: 'lot',
     financing: true,
-    staffCostMultiplier: 2.4,
+    upgradeCostMultiplier: 2.4,
+    rentPerWeek: 2600,
     bhphMultiplier: 1.42,
     creditShift: 0.4,
     sourcing: {
@@ -193,11 +215,12 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Halvorsen',
     blurb:
       'A sign with somebody else’s name on it. Every car is new, every car is a Halvorsen, and every price comes off an invoice — the guesswork is over and the volume starts.',
-    entryCost: 1_600_000,
+    entryCost: 9_000_000,
     baseCarCapacity: 22,
     capacityUpgradeId: 'lot',
     financing: true,
-    staffCostMultiplier: 5,
+    upgradeCostMultiplier: 5,
+    rentPerWeek: 9000,
     bhphMultiplier: 1.3,
     creditShift: 0.9,
     sourcing: { ...FROM_THE_MANUFACTURER, makeId: 'halvorsen' },
@@ -208,11 +231,12 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Okabe',
     blurb:
       'The full Okabe lineup, trucks included. Thinner margin on every unit and a great many more units.',
-    entryCost: 7_500_000,
+    entryCost: 34_000_000,
     baseCarCapacity: 32,
     capacityUpgradeId: 'lot',
     financing: true,
-    staffCostMultiplier: 10,
+    upgradeCostMultiplier: 10,
+    rentPerWeek: 20000,
     bhphMultiplier: 1.22,
     creditShift: 1.6,
     sourcing: { ...FROM_THE_MANUFACTURER, makeId: 'okabe' },
@@ -223,11 +247,12 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Valmont',
     blurb:
       'Valmont. Six figures a car, customers with real credit, and a finance desk that finally has nothing to apologise for.',
-    entryCost: 32_000_000,
+    entryCost: 120_000_000,
     baseCarCapacity: 42,
     capacityUpgradeId: 'lot',
     financing: true,
-    staffCostMultiplier: 18,
+    upgradeCostMultiplier: 18,
+    rentPerWeek: 45000,
     bhphMultiplier: 1.15,
     creditShift: 2.6,
     sourcing: { ...FROM_THE_MANUFACTURER, makeId: 'valmont' },
@@ -235,6 +260,25 @@ export const STAGES: readonly StageDef[] = [
 ];
 
 const BY_ID = new Map(STAGES.map((s) => [s.id, s]));
+
+/**
+ * Roughly what one car costs to buy at this store.
+ *
+ * Median list price of what the store actually sources, so it tracks the ladder
+ * without anybody maintaining a second table. Used to work out how much float a
+ * business needs to reopen after a move — the entry cost buys the keys, this is
+ * what buys something to sell.
+ */
+export function typicalCarPrice(stage: StageDef): number {
+  const models = stage.sourcing.makeId
+    ? modelsForMake(stage.sourcing.makeId)
+    : modelsForTiers(stage.sourcing.tiers ?? []);
+  if (models.length === 0) return 0;
+  const values = models.map((m) => m.baseValue).sort((a, b) => a - b);
+  const median = values[Math.floor(values.length / 2)];
+  const askMid = (stage.sourcing.askMin + stage.sourcing.askMax) / 2;
+  return Math.round(median * BALANCE.wholesaleOfRetail * askMid);
+}
 
 export function getStage(id: StageId): StageDef {
   const def = BY_ID.get(id);

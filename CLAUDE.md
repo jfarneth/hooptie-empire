@@ -40,10 +40,12 @@ every later balance reading a lie.
 Worth internalising before touching anything stage-shaped, because almost every
 bug in this area comes from missing one of them.
 
-**Moving resets the payroll — in both directions.** Staff (`staff: true` in
-`upgrades.ts`) drop to zero and cost `staffCostMultiplier` more to rehire at the
-new store. Property, process, cash, the loan book and skills all carry. The lot
-does not — see below. The line is "would this person have to be hired again", which is why
+**Moving clears the ENTIRE upgrade table — in both directions.** Not just the
+payroll: the paving, the process and the automation go too, and all of it is
+rebought at the new store's `upgradeCostMultiplier`. Cash, the loan book and
+skills carry; the lot is sold; nothing else survives. This replaced an older
+"property carries, people do not" split, and it is now the dominant cost of a
+rung. The line is "would this person have to be hired again", which is why
 `scout` (a book of contacts) and `advertising` (a spend) stay, and why walking
 back *down* the ladder resets the payroll too — at a different store they would.
 **Skills never reset** — they are the carry-over currency and always have been.
@@ -277,26 +279,61 @@ The HUD floats over the screens rather than sitting above them, so every scroll
 view pads its content by `HUD_HEIGHT`. A new screen that forgets starts under the
 cash readout.
 
+## Running costs, and the spiral they nearly caused
+
+**The business pays rent, wages and floorplan interest every game week**
+(`weeklyExpenses`, charged by `stepBills` on the same beat note payments land
+on). Rent is per stage; wages scale with staff levels and the store; floorplan is
+interest on the cost basis of everything unsold. This is what stops a franchise
+being pure upside once its entry cost clears.
+
+**Cash at zero is an ABSORBING state, and that is the whole difficulty.** No
+cash buys no stock, no stock earns nothing, and the bill still arrives. The first
+cut of this killed 12 of 16 harness seeds outright while the surviving 4 ran at
+the old pace — a bimodal result, which is the signature of a spiral rather than a
+tax. Three things had to land before expenses became a dial instead of a cliff,
+and removing any one of them brings the spiral back:
+
+- **`BALANCE.expenses.reserveWeeks`** — automation never spends below a few
+  weeks of running costs, on top of the player's own working-capital floor.
+- **`reopeningFloat`** — the ladder will not let you move unless you keep enough
+  back to restock the new lot and cover its first weeks of rent. The entry cost
+  buys the keys; this buys something to sell. **It is a property of the TARGET
+  store only.** The first version also charged for rebuilding the office you were
+  leaving, which scales with what you own — so every upgrade pushed the next rung
+  further away and the bot stalled forever. A requirement that grows when you
+  invest is a trap, not a gate.
+- **The harness bot keeps restock money back** before it rebuys upgrades. With
+  the whole table wiped on a move, the bot's old "$3k float" heuristic left it
+  unable to buy a single car.
+
+The tell for all three failures was the same and worth recognising: **identical
+lifetime profit under different expense settings.** That means the economy is
+pinned at zero, where `Math.min(cash, bill)` charges nothing, so the setting
+cannot matter. If two expense configs report the same profit to the dollar, the
+business is dead, not taxed.
+
 ## Verify
 
 ```bash
-npm test        # 255 tests
+npm test        # 259 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
-npm run sim -- --hours=32 --seeds=16   # the whole ladder, ~15s
+npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2min
 ```
 
 The ladder, median at `--seeds=16 --hours=32`, reached by 16/16:
 
 | | |
 |---|---|
-| Small used dealership | ~1h11m |
-| Large used dealership | ~3h36m |
-| Low-cost franchise | ~6h07m |
-| Midsize franchise | ~12h33m |
-| Premium franchise | ~28h05m |
+| Small used dealership | ~2h36m |
+| Large used dealership | ~6h33m |
+| Low-cost franchise | ~14h53m |
+| Midsize franchise | ~50h03m |
+| Premium franchise | ~165h50m (4/8) |
 
-Roughly a doubling per rung, which is the shape to preserve. A 4h run only ever
+Measured at `--hours=350 --seeds=8`, because the ladder no longer fits in 32h.
+Roughly a tripling per rung now, steepening at the top — the shape to preserve. A 4h run only ever
 reaches large used, so **a default `npm run sim` cannot tell you anything about
 the franchise stages** — use the 32h invocation for those.
 

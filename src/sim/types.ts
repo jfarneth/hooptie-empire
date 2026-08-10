@@ -259,6 +259,7 @@ export interface SimEvent {
     | 'stage-down'
     | 'skill-up'
     | 'appraisal'
+    | 'expense'
     | 'admin';
   label: string;
   amount?: number;
@@ -299,6 +300,13 @@ export interface GameState {
   stats: Stats;
   /** Ring buffer of recent events; trimmed to BALANCE.eventLogSize. */
   events: SimEvent[];
+  /**
+   * When the next weekly bill falls due. Lives on the save for the same reason a
+   * note's due date does: the business runs while the app is closed, and rent
+   * that only accrued while somebody was watching would make closing the app a
+   * way to avoid it.
+   */
+  nextBillAt: Millis;
   /** Wall-clock ms at last save, used to compute offline elapsed time. */
   lastSeenAt: number;
   /** Monotonic counter for entity ids, so ids are deterministic given a seed. */

@@ -9,8 +9,16 @@ import {
 } from './business';
 import { generateProspect } from './customers';
 import { generateCar } from './cars';
+import { getStage } from './stages';
 import { pessimisticWholesale } from './appraisal';
-import { advance, cloneState, createInitialState, expectedCollections, listCar } from './engine';
+import {
+  advance,
+  cloneState,
+  createInitialState,
+  expectedCollections,
+  listCar,
+  weeklyExpenses,
+} from './engine';
 import { getModel } from './models';
 import { activeNotes, applyDuePayment, bookRoom, canWriteNote, openNote } from './notes';
 import { appraisalSigma, haggleSkillFor } from './skills';
@@ -194,7 +202,13 @@ describe('minimum working capital', () => {
   });
 
   it('lets the same buy through once the floor is out of the way', () => {
+    // The floor the buyer actually respects is the player's, OR enough to make
+    // rent for a few weeks, whichever is higher — running costs landed after
+    // this test was written. Clearing the player's floor is therefore necessary
+    // but not sufficient, so the fixture is topped up past the expense reserve
+    // to isolate the thing under test.
     const s = retainerLot(0);
+    s.cash += weeklyExpenses(s).total * BALANCE.expenses.reserveWeeks;
     const after = advance(s, 5_000);
 
     expect(after.cars.length).toBeGreaterThan(0);
@@ -447,5 +461,70 @@ describe('setting the house rules', () => {
   it('carries the policy through a run untouched', () => {
     const s = setBusinessPolicy(createInitialState(1, 0), { minBuyMargin: 0.1 });
     expect(advance(s, 10 * 60 * 1000).business.minBuyMargin).toBe(0.1);
+  });
+});
+
+/**
+ * Running costs.
+ *
+ * The sink that stops a franchise being pure upside the moment its entry cost
+ * clears. Everything here is a property of the *rate* rather than of any single
+ * number, which is why the harness found the design fault and unit tests did
+ * not: light expenses killed 12 of 16 seeds outright, because cash at zero is an
+ * absorbing state — no cash buys no stock, no stock earns nothing, and the bill
+ * still arrives.
+ */
+describe('running costs', () => {
+  it('charges rent, wages and floorplan, and nothing at the curbstone', () => {
+    const curb = cloneState(createInitialState(5, 0));
+    expect(weeklyExpenses(curb).total).toBe(0);
+
+    const lot = cloneState(createInitialState(5, 0));
+    lot.stage = 'largeUsed';
+    lot.upgrades = { mechanic: 2, lot: 3 };
+    const e = weeklyExpenses(lot);
+    expect(e.rent).toBe(getStage('largeUsed').rentPerWeek);
+    // `lot` is paving and does not eat; `mechanic` is staff and does.
+    expect(e.payroll).toBeGreaterThan(0);
+    expect(e.total).toBe(e.rent + e.payroll + e.floorplan);
+  });
+
+  it('charges floorplan on unsold stock only', () => {
+    const s = cloneState(createInitialState(6, 0));
+    s.stage = 'largeUsed';
+    const car = generateCar(s, s.rng, getModel('civet'), s.t);
+    car.costBasis = 20_000;
+    car.status = 'ready';
+    s.cars.push(car);
+    const held = weeklyExpenses(s).floorplan;
+    expect(held).toBeGreaterThan(0);
+
+    // Out on finance: the book's problem, not the floorplan's.
+    car.status = 'sold';
+    expect(weeklyExpenses(s).floorplan).toBe(0);
+  });
+
+  it('takes the bill out of cash on the weekly beat', () => {
+    const s = cloneState(createInitialState(7, 0));
+    s.stage = 'largeUsed';
+    s.cash = 500_000;
+    const bill = weeklyExpenses(s).total;
+    expect(bill).toBeGreaterThan(0);
+
+    const after = advance(s, MS_PER_GAME_WEEK);
+    expect(after.cash).toBe(s.cash - bill);
+    expect(after.events.some((e) => e.kind === 'expense')).toBe(true);
+  });
+
+  it('never drives the balance negative', () => {
+    // Every buying gate in the game reads `cash >= price`; none of them expect
+    // to be handed a debt. A business that cannot make rent is a real situation
+    // and deserves a real mechanic, but a silent negative balance is not it.
+    const s = cloneState(createInitialState(8, 0));
+    s.stage = 'premiumFranchise';
+    s.cash = 10;
+    const after = advance(s, MS_PER_GAME_WEEK * 3);
+    expect(after.cash).toBe(0);
+    expect(after.cash).not.toBeLessThan(0);
   });
 });

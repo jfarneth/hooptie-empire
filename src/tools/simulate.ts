@@ -27,10 +27,10 @@ import { deskCounter } from '../sim/haggle';
 import { SKILL_IDS, appraisalSigma, getSkill, haggleSkillFor } from '../sim/skills';
 import { estimatedRetail, estimatedWholesale } from '../sim/appraisal';
 import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
-import { acquisitionCeiling, advance, createInitialState, expectedCollections } from '../sim/engine';
+import { acquisitionCeiling, advance, createInitialState, expectedCollections, weeklyExpenses } from '../sim/engine';
 import { activeNotes, canWriteNote, overCapacityFactor } from '../sim/notes';
 import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level, upgradeCost } from '../sim/upgrades';
-import { STAGES, getStage, nextStage, stageRank } from '../sim/stages';
+import { STAGES, getStage, nextStage, stageRank, typicalCarPrice } from '../sim/stages';
 import type { GameState } from '../sim/types';
 
 const STEP_MS = 5_000;
@@ -64,6 +64,15 @@ interface AppraisalTally {
 function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
   let s = state;
 
+  // Float the bot keeps back at all times: enough to make rent for a few weeks.
+  //
+  // Added when running costs landed, and not an optimisation — without it the
+  // bot spends its last dollar on stock, cannot pay the bill, and never gets out
+  // again, because cash at zero buys no inventory and no inventory earns
+  // anything. That killed 12 of 16 seeds outright while the other 4 ran at the
+  // old pace. A player learns this in one store; the bot has to be told.
+  const float = weeklyExpenses(s).total * BALANCE.expenses.reserveWeeks;
+
   // 1. Move up the moment it is affordable. A real player would weigh the
   //    payroll reset against a full book; the bot takes every rung as it comes,
   //    which makes it the *worst* case for the move and the right thing to
@@ -93,7 +102,7 @@ function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
   // 3. Recondition anything worth reconditioning, then list it.
   const reconMods = reconModsFor(s);
   for (const car of s.cars) {
-    if (car.status === 'ready' && canRecon(car, reconMods) && reconCost(car, reconMods) <= s.cash * 0.4) {
+    if (car.status === 'ready' && canRecon(car, reconMods) && reconCost(car, reconMods) <= (s.cash - float) * 0.4) {
       s = startRecon(s, car.id);
     }
   }
@@ -121,7 +130,7 @@ function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
     const judging = !getStage(s.stage).sourcing.makeId;
     for (const { l } of deals) {
       if (s.cars.filter((c) => c.status !== 'sold').length >= carCapacity(s)) break;
-      if (s.cash - l.price < 400) continue;
+      if (s.cash - l.price < 400 + float) continue;
       // Recorded before the buy, while the listing still exists to compare
       // against — and only on the open market. "Paid over wholesale" is the
       // definition of a bad buy when you are guessing at a stranger's car and
@@ -148,7 +157,14 @@ function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
       // Keep enough working capital to keep a car pipeline moving. Scaled to the
       // store, because $3k of float is a pipeline at a curbstone and a rounding
       // error at a Valmont franchise.
-      if (s.cash - cost < 3_000 * getStage(s.stage).staffCostMultiplier) continue;
+      // Keep back the float AND enough to restock. Moving now clears the whole
+      // upgrade table, so the first thing a bot does at a new store is rebuy all
+      // of it — and the old guard let it spend down to $3k, which does not buy
+      // one car at a small lot. It then had no stock, no income, and a rent
+      // bill, which is the definition of the spiral. A player learns to keep
+      // cars on the lot before they buy a nicer office.
+      const keep = float + typicalCarPrice(getStage(s.stage)) * 2;
+      if (s.cash - cost < keep) continue;
       s = purchaseUpgrade(s, id);
       if (id === 'salesDesk') s = setDealPolicy(s, 'auto');
     }

@@ -1,3 +1,4 @@
+import { MS_PER_GAME_WEEK } from './balance';
 import { SAVE_VERSION, createInitialState } from './engine';
 import type { GameState } from './types';
 
@@ -141,6 +142,21 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
    * it has to exist rather than be left undefined.
    */
   6: (s) => ({ ...s, tuning: s.tuning ?? {} }),
+
+  /**
+   * v7 → v8: the business started paying rent.
+   *
+   * Weekly overheads need a clock to fall due on. An existing save has none, so
+   * it gets one a week out from wherever it currently is — the alternative is
+   * `nextBillAt: 0`, which bills on the first tick after the update and charges
+   * somebody for a week they already played for free.
+   *
+   * Deliberately does not touch upgrades. Moving stores now clears the whole
+   * upgrade table rather than only the payroll, but that is a rule about what
+   * happens when you move, not a debt the save already owes — a v7 player keeps
+   * every level they bought until they choose to move.
+   */
+  7: (s) => ({ ...s, nextBillAt: (s.t ?? 0) + MS_PER_GAME_WEEK }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

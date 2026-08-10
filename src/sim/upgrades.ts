@@ -206,9 +206,17 @@ export function has(state: Pick<GameState, 'upgrades'>, id: string): boolean {
  * driveway, and a cost quoted without the stage is a lie on five stages out of
  * six.
  */
+/**
+ * What the next level of an upgrade costs here.
+ *
+ * Scaled by the store, and by ALL of it rather than only the payroll. Moving
+ * clears the whole upgrade table — the office you built belonged to that store —
+ * so everything on it is bought again at the new store's prices. That is the
+ * main thing standing between two rungs of the ladder.
+ */
 export function upgradeCost(def: UpgradeDef, currentLevel: number, stage?: StageId): number {
-  const wageScale = def.staff && stage ? getStage(stage).staffCostMultiplier : 1;
-  return Math.round(def.baseCost * Math.pow(def.costGrowth, currentLevel) * wageScale);
+  const storeScale = stage ? getStage(stage).upgradeCostMultiplier : 1;
+  return Math.round(def.baseCost * Math.pow(def.costGrowth, currentLevel) * storeScale);
 }
 
 /** True once the store is big enough for this line item to exist at all. */

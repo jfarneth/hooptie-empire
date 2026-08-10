@@ -14,7 +14,7 @@ import {
 import { wholesaleValue } from './economy';
 import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
-import { getStage, nextStage, stageRank, type StageDef } from './stages';
+import { getStage, nextStage, stageRank, typicalCarPrice, type StageDef } from './stages';
 import { applyTuning, coerceTunable, defaultValue, getTunable, pruneTuning } from './tuning';
 import { haggleSkillFor, reconModsFor } from './skills';
 import {
@@ -209,6 +209,12 @@ export interface StageMovePreview {
    */
   cost: number;
   /**
+   * Cash you must still hold *after* paying the entry cost, or the move is not
+   * allowed. You arrive with an empty lot, no staff and rent falling due — this
+   * is the money that reopens the business. Zero going down.
+   */
+  float: number;
+  /**
    * What going down writes off: everything you paid to move into the store you
    * are leaving. You take your cash and your cars, and you get none of that
    * back. Zero going up, where the property comes with you.
@@ -255,9 +261,26 @@ export function stageMovePreview(state: GameState, targetId?: StageId): StageMov
     !target || there === here ? 'stay' : there > here ? 'up' : 'down';
 
   const cost = direction === 'up' ? target!.entryCost : 0;
-  const affordable = state.cash >= cost;
+  /**
+   * What you must still be holding after the cheque clears.
+   *
+   * Moving now clears the lot AND the whole upgrade table, so you arrive with no
+   * stock, no staff and no process — and the rent starts the same week. Buying a
+   * dealership with your last dollar used to be merely unwise; now it is fatal,
+   * because cash at zero buys no inventory, no inventory earns nothing, and the
+   * bill still comes. The harness found this the hard way: the bot moved the
+   * moment it could afford the entry price and every seed flatlined at $0 inside
+   * half an hour.
+   *
+   * So the ladder asks for the float to open the doors as well as the price of
+   * the keys. A share of the entry cost to restock with, plus a few weeks of the
+   * new store's rent.
+   */
+  const float = direction === 'up' ? reopeningFloat(state, target!) : 0;
+  const affordable = state.cash >= cost + float;
 
-  const staffLost = UPGRADES.filter((u) => u.staff && level(state, u.id) > 0).map((u) => ({
+  // Everything owned, because everything goes.
+  const staffLost = UPGRADES.filter((u) => level(state, u.id) > 0).map((u) => ({
     name: u.name,
     level: level(state, u.id),
   }));
@@ -265,14 +288,14 @@ export function stageMovePreview(state: GameState, targetId?: StageId): StageMov
   // The collections desk is staff, so it resets too — and the book does not.
   // A player carrying 40 contracts into a new store lands there with capacity
   // for 8 until they rehire, which is the single sharpest edge in the move.
-  const withoutStaff = { upgrades: { ...state.upgrades } };
-  for (const u of UPGRADES) if (u.staff) delete withoutStaff.upgrades[u.id];
+  const withoutStaff = { upgrades: {} as Record<string, number> };
 
   return {
     from,
     target,
     direction,
     cost,
+    float,
     forfeit: direction === 'down' ? from.entryCost : 0,
     rungsSkipped: direction === 'up' ? there - here - 1 : 0,
     affordable,
@@ -314,6 +337,38 @@ export function lotLiquidation(state: GameState): { cars: number; proceeds: numb
     // of the cars a player could count on the lot agree to the dollar.
     proceeds: onLot.reduce((sum, car) => sum + Math.round(wholesaleValue(car) * rate), 0),
   };
+}
+
+/**
+ * Cash the business must still hold after the cheque clears.
+ *
+ * Sized to what you actually have to put back: rebuying the office you are
+ * walking away from, at the new store's prices, plus a few weeks of its rent
+ * while you restock. Only a share of the rebuild — you do not have to replace
+ * everything on day one, but you do have to be able to open.
+ *
+ * Self-scaling, which is the point: the more office you built, the more it costs
+ * to move it, so a heavily upgraded small lot is a bigger commitment to leave
+ * than a bare one. It also closes the hole the harness found — the bot moved the
+ * moment it could afford the entry price, arrived with no stock, no staff and no
+ * process, and every seed flatlined at $0 within the hour.
+ */
+export function reopeningFloat(_state: GameState, target: StageDef): number {
+  // Enough to put cars on the empty lot you are about to stand on, plus a few
+  // weeks of its rent. The entry cost buys the keys; this buys something to sell.
+  //
+  // A PROPERTY OF THE TARGET STORE ONLY, and that is not a simplification — it
+  // is the whole correctness argument. The first cut of this also charged for
+  // rebuilding the office you were leaving, which scales with what you own, so
+  // every upgrade a player bought pushed the next rung further away. The harness
+  // showed it exactly: the bot stalled at the small lot forever and reported the
+  // identical lifetime profit under every expense setting, because expenses were
+  // never the binding constraint — the receding gate was. A requirement that
+  // grows when you invest is a trap, not a gate.
+  return Math.round(
+    typicalCarPrice(target) * BALANCE.expenses.reopeningCars +
+      target.rentPerWeek * BALANCE.expenses.reserveWeeks,
+  );
 }
 
 export function canAdvanceStage(state: GameState): boolean {
@@ -377,11 +432,18 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
     s.cash -= move.cost;
     s.stage = target.id;
 
-    // Staff do not come with you. Deleted rather than set to zero so a save
-    // never carries a key the player has not bought at this store.
+    // NOTHING ON THE UPGRADE TABLE COMES WITH YOU. Not the payroll, not the
+    // paving, not the process — the office you built was that store's office,
+    // and at this one you build it again at this one's prices. Deleted rather
+    // than zeroed so a save never carries a key the player has not bought here.
+    //
+    // This replaced the older "property carries, people do not" split. That rule
+    // made a move a payroll event; this makes it the decision the whole ladder
+    // turns on, because the rebuild is now the dominant cost of a rung and it is
+    // paid in the currency the store charges for it.
     const released: string[] = [];
     for (const def of UPGRADES) {
-      if (!def.staff || level(s, def.id) === 0) continue;
+      if (level(s, def.id) === 0) continue;
       released.push(def.name);
       delete s.upgrades[def.id];
     }

@@ -1,4 +1,4 @@
-import { BALANCE, TICK_MS } from './balance';
+import { BALANCE, MS_PER_GAME_WEEK, TICK_MS } from './balance';
 import {
   applyRepoDamage,
   beginRecon,
@@ -40,6 +40,7 @@ import {
   walkawayXp,
 } from './skills';
 import {
+  UPGRADES,
   carCapacity,
   collectionsCapacity,
   level,
@@ -50,7 +51,7 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -117,6 +118,9 @@ function blankState(seed: number, wallNow: number): GameState {
       lifetimeProfit: 0,
     },
     events: [],
+    // The first bill lands a week in, not on the opening tick: a new game should
+    // not owe rent before it has seen a car.
+    nextBillAt: MS_PER_GAME_WEEK,
     lastSeenAt: wallNow,
     nextId: 1,
   };
@@ -157,7 +161,79 @@ function step(s: GameState): void {
   stepListings(s);
   stepProspects(s);
   stepNotes(s);
+  stepBills(s);
   stepAutomation(s);
+}
+
+// ------------------------------------------------------------------- expenses
+
+/**
+ * The weekly bill: rent, wages and floorplan interest.
+ *
+ * Charged on the same beat note payments land on, and for the same reason it is
+ * on the clock rather than on a render: the business runs while the app is
+ * closed, and an overhead that only accrued while somebody was watching would
+ * make closing the app a way to avoid it.
+ *
+ * A week can only come due once per 1s step, so this is an `if` and not a
+ * `while` — the same argument `stepNotes` makes about payments.
+ */
+function stepBills(s: GameState): void {
+  if (s.nextBillAt > s.t) return;
+  s.nextBillAt += MS_PER_GAME_WEEK;
+
+  const bill = weeklyExpenses(s);
+  if (bill.total <= 0) return;
+
+  // Paid out of cash, and cash does not go negative. A business that cannot
+  // make rent is a real situation and deserves a real mechanic, but a silent
+  // negative balance is not it — every buying gate in the game reads `cash >=
+  // price` and none of them expect to be handed a debt. The shortfall is logged
+  // so it is visible rather than swallowed.
+  const paid = Math.min(s.cash, bill.total);
+  const short = bill.total - paid;
+  s.cash -= paid;
+  s.stats.lifetimeProfit -= paid;
+
+  logEvent(s, {
+    t: s.t,
+    kind: 'expense',
+    label: short > 0 ? 'Weekly costs — could not cover them all' : 'Weekly costs',
+    amount: -paid,
+  });
+}
+
+export interface WeeklyExpenses {
+  rent: number;
+  payroll: number;
+  floorplan: number;
+  total: number;
+}
+
+/**
+ * What running the place costs per game week, itemised.
+ *
+ * Exported because three places need exactly this number and none of them may
+ * compute their own: the tick that charges it, the business screen that shows
+ * it, and the harness that measures it.
+ */
+export function weeklyExpenses(s: GameState): WeeklyExpenses {
+  const stage = getStage(s.stage);
+  const rent = stage.rentPerWeek;
+
+  let payroll = 0;
+  for (const def of UPGRADES) {
+    if (!def.staff) continue;
+    payroll += level(s, def.id) * BALANCE.expenses.payrollPerLevelPerWeek;
+  }
+  payroll = Math.round(payroll * stage.upgradeCostMultiplier);
+
+  // Only cars still on the lot. A financed car is out with the customer and is
+  // the book's problem, not the floorplan's.
+  const tiedUp = s.cars.reduce((sum, c) => (c.status === 'sold' ? sum : sum + c.costBasis), 0);
+  const floorplan = Math.round(tiedUp * BALANCE.expenses.floorplanWeeklyRate);
+
+  return { rent, payroll, floorplan, total: rent + payroll + floorplan };
 }
 
 // ------------------------------------------------------------------ recon
@@ -413,7 +489,14 @@ function stepAutomation(s: GameState): void {
   // read once here so the shop order and the buyer cannot disagree about it —
   // an automated business that runs its own float to zero is the failure mode
   // this setting exists to prevent.
-  const reserve = minWorkingCapital(s);
+  // The player's floor, or enough to make rent for a few weeks, whichever is
+  // higher. An automated business that spends down to its last dollar cannot
+  // pay its overheads, and cash at zero is a state it never gets back out of —
+  // see `BALANCE.expenses.reserveWeeks`.
+  const reserve = Math.max(
+    minWorkingCapital(s),
+    weeklyExpenses(s).total * BALANCE.expenses.reserveWeeks,
+  );
 
   if (level(s, 'autoRecon') > 0) {
     const mods = reconModsFor(s);

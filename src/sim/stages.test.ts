@@ -53,7 +53,7 @@ describe('the stage table', () => {
   it('gives every step up more room, more expensive staff and better credit', () => {
     for (let i = 1; i < STAGES.length; i++) {
       expect(STAGES[i].baseCarCapacity).toBeGreaterThan(STAGES[i - 1].baseCarCapacity);
-      expect(STAGES[i].staffCostMultiplier).toBeGreaterThanOrEqual(STAGES[i - 1].staffCostMultiplier);
+      expect(STAGES[i].upgradeCostMultiplier).toBeGreaterThanOrEqual(STAGES[i - 1].upgradeCostMultiplier);
       expect(STAGES[i].creditShift).toBeGreaterThanOrEqual(STAGES[i - 1].creditShift);
     }
   });
@@ -177,7 +177,7 @@ describe('taking on the next dealership', () => {
   /** A going concern: staff hired, property bought, paper on the book. */
   function goingConcern(): GameState {
     const s = stateAt('smallUsed');
-    s.cash = 400_000;
+    s.cash = 8_000_000;
     s.upgrades = {
       driveway: 3, scout: 2, advertising: 2, autoList: 1, autoRecon: 1, lot: 2,
       mechanic: 3, salesDesk: 1, autoBuy: 1, collections: 2, underwriting: 1, repoMan: 1,
@@ -207,14 +207,14 @@ describe('taking on the next dealership', () => {
     expect(stageMovePreview(s).target).toBeNull();
   });
 
-  it('takes the whole payroll and nothing else', () => {
+  it('takes the whole upgrade table, not just the payroll', () => {
+    // The office you built belonged to that store. Everything on the table is
+    // bought again at the new one, which is now the dominant cost of a rung.
     const before = goingConcern();
-    const after = advanceStage(before);
+    expect(UPGRADES.some((d) => level(before, d.id) > 0)).toBe(true);
 
-    for (const def of UPGRADES) {
-      if (def.staff) expect(level(after, def.id)).toBe(0);
-      else expect(level(after, def.id)).toBe(level(before, def.id));
-    }
+    const after = advanceStage(before);
+    for (const def of UPGRADES) expect(level(after, def.id)).toBe(0);
   });
 
   /**
@@ -345,7 +345,7 @@ describe('jumping rungs and walking back down', () => {
   }
 
   it('buys straight past a rung for the target’s price and nothing more', () => {
-    const before = goingConcern('smallUsed', 2_000_000);
+    const before = goingConcern('smallUsed', 40_000_000);
     const after = moveToStage(before, 'lowCostFranchise');
 
     expect(after.stage).toBe('lowCostFranchise');
@@ -363,17 +363,15 @@ describe('jumping rungs and walking back down', () => {
     expect(stageMovePreview(s, 'lowCostFranchise').allowed).toBe(false);
   });
 
-  it('takes the payroll on a jump exactly as it does on a step', () => {
-    const after = moveToStage(goingConcern('smallUsed', 40_000_000), 'premiumFranchise');
-    for (const def of UPGRADES) {
-      if (def.staff) expect(level(after, def.id)).toBe(0);
-    }
+  it('clears the upgrade table on a jump exactly as it does on a step', () => {
+    const after = moveToStage(goingConcern('smallUsed', 400_000_000), 'premiumFranchise');
+    for (const def of UPGRADES) expect(level(after, def.id)).toBe(0);
     expect(after.dealPolicy).toBe('manual');
     expect(after.listings).toEqual([]);
   });
 
   it('costs nothing to go down, and the cash comes with you', () => {
-    const before = goingConcern('largeUsed', 90_000);
+    const before = goingConcern('largeUsed', 40_000_000);
     const after = moveToStage(before, 'smallUsed');
 
     expect(after.stage).toBe('smallUsed');
@@ -382,7 +380,7 @@ describe('jumping rungs and walking back down', () => {
   });
 
   it('writes off the store you leave, and charges full price to come back', () => {
-    const before = goingConcern('largeUsed', 300_000);
+    const before = goingConcern('largeUsed', 40_000_000);
     const preview = stageMovePreview(before, 'smallUsed');
     expect(preview.forfeit).toBe(getStage('largeUsed').entryCost);
 
@@ -393,7 +391,7 @@ describe('jumping rungs and walking back down', () => {
   });
 
   it('sells the lot on the way down too, and leaves the book and the skills alone', () => {
-    const before = goingConcern('largeUsed', 900_000);
+    const before = goingConcern('largeUsed', 40_000_000);
     before.upgrades.autoBuy = 1;
     before.cars = advance(before, 40 * 60_000).cars;
     expect(before.cars.length).toBeGreaterThan(0);
@@ -422,7 +420,7 @@ describe('jumping rungs and walking back down', () => {
   });
 
   it('stands the sales desk down and clears the feed going down too', () => {
-    const before = goingConcern('largeUsed', 50_000);
+    const before = goingConcern('largeUsed', 40_000_000);
     before.listings = advance(before, 60_000).listings;
     expect(before.listings.length).toBeGreaterThan(0);
 
@@ -444,7 +442,7 @@ describe('jumping rungs and walking back down', () => {
   });
 
   it('does nothing when asked to move to the store you are already in', () => {
-    const s = goingConcern('largeUsed', 5_000_000);
+    const s = goingConcern('largeUsed', 40_000_000);
     expect(stageMovePreview(s, 'largeUsed').direction).toBe('stay');
     expect(stageMovePreview(s, 'largeUsed').allowed).toBe(false);
     expect(moveToStage(s, 'largeUsed')).toBe(s);
@@ -467,10 +465,16 @@ describe('staffing a bigger store', () => {
     expect(costs[costs.length - 1]).toBeGreaterThan(costs[0] * 5);
   });
 
-  it('leaves property priced the same wherever you are', () => {
-    const lot = UPGRADES.find((u) => u.id === 'lot')!;
-    const costs = STAGES.map((def) => upgradeCost(lot, 0, def.id));
-    expect(new Set(costs).size).toBe(1);
+  it('prices every upgrade up as the ladder goes up', () => {
+    // Not just wages. A move clears the whole table, so every line on it is a
+    // rebuy, and a bigger store charges bigger-store prices for all of them.
+    for (const def of UPGRADES) {
+      const costs = STAGES.map((stage) => upgradeCost(def, 0, stage.id));
+      for (let i = 1; i < costs.length; i++) {
+        expect(costs[i]).toBeGreaterThanOrEqual(costs[i - 1]);
+      }
+      expect(costs[costs.length - 1]).toBeGreaterThan(costs[0]);
+    }
   });
 
   it('keeps every earlier store’s upgrades available at a later one', () => {

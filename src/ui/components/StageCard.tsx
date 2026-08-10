@@ -101,8 +101,8 @@ export function StageCard({ state }: { state: GameState }) {
         <Fact
           k="Payroll"
           v={
-            target.staffCostMultiplier > 1
-              ? `${target.staffCostMultiplier}× to hire`
+            target.upgradeCostMultiplier > 1
+              ? `${target.upgradeCostMultiplier}× to hire`
               : 'Base rates'
           }
         />
@@ -162,8 +162,8 @@ function MoveButton({
       label={move.affordable ? `Take on the ${target.name.toLowerCase()}` : 'Keep selling'}
       sublabel={
         move.affordable
-          ? `${money(move.cost)} — resets your payroll${move.rungsSkipped > 0 ? `, and skips ${move.rungsSkipped} store${move.rungsSkipped > 1 ? 's' : ''}` : ''}`
-          : `${money(Math.max(0, move.cost - cash))} short of the ${money(move.cost)} it takes`
+          ? `${money(move.cost)}, and ${money(move.float)} left to reopen with${move.rungsSkipped > 0 ? ` — skips ${move.rungsSkipped} store${move.rungsSkipped > 1 ? 's' : ''}` : ''}`
+          : `${money(Math.max(0, move.cost + move.float - cash))} short of the ${money(move.cost)} price plus ${money(move.float)} to restock`
       }
       tone={move.affordable ? 'primary' : 'ghost'}
       disabled={!move.affordable}
@@ -211,11 +211,18 @@ function Confirmation({
         </Text>
       ) : null}
 
+      <Text style={styles.confirmWarn}>
+        You arrive with nothing but cash, paper and what you know. That is why the ladder makes you
+        keep {money(move.float)} back on top of the price — enough to restock the lot and cover the
+        first few weeks of rent, because an empty lot earns nothing and the rent arrives anyway.
+      </Text>
+
       {move.staffLost.length > 0 ? (
         <>
           <Text style={styles.confirmBody}>
-            Your staff does not come with you. You are rehiring all of it at{' '}
-            {target.name.toLowerCase()} prices — about {target.staffCostMultiplier}× base.
+            Nothing on the upgrade table comes with you — not the payroll, not the paving, not the
+            process. You rebuild all of it at {target.name.toLowerCase()} prices, about{' '}
+            {target.upgradeCostMultiplier}× base.
           </Text>
           <View style={styles.staffList}>
             {move.staffLost.map((s) => (
@@ -255,8 +262,8 @@ function Confirmation({
 
       <Text style={styles.confirmKeep}>
         {down
-          ? 'Your cash, every contract on the book and everything the work has taught you all come with you. The store and the stock are what you are giving up.'
-          : 'Cash, the book, your property and everything the work has taught you all come with you. Only the lot is sold.'}
+          ? 'Your cash, every contract on the book and everything the work has taught you all come with you. The store, the stock and the whole office are what you are giving up.'
+          : 'Cash, the book and everything the work has taught you come with you. The lot is sold and the office is left behind.'}
       </Text>
 
       <Row gap={6} style={{ marginTop: 4 }}>
