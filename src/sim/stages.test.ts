@@ -275,7 +275,7 @@ describe('taking on the next dealership', () => {
     const full = held.reduce((sum, c) => sum + wholesaleValue(c), 0);
     expect(preview.liquidation.cars).toBe(held.length);
     expect(preview.liquidation.proceeds).toBeLessThan(full);
-    expect(preview.liquidation.proceeds).toBeCloseTo(full * BALANCE.stageMoveLiquidation, -1);
+    expect(preview.liquidation.proceeds).toBeCloseTo(full * BALANCE.forcedSaleRate, -1);
     expect(after.cash).toBe(before.cash - preview.cost + preview.liquidation.proceeds);
 
     // And it refills from the store you actually moved into.

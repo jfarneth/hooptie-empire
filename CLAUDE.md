@@ -13,10 +13,11 @@ stages buying a car is a judgement call rather than arithmetic: the feed shows a
 *estimated* condition with an honest band, not the truth. `docs/skills-plan.md`
 is the design doc and carries the balance measurements behind every number.
 
-The **collections desk is a hard cap on the book**, and a **business management
-suite** (Office → Business) lets the player set three house rules that the
-business then runs under offline: a working capital floor, the repo trigger, and
-the retainer buyer's minimum margin. `src/sim/business.ts` resolves them.
+The **lot is a hard cap on inventory** and the **collections desk is a hard cap
+on the book**. A **business management suite** (Office → Business) lets the
+player set three house rules the business then runs under offline: a working
+capital floor, the repo trigger, and the retainer buyer's minimum margin.
+`src/sim/business.ts` resolves them.
 
 An **admin console** (Office → Admin, visible to everyone) edits the tuning
 constants live. `src/sim/tuning.ts` is the registry; adding a knob is one entry
@@ -24,6 +25,15 @@ in `TUNABLES` and nothing else. It is the one place the sim writes a global —
 read the header comment there before touching it, and note that overrides live
 on the save and are re-applied *before* offline catch-up, which is what keeps a
 given save replaying identically.
+
+Cash is editable there too, but through `setCash` rather than through `TUNABLES`,
+and that distinction is not optional. **Nothing the simulation writes back to may
+ever be registered as a tunable.** Cash is the worked example: as an override it
+would be re-stamped on every load and silently delete everything the business
+earned while the app was closed, so it is a plain action (`setCash`) that writes
+state once, logs a ledger line, and deliberately leaves `lifetimeProfit` alone —
+money conjured from a debug field is not profit, and polluting that number makes
+every later balance reading a lie.
 
 ## The two axes of the stage ladder
 
@@ -55,7 +65,7 @@ into generosity without a test noticing:
   `lotAfter` for exactly one reason: the UI must never compute any of it itself.
 
 **Moving clears the lot, in both directions.** Every car physically on the lot is
-sold to a wholesaler at `BALANCE.stageMoveLiquidation` (0.8) of its true
+sold to a wholesaler at `BALANCE.forcedSaleRate` (0.8) of its true
 wholesale value and the cash lands with the move. `lotLiquidation(state)` is the
 only place that figure is worked out — `stageMovePreview` reports it and
 `moveToStage` pays it, so the confirmation cannot promise a cheque the move does
@@ -70,7 +80,7 @@ The decision this creates is the point: sell the lot down at retail *before* you
 move, or take the wholesaler's price and start clean. The haircut is what stops a
 move being a free way to convert stock to cash at full value. Note also that the
 old "walk down and land thirty cars on a driveway with room for five" case can no
-longer happen — only a repo can put a lot over capacity now.
+longer happen at all — see the hard cap below.
 
 The harness bot only ever climbs one rung at a time, so **nothing measures the
 skipping or the walking back down** — the same caveat the house rules carry.
@@ -229,10 +239,24 @@ must keep doing:
   stall lands on the tail of the car in the row in front, which put price tags on
   the wrong cars until it was caught in a screenshot.
 
-**The lot is paved for `max(capacity, cars held)`, not for capacity.** A lot can
-still legitimately be over capacity: a repo comes back to a full lot. (The other
-way in — walking down the ladder onto a smaller store — closed when moving
-started clearing the lot, but the repo case is enough to keep this.) A car with no
+**The lot is a hard limit, and a repossession is the path that used to break
+it.** Every buying path is gated on capacity, but a repo adds a car without
+anybody choosing to: `applyRepoDamage` flips it from `sold` back to `ready`, and
+ungated that was the one way to hold more cars than the lot has stalls — which
+reads to a player as a bug, because it is one. A full lot does not cancel the
+repossession; the car is still taken, it just never comes home, going from the
+tow truck straight to auction at `forcedSaleRate`. Same shape as the collections
+desk, which sells the customer the car instead of the payment rather than sending
+them away. `engine.test.ts` asserts the invariant continuously over a run that
+actually fills the lot and actually repossesses — a missing gate can only be
+caught by watching the property, never by reading one line.
+
+**The lot is paved for `max(capacity, cars held)`, not for capacity.** Both ways
+a lot could exceed its stalls are now closed — moving clears it, and a repo onto
+a full lot goes to auction — so this is belt-and-braces for the one case left:
+the admin console can shrink a stage's capacity under a lot that is already full.
+A car with no stall is a car that cannot be tapped, which is a car that can never
+be sold, so it is still paved for. A car with no
 stall is a car that cannot be tapped, which is a car that can never be sold; the
 HUD still reports the real `held / capacity`, so nothing pretends the space was
 bought.
@@ -256,7 +280,7 @@ cash readout.
 ## Verify
 
 ```bash
-npm test        # 254 tests
+npm test        # 255 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=32 --seeds=16   # the whole ladder, ~15s

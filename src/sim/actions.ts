@@ -307,7 +307,7 @@ export function stageMovePreview(state: GameState, targetId?: StageId): StageMov
  */
 export function lotLiquidation(state: GameState): { cars: number; proceeds: number } {
   const onLot = state.cars.filter((c) => c.status !== 'sold');
-  const rate = BALANCE.stageMoveLiquidation;
+  const rate = BALANCE.forcedSaleRate;
   return {
     cars: onLot.length,
     // Rounded per car rather than on the total, so the ledger line and the sum
@@ -348,7 +348,7 @@ export function canAdvanceStage(state: GameState): boolean {
  * in it.
  *
  * THE LOT IS CLEARED IN BOTH DIRECTIONS. Every car physically on the lot is sold
- * to a wholesaler at `BALANCE.stageMoveLiquidation` of its true wholesale value,
+ * to a wholesaler at `BALANCE.forcedSaleRate` of its true wholesale value,
  * and the cash lands with the move. You do not haul stock across town, and the
  * wholesaler knows you have already signed for the next store — the haircut is
  * his leverage, and it is deliberately not the only thing the move costs. The
@@ -494,6 +494,43 @@ export function setTuning(state: GameState, path: string, value: number): GameSt
 
     s.tuning = next;
     applyTuning(s.tuning);
+    return true;
+  });
+}
+
+/**
+ * Set the cash balance from the admin console.
+ *
+ * NOT A TUNABLE, and the distinction is the entire reason this is its own
+ * function rather than another row in `TUNABLES`. Tuning overrides live on the
+ * save and are re-applied on load *before* offline catch-up — that is what makes
+ * a given save replay identically. Cash is state, not a constant, so an override
+ * would re-stamp the balance every single load and silently delete everything
+ * the business earned while the app was closed. Nothing that the simulation
+ * writes back to may ever be registered as a tunable.
+ *
+ * Deliberately does not touch `lifetimeProfit`. That number is how the harness
+ * and the ledger judge the health of the economy, and money conjured from a
+ * debug field is not profit — polluting it would make every later balance
+ * reading a lie.
+ */
+export function setCash(state: GameState, amount: number): GameState {
+  return act(state, (s) => {
+    if (!Number.isFinite(amount)) return false;
+    const next = Math.max(0, Math.round(amount));
+    const delta = next - Math.round(s.cash);
+    if (delta === 0) return false;
+
+    s.cash = next;
+    // Logged like any other movement of money. A balance that changes with no
+    // line in the ledger is the kind of thing you later mistake for a bug in
+    // the economy.
+    logEvent(s, {
+      t: s.t,
+      kind: 'admin',
+      label: delta > 0 ? 'Admin: cash added' : 'Admin: cash removed',
+      amount: delta,
+    });
     return true;
   });
 }

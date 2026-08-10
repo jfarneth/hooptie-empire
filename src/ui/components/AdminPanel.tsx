@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { resetTuning, setTuning } from '../../sim/actions';
+import { resetTuning, setCash, setTuning } from '../../sim/actions';
 import {
   TUNABLES,
   TUNABLE_GROUPS,
@@ -74,6 +74,16 @@ export function AdminPanel({ state }: { state: GameState }) {
         ) : null}
       </Card>
 
+      <Card style={{ gap: 8 }}>
+        <Text style={styles.title}>Game state</Text>
+        <Text style={styles.blurb}>
+          Not a tuning constant — this writes straight to the save. It is the one thing here that
+          changes what you have rather than how the game behaves, which is why it sits apart from
+          the knobs below and leaves lifetime profit alone.
+        </Text>
+        <CashRow cash={state.cash} onCommit={(n) => apply((s) => setCash(s, n))} />
+      </Card>
+
       {TUNABLE_GROUPS.map((group) => {
         const rows = byGroup.get(group) ?? [];
         if (rows.length === 0) return null;
@@ -109,6 +119,45 @@ export function AdminPanel({ state }: { state: GameState }) {
           </View>
         );
       })}
+    </View>
+  );
+}
+
+/**
+ * The cash field. Same commit-on-blur discipline as a tunable row — committing
+ * per keystroke would apply "1" on the way to typing "1000000".
+ */
+function CashRow({ cash, onCommit }: { cash: number; onCommit: (value: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const commit = () => {
+    if (draft === null) return;
+    const parsed = Number(draft.replace(/[^0-9.eE+-]/g, ''));
+    // Nonsense reverts rather than zeroing the balance, which is a much worse
+    // thing to do by accident here than it is to a tuning knob.
+    if (Number.isFinite(parsed)) onCommit(parsed);
+    setDraft(null);
+  };
+
+  return (
+    <View style={styles.row}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={styles.rowLabel}>Cash on hand</Text>
+        <Text style={styles.rowHelp}>Whole dollars, never below zero.</Text>
+      </View>
+      <View style={{ alignItems: 'flex-end', gap: 4 }}>
+        <TextInput
+          value={draft ?? String(Math.round(cash))}
+          onChangeText={setDraft}
+          onBlur={commit}
+          onSubmitEditing={commit}
+          keyboardType="numbers-and-punctuation"
+          selectTextOnFocus
+          style={styles.input}
+          accessibilityLabel="Cash on hand"
+        />
+        <Text style={styles.rowValue}>{money(cash)}</Text>
+      </View>
     </View>
   );
 }
