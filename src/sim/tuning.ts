@@ -61,6 +61,8 @@ export const TUNABLES: readonly TunableDef[] = [
   { path: 'balance.mileageDecayScale', label: 'Mileage decay scale', group: 'Economy', kind: 'int', min: 20_000, max: 1_000_000,
     help: 'Miles at which value has fallen by 1/e. Larger is gentler depreciation.' },
   { path: 'balance.repoValuePenalty', label: 'Value lost per prior repo', group: 'Economy', kind: 'ratio', min: 0, max: 0.5 },
+  { path: 'balance.stageMoveLiquidation', label: 'Lot sell-off on a move', group: 'The ladder', kind: 'ratio', min: 0, max: 1,
+    help: 'Share of wholesale the wholesaler pays for the lot when you change stores. At 1 a move is a free way to cash out stock.' },
 
   // ----------------------------------------------------------------- the feed
   { path: 'balance.baseListingSlots', label: 'Feed slots', group: 'The feed', kind: 'int', min: 1, max: 30 },

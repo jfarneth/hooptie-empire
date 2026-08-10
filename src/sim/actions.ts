@@ -11,6 +11,7 @@ import {
   logEvent,
   registerWalkaway,
 } from './engine';
+import { wholesaleValue } from './economy';
 import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
 import { getStage, nextStage, stageRank, type StageDef } from './stages';
@@ -223,8 +224,21 @@ export interface StageMovePreview {
   staffLost: { name: string; level: number }[];
   /** Contracts on the book against the collections desk you would be left with. */
   bookAfter: { active: number; capacity: number };
-  /** Cars you are holding against the space the new store has for them. */
-  lotAfter: { held: number; capacity: number };
+  /**
+   * Room on the lot you arrive at. Not "will my cars fit" any more — the move
+   * clears the lot either way — but what you have to rebuild into, which is the
+   * whole of what a smaller store means when you walk back down to one.
+   */
+  lotAfter: { capacity: number };
+  /**
+   * The forced sale of the lot on the way out: how many cars go and what the
+   * wholesaler pays for them.
+   *
+   * Lives on the preview so the confirmation and the action can never disagree
+   * about the cheque — both read `lotLiquidation`, which is the only place the
+   * number is worked out.
+   */
+  liquidation: { cars: number; proceeds: number };
 }
 
 export function stageMovePreview(state: GameState, targetId?: StageId): StageMovePreview {
@@ -268,13 +282,37 @@ export function stageMovePreview(state: GameState, targetId?: StageId): StageMov
       active: activeNotes(state.notes).length,
       capacity: collectionsCapacity(withoutStaff),
     },
+    liquidation: lotLiquidation(state),
     lotAfter: {
-      held: state.cars.filter((c) => c.status !== 'sold').length,
       // Capacity upgrades are property and carry, so only the store's own floor
-      // moves. Going down that floor drops, which is how a downgrade can leave
-      // you standing on a lot too small for the cars already on it.
+      // moves. Going down, that floor drops — which used to leave a player
+      // standing on a lot too small for the cars they already had, and is now
+      // just a smaller lot to start filling.
       capacity: target ? carCapacity({ ...state, stage: target.id }) : carCapacity(state),
     },
+  };
+}
+
+/**
+ * What the lot fetches when the business changes stores.
+ *
+ * Cars out on finance are NOT part of this and must never be: a financed car is
+ * still in `state.cars` marked sold, precisely so a repossession can bring it
+ * back, and selling one out from under a live contract would strand the note and
+ * break every repo on the book. Only what is physically on the lot is sold.
+ *
+ * The one place the figure is computed. `stageMovePreview` reports it and
+ * `moveToStage` pays it, so the confirmation cannot promise a number the move
+ * does not honour.
+ */
+export function lotLiquidation(state: GameState): { cars: number; proceeds: number } {
+  const onLot = state.cars.filter((c) => c.status !== 'sold');
+  const rate = BALANCE.stageMoveLiquidation;
+  return {
+    cars: onLot.length,
+    // Rounded per car rather than on the total, so the ledger line and the sum
+    // of the cars a player could count on the lot agree to the dollar.
+    proceeds: onLot.reduce((sum, car) => sum + Math.round(wholesaleValue(car) * rate), 0),
   };
 }
 
@@ -309,11 +347,25 @@ export function canAdvanceStage(state: GameState): boolean {
  * store they would. Cheaper to rehire at a smaller one, which is the only mercy
  * in it.
  *
- * Inventory is deliberately NOT liquidated in either direction. Beaters bought
- * at a small lot are still yours at a franchise store even though nothing like
- * them will ever come across the feed again; six-figure Valmonts are still yours
- * on a driveway that has room for two of them. Selling them off is the player's
- * problem and their first taste of what the new store's traffic wants.
+ * THE LOT IS CLEARED IN BOTH DIRECTIONS. Every car physically on the lot is sold
+ * to a wholesaler at `BALANCE.stageMoveLiquidation` of its true wholesale value,
+ * and the cash lands with the move. You do not haul stock across town, and the
+ * wholesaler knows you have already signed for the next store — the haircut is
+ * his leverage, and it is deliberately not the only thing the move costs. The
+ * retail spread you were holding each car for goes too, along with any recon you
+ * have already paid for. A car halfway through the shop is sold rough.
+ *
+ * What is NOT sold is the paper, and the distinction matters more than it looks.
+ * A financed car is still in `state.cars` marked sold, so that a repossession can
+ * bring it back; selling one here would strand its note and break the book. The
+ * business you are moving is the loan book, and it moves intact.
+ *
+ * The lot arriving empty is the point. Beaters bought at a small lot were never
+ * going to sell at a franchise store, and a driveway with room for two was never
+ * going to hold forty Valmonts — the old rule left the player to unwind that by
+ * hand, which is bookkeeping rather than a decision. Now the decision is where it
+ * belongs: whether to sell the lot down at retail *before* you move, or take the
+ * wholesaler's price and start clean.
  */
 export function moveToStage(state: GameState, targetId: StageId): GameState {
   return act(state, (s) => {
@@ -338,6 +390,28 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
     // out. Left set, the policy would silently do nothing and the player would
     // think the desk was still running.
     if (s.dealPolicy !== 'manual') s.dealPolicy = 'manual';
+
+    // The lot does not come with you. Sold before the staff are released so the
+    // ledger reads in the order the day would have happened: you clear the
+    // forecourt, then you hand back the keys.
+    const sale = move.liquidation;
+    if (sale.cars > 0) {
+      const basis = s.cars.reduce((sum, c) => (c.status === 'sold' ? sum : sum + c.costBasis), 0);
+      s.cash += sale.proceeds;
+      // Counted as profit but NOT as a sale, and no XP: this is a wholesaler
+      // taking the lot off your hands, not the desk closing anybody. Awarding
+      // Closing XP for it would train the skill by moving house.
+      s.stats.lifetimeProfit += sale.proceeds - basis;
+      // Only what is on the lot. Financed cars stay in state, marked sold, or
+      // their notes have nothing to repossess. See `lotLiquidation`.
+      s.cars = s.cars.filter((c) => c.status === 'sold');
+      logEvent(s, {
+        t: s.t,
+        kind: move.direction === 'up' ? 'stage-up' : 'stage-down',
+        label: `Cleared the lot — ${sale.cars} car${sale.cars > 1 ? 's' : ''} to the wholesaler.`,
+        amount: sale.proceeds,
+      });
+    }
 
     // The feed belonged to the old store. Left alone, a brand new franchise
     // spends its first two minutes showing auction beaters on a feed that has

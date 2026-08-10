@@ -190,7 +190,7 @@ function Confirmation({
   const target = move.target!;
   const down = move.direction === 'down';
   const bookWillBeOver = move.bookAfter.active > move.bookAfter.capacity;
-  const lotWillBeOver = move.lotAfter.held > move.lotAfter.capacity;
+  const selling = move.liquidation.cars > 0;
 
   return (
     <View style={styles.confirm}>
@@ -240,17 +240,23 @@ function Confirmation({
         </Text>
       ) : null}
 
-      {lotWillBeOver ? (
+      {selling ? (
         <Text style={styles.confirmWarn}>
-          {move.lotAfter.held} cars onto a lot with {move.lotAfter.capacity} spaces. Nothing is taken
-          off you, but you buy nothing else until you have sold it back down.
+          You do not take the lot with you. All {move.liquidation.cars} car
+          {move.liquidation.cars > 1 ? 's' : ''} go to a wholesaler for{' '}
+          {money(move.liquidation.proceeds)} — under what they are worth, because he knows you are
+          leaving. Sell them yourself first if you want retail for them.
         </Text>
       ) : null}
 
+      <Text style={styles.confirmBody}>
+        You arrive with an empty lot with room for {move.lotAfter.capacity}.
+      </Text>
+
       <Text style={styles.confirmKeep}>
         {down
-          ? 'Your cash, your cars, every contract on the book and everything the work has taught you all come with you. Only the store is gone.'
-          : 'Cash, inventory, the book, your property and everything the work has taught you all come with you.'}
+          ? 'Your cash, every contract on the book and everything the work has taught you all come with you. The store and the stock are what you are giving up.'
+          : 'Cash, the book, your property and everything the work has taught you all come with you. Only the lot is sold.'}
       </Text>
 
       <Row gap={6} style={{ marginTop: 4 }}>

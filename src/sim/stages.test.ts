@@ -7,6 +7,7 @@ import {
 } from './actions';
 import { appraisalBand } from './appraisal';
 import { BALANCE } from './balance';
+import { wholesaleValue } from './economy';
 import { advance, cloneState, createInitialState } from './engine';
 import { getModel, modelsForMake, modelsForTiers } from './models';
 import { overCapacityFactor } from './notes';
@@ -256,18 +257,52 @@ describe('taking on the next dealership', () => {
    * minutes showing auction beaters has broken its own promise, and on the used
    * stages a carried-over feed lets a big lot buy the small lot's inventory.
    */
-  it('clears the old store’s feed but keeps the cars already bought', () => {
+  it('clears the old store’s feed and sells the lot to a wholesaler', () => {
     const before = goingConcern();
-    before.cars = advance(before, 60_000).cars;
+    before.upgrades.autoBuy = 1;
+    before.cars = advance(before, 40 * 60_000).cars;
+    const held = before.cars.filter((c) => c.status !== 'sold');
+    expect(held.length).toBeGreaterThan(0);
     expect(before.listings.length).toBeGreaterThan(0);
 
+    const preview = stageMovePreview(before);
     const after = advanceStage(before);
+
     expect(after.listings).toEqual([]);
-    expect(after.cars).toEqual(before.cars);
+    expect(after.cars.filter((c) => c.status !== 'sold')).toEqual([]);
+
+    // The wholesaler's price, and the haircut is real money off it.
+    const full = held.reduce((sum, c) => sum + wholesaleValue(c), 0);
+    expect(preview.liquidation.cars).toBe(held.length);
+    expect(preview.liquidation.proceeds).toBeLessThan(full);
+    expect(preview.liquidation.proceeds).toBeCloseTo(full * BALANCE.stageMoveLiquidation, -1);
+    expect(after.cash).toBe(before.cash - preview.cost + preview.liquidation.proceeds);
 
     // And it refills from the store you actually moved into.
     const refilled = advance(after, 10 * 60 * 1000);
     expect(refilled.listings.length).toBeGreaterThan(0);
+  });
+
+  it('never sells a financed car out from under its note', () => {
+    // A financed car stays in `cars` marked sold so a repo can bring it back.
+    // Clearing the lot must not touch it, or the book has nothing to repossess
+    // and every contract against it is stranded.
+    const before = goingConcern();
+    before.upgrades.autoBuy = 1;
+    before.cars = advance(before, 40 * 60_000).cars;
+    const out = before.cars[0];
+    out.status = 'sold';
+
+    const after = advanceStage(before);
+
+    // Every car already delivered survives — those are the book's collateral —
+    // and nothing still on the lot does.
+    const delivered = before.cars.filter((c) => c.status === 'sold');
+    expect(after.cars.map((c) => c.id)).toContain(out.id);
+    expect(after.cars.map((c) => c.id).sort()).toEqual(delivered.map((c) => c.id).sort());
+    expect(stageMovePreview(before).liquidation.cars).toBe(
+      before.cars.length - delivered.length,
+    );
   });
 
   it('warns about exactly what the move will do', () => {
@@ -276,7 +311,7 @@ describe('taking on the next dealership', () => {
     const after = advanceStage(before);
 
     expect(preview.target?.id).toBe(after.stage);
-    expect(preview.cost).toBe(before.cash - after.cash);
+    expect(before.cash - after.cash).toBe(preview.cost - preview.liquidation.proceeds);
     // The warning is the truth: everyone it names is gone, and nobody else is.
     const named = preview.staffLost.map((s) => s.name).sort();
     const actuallyLost = UPGRADES.filter(
@@ -357,7 +392,7 @@ describe('jumping rungs and walking back down', () => {
     expect(backUp.cash).toBe(before.cash - getStage('largeUsed').entryCost);
   });
 
-  it('leaves the cars, the book and the skills alone on the way down', () => {
+  it('sells the lot on the way down too, and leaves the book and the skills alone', () => {
     const before = goingConcern('largeUsed', 900_000);
     before.upgrades.autoBuy = 1;
     before.cars = advance(before, 40 * 60_000).cars;
@@ -371,15 +406,19 @@ describe('jumping rungs and walking back down', () => {
       },
     ];
 
+    const preview = stageMovePreview(before, 'curbstone');
     const after = moveToStage(before, 'curbstone');
-    expect(after.cars).toEqual(before.cars);
+
+    // The lot goes, at the wholesaler's price; the paper and the skills do not.
+    expect(after.cars.filter((c) => c.status !== 'sold')).toEqual([]);
+    expect(preview.liquidation.proceeds).toBeGreaterThan(0);
+    expect(after.cash).toBe(before.cash + preview.liquidation.proceeds);
     expect(after.notes).toEqual(before.notes);
     expect(after.skills).toEqual(before.skills);
-    // And the driveway it lands on really is too small for what it is carrying,
-    // which is the warning the card has to be able to show.
-    const preview = stageMovePreview(before, 'curbstone');
+
+    // The driveway it lands on is a driveway, and it is empty — the card has to
+    // be able to say both.
     expect(preview.lotAfter.capacity).toBe(carCapacity(after));
-    expect(preview.lotAfter.held).toBeGreaterThan(preview.lotAfter.capacity);
   });
 
   it('stands the sales desk down and clears the feed going down too', () => {

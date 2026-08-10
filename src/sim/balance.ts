@@ -269,6 +269,25 @@ export const BALANCE = {
   // meaningless apart from the stage they belong to, and splitting them across
   // two files would mean every tuning pass had to edit both.
 
+  /**
+   * What the wholesaler pays for the lot when the business moves stores, as a
+   * share of each car's true wholesale value.
+   *
+   * Moving clears the lot in both directions, so this is the price of a forced
+   * sale: the wholesaler knows you are leaving and there is nobody else to sell
+   * twelve cars to this afternoon. Under 1 on purpose — at 1 a stage move would
+   * be a free way to convert stock to cash at full value, and the ladder's rule
+   * is that a move has to cost something.
+   *
+   * It does NOT vary by stage. The haircut is the wholesaler's leverage over
+   * somebody who has already signed for the next store, and that is the same
+   * whether the lot holds five beaters or forty Valmonts.
+   *
+   * Note the player loses more than this number says: the retail spread they
+   * were holding the car for, and any recon already paid, both go with it.
+   */
+  stageMoveLiquidation: 0.8,
+
   // -------------------------------------------------------------------- skills
   /**
    * Player proficiencies: Buying, Closing, Wrenching.
