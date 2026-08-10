@@ -10,7 +10,10 @@ import {
   roundingIncrement,
   tellFor,
 } from '../../sim/haggle';
-import { activeNotes, overCapacityFactor } from '../../sim/notes';
+import { repoThreshold } from '../../sim/business';
+import { getStage } from '../../sim/stages';
+import { activeNotes, canWriteNote, overCapacityFactor } from '../../sim/notes';
+import { haggleSkillFor } from '../../sim/skills';
 import { collectionsCapacity } from '../../sim/upgrades';
 import type { GameState, Prospect } from '../../sim/types';
 import { TIER_COLOR, money, theme } from '../theme';
@@ -69,21 +72,28 @@ export function DealSheet({
 
   const car = state.cars.find((c) => c.id === prospect.carId);
   const costBasis = car?.costBasis ?? 0;
-  const financeAvailable = state.stage === 'bhph';
+  const financeAvailable = getStage(state.stage).financing;
 
-  const countersLeft = countersRemaining(neg);
+  const countersLeft = countersRemaining(neg, haggleSkillFor(state));
   const agreed = neg.status === 'accepted';
   // Once they have said yes there is nothing left to argue about; without the
   // status check the sheet would render a counter control that silently no-ops,
   // because the action layer rejects counters on a closed negotiation.
   const canCounter = neg.status === 'open' && countersLeft > 0 && neg.currentOffer < neg.anchor;
 
-  const capFactor = overCapacityFactor(activeNotes(state.notes).length, collectionsCapacity(state));
+  const bookSize = activeNotes(state.notes).length;
+  const bookLimit = collectionsCapacity(state);
+  const bookOpen = canWriteNote(state);
+
+  const capFactor = overCapacityFactor(bookSize, bookLimit);
   const missChance = BALANCE.creditTiers[prospect.tier].missChance * capFactor;
+  // Quoted against the player's own repo trigger, not the house default: this
+  // number is presented as exact, so it has to be the rule they actually set.
   const { expectedCollected, defaultProbability } = expectedCollections(
     prospect.financeTerms.weeks,
     prospect.financeTerms.weeklyPayment,
     missChance,
+    repoThreshold(state),
   );
 
   const financeEv = prospect.downPayment + expectedCollected;
@@ -191,7 +201,7 @@ export function DealSheet({
 
       {/* ------------------------------------------------------- finance */}
       {financeAvailable ? (
-        <View style={[styles.option, financeBeatsC && styles.optionHighlight]}>
+        <View style={[styles.option, financeBeatsC && bookOpen && styles.optionHighlight]}>
           <Row style={{ justifyContent: 'space-between' }}>
             <Text style={styles.optionTitle}>Finance it</Text>
             <Text style={styles.optionHeadline}>{money(prospect.downPayment)}</Text>
@@ -234,13 +244,35 @@ export function DealSheet({
             </Text>
           </Row>
 
-          <Button
-            label="Write the note"
-            sublabel={financeBeatsC ? `+${money(financeEv - neg.currentOffer)} over cash` : undefined}
-            tone={financeBeatsC ? 'primary' : 'default'}
-            onPress={onFinance}
-            style={{ marginTop: 10 }}
-          />
+          {bookOpen ? (
+            <Button
+              label="Write the note"
+              sublabel={
+                financeBeatsC ? `+${money(financeEv - neg.currentOffer)} over cash` : undefined
+              }
+              tone={financeBeatsC ? 'primary' : 'default'}
+              onPress={onFinance}
+              style={{ marginTop: 10 }}
+            />
+          ) : (
+            // A disabled button rather than a hidden one: the deal that is not
+            // available is still information, and the player needs to see what
+            // the full book is costing them on this specific customer.
+            <>
+              <Button
+                label="Book is full"
+                sublabel={`${bookSize}/${bookLimit} contracts`}
+                tone="ghost"
+                disabled
+                onPress={onFinance}
+                style={{ marginTop: 10 }}
+              />
+              <Text style={styles.bookFull}>
+                The collections desk will not carry another contract. Take the cash, or staff the
+                desk and come back to the next one.
+              </Text>
+            </>
+          )}
         </View>
       ) : (
         <View style={styles.lockedBox}>
@@ -328,6 +360,13 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     marginTop: 8,
     fontStyle: 'italic',
+  },
+  bookFull: {
+    color: theme.colors.warn,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 8,
+    textAlign: 'center',
   },
   profitLabel: { color: theme.colors.textDim, fontSize: 12, fontWeight: '600' },
   profitValue: { fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },

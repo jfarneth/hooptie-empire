@@ -21,17 +21,35 @@ const TIER_PROFILE: Record<
   luxury: { mileage: [26_000, 112_000], condition: [0.44, 0.88] },
 };
 
+/**
+ * Overrides the tier profile when the car did not come off the open market.
+ *
+ * A franchise stage takes delivery of new cars, so mileage and condition come
+ * from the manufacturer rather than from what tier of used metal this is. See
+ * `STAGES[].sourcing` in stages.ts.
+ */
+export interface StockProfile {
+  mileage: [number, number];
+  condition: [number, number];
+}
+
 export function generateCar(
   state: Pick<GameState, 'nextId'>,
   rng: RngState,
   model: CarModel,
   now: Millis,
+  override?: StockProfile,
 ): Car {
-  const profile = TIER_PROFILE[model.tier];
+  const profile = override ?? TIER_PROFILE[model.tier];
   const [mMin, mMax] = profile.mileage;
   const [cMin, cMax] = profile.condition;
 
-  const mileage = Math.round(normalish(rng, (mMin + mMax) / 2, (mMax - mMin) / 2, mMin, mMax) / 500) * 500;
+  // Used metal lands on a 500-mile grid, the way an odometer gets quoted. That
+  // grid would round every delivery mileage to a flat zero, so a narrow range
+  // gets a correspondingly fine one.
+  const grain = mMax - mMin >= 5_000 ? 500 : 5;
+  const mileage =
+    Math.round(normalish(rng, (mMin + mMax) / 2, (mMax - mMin) / 2, mMin, mMax) / grain) * grain;
   const condition = Math.round(normalish(rng, (cMin + cMax) / 2, (cMax - cMin) / 2, cMin, cMax) * 100) / 100;
 
   return {
@@ -52,38 +70,57 @@ export function generateCar(
   };
 }
 
+/**
+ * What the shop is currently capable of.
+ *
+ * Passed in rather than read from state, so this module stays free of any
+ * knowledge of upgrades and skills — the same reason `haggle.ts` works in
+ * abstract money. The mechanic upgrade and the Wrenching skill both land in
+ * `speedMult`, already multiplied together by the caller; see
+ * `reconModsFor()` in skills.ts.
+ */
+export interface ReconMods {
+  /** Ceiling on the condition one job can add. */
+  maxLift: number;
+  /** Multiplier on the dollar cost of the work. */
+  costMult: number;
+  /** Multiplier on how long it takes. Lower is faster. */
+  speedMult: number;
+}
+
 /** How much condition one recon job can add to this car. */
-export function reconLift(car: Car): number {
-  return Math.max(0, Math.min(BALANCE.reconMaxLift, 1 - car.condition));
+export function reconLift(car: Car, mods: ReconMods): number {
+  return Math.max(0, Math.min(mods.maxLift, 1 - car.condition));
 }
 
 /**
  * Cost of the recon job. Priced against what this specific car is worth, not
  * against the model's showroom value — see conditionFreeValue().
  */
-export function reconCost(car: Car): number {
-  return Math.round(reconLift(car) * conditionFreeValue(car) * BALANCE.reconCostPerPoint);
+export function reconCost(car: Car, mods: ReconMods): number {
+  return Math.round(
+    reconLift(car, mods) * conditionFreeValue(car) * BALANCE.reconCostPerPoint * mods.costMult,
+  );
 }
 
 /** Retail value this recon job will add. Always the number the UI should quote. */
-export function reconValueGain(car: Car): number {
-  return Math.round(reconLift(car) * valuePerConditionPoint(car));
+export function reconValueGain(car: Car, mods: ReconMods): number {
+  return Math.round(reconLift(car, mods) * valuePerConditionPoint(car));
 }
 
-export function reconDurationMs(car: Car, mechanicLevel: number): Millis {
-  const speed = Math.pow(BALANCE.reconMsPerMechanicLevel, mechanicLevel);
-  return Math.round(reconLift(car) * BALANCE.reconMsPerPoint * speed);
+export function reconDurationMs(car: Car, mods: ReconMods): Millis {
+  return Math.round(reconLift(car, mods) * BALANCE.reconMsPerPoint * mods.speedMult);
 }
 
 /** True when there is meaningful work left to do on this car. */
-export function canRecon(car: Car): boolean {
-  return car.status === 'ready' && reconLift(car) > 0.02;
+export function canRecon(car: Car, mods: ReconMods): boolean {
+  return car.status === 'ready' && reconLift(car, mods) > 0.02;
 }
 
 /** Puts the car in the shop. Caller is responsible for debiting `reconCost`. */
-export function beginRecon(car: Car, mechanicLevel: number): void {
-  const lift = reconLift(car);
-  const total = reconDurationMs(car, mechanicLevel);
+export function beginRecon(car: Car, mods: ReconMods): void {
+  const lift = reconLift(car, mods);
+  const total = reconDurationMs(car, mods);
   car.status = 'recon';
   car.reconRemainingMs = total;
   car.reconTotalMs = total;
@@ -111,5 +148,8 @@ export function applyRepoDamage(car: Car, conditionLoss: number): void {
 
 export function carLabel(car: Car): string {
   const model = getModel(car.modelId);
-  return `${model.name} · ${Math.round(car.mileage / 1000)}k`;
+  // A car off the transporter reads "· new", not "· 0k", which looks like a
+  // rendering bug rather than a fact about the car.
+  const odometer = car.mileage < 1_000 ? 'new' : `${Math.round(car.mileage / 1000)}k`;
+  return `${model.name} · ${odometer}`;
 }

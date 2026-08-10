@@ -1,11 +1,11 @@
 import React, { memo } from 'react';
 import Svg, { Circle, Ellipse, G, Path, Rect } from 'react-native-svg';
-import { BODY_COLORS } from '../../sim/models';
-import type { BodyStyle } from '../../sim/types';
-import { theme, weatheredColor } from '../theme';
+import { BODY_COLORS } from '../../../sim/models';
+import type { BodyStyle } from '../../../sim/types';
+import { theme, weatheredColor } from '../../theme';
 
 /**
- * Side-profile car silhouettes.
+ * Side-profile car silhouettes — the shape a listing photograph would be in.
  *
  * Drawn rather than imported: six shapes plus a paint colour and a condition
  * value cover the whole catalogue with no asset pipeline, and they stay crisp at
@@ -64,7 +64,7 @@ const SHAPES: Record<BodyStyle, Shape> = {
   },
 };
 
-export interface CarSvgProps {
+export interface CarSideProps {
   bodyStyle: BodyStyle;
   colorIndex: number;
   condition: number;
@@ -73,13 +73,13 @@ export interface CarSvgProps {
   showWear?: boolean;
 }
 
-function CarSvgBase({
+function CarSideBase({
   bodyStyle,
   colorIndex,
   condition,
   width = 100,
   showWear = true,
-}: CarSvgProps) {
+}: CarSideProps) {
   const shape = SHAPES[bodyStyle] ?? SHAPES.sedan;
   const base = BODY_COLORS[colorIndex % BODY_COLORS.length];
   const paint = weatheredColor(base, condition);
@@ -123,4 +123,4 @@ function CarSvgBase({
 
 // The lot re-renders on every tick; these props change rarely, so memoizing
 // keeps a full lot from redrawing 4x a second.
-export const CarSvg = memo(CarSvgBase);
+export const CarSide = memo(CarSideBase);

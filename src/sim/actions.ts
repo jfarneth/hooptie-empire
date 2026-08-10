@@ -1,4 +1,5 @@
 import { BALANCE } from './balance';
+import { businessPolicy, clampBusinessPolicy } from './business';
 import { beginRecon, canRecon, reconCost } from './cars';
 import {
   acceptCash,
@@ -8,11 +9,23 @@ import {
   expectedFinanceValue,
   listCar,
   logEvent,
+  registerWalkaway,
 } from './engine';
 import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
-import { collectionsCapacity, getUpgrade, level, upgradeCost } from './upgrades';
-import type { DealPolicy, GameState } from './types';
+import { getStage, nextStage, stageRank, type StageDef } from './stages';
+import { applyTuning, coerceTunable, defaultValue, getTunable, pruneTuning } from './tuning';
+import { haggleSkillFor, reconModsFor } from './skills';
+import {
+  UPGRADES,
+  carCapacity,
+  collectionsCapacity,
+  getUpgrade,
+  level,
+  upgradeCost,
+  upgradeUnlocked,
+} from './upgrades';
+import type { BusinessPolicy, DealPolicy, GameState, StageId } from './types';
 
 /**
  * Player commands. Every one of these takes a state and returns a new state, so
@@ -34,12 +47,13 @@ export function buyListing(state: GameState, listingId: string): GameState {
 export function startRecon(state: GameState, carId: string): GameState {
   return act(state, (s) => {
     const car = s.cars.find((c) => c.id === carId);
-    if (!car || !canRecon(car)) return false;
-    const cost = reconCost(car);
+    const mods = reconModsFor(s);
+    if (!car || !canRecon(car, mods)) return false;
+    const cost = reconCost(car, mods);
     if (s.cash < cost) return false;
     s.cash -= cost;
     car.costBasis += cost;
-    beginRecon(car, level(s, 'mechanic'));
+    beginRecon(car, mods);
     return true;
   });
 }
@@ -93,20 +107,18 @@ export function counterOffer(state: GameState, prospectId: string, price: number
 
     const neg = prospect.negotiation;
     if (neg.status !== 'open') return false;
-    if (countersRemaining(neg) <= 0) return false;
+    const haggle = haggleSkillFor(s);
+    if (countersRemaining(neg, haggle) <= 0) return false;
 
     const asking = Math.round(price);
     // Countering at or below what they already offered is just acceptance with
     // extra steps, and countering above your own ask makes no sense.
     if (asking <= neg.currentOffer || asking > neg.anchor) return false;
 
-    const outcome = resolveCounter(s.rng, neg, asking);
+    const outcome = resolveCounter(s.rng, neg, asking, haggle);
     prospect.expiresAt = s.t + BALANCE.negotiation.exchangeGraceMs;
 
-    if (outcome.kind === 'walked') {
-      s.stats.walkaways += 1;
-      logEvent(s, { t: s.t, kind: 'walkaway', label: `${prospect.name} walked` });
-    }
+    if (outcome.kind === 'walked') registerWalkaway(s, prospect.name);
     return true;
   });
 }
@@ -129,8 +141,8 @@ export function purchaseUpgrade(state: GameState, id: string): GameState {
     const def = getUpgrade(id);
     const lvl = level(s, id);
     if (lvl >= def.maxLevel) return false;
-    if (def.stage === 'bhph' && s.stage !== 'bhph') return false;
-    const cost = upgradeCost(def, lvl);
+    if (!upgradeUnlocked(s, def)) return false;
+    const cost = upgradeCost(def, lvl, s.stage);
     if (s.cash < cost) return false;
     s.cash -= cost;
     s.upgrades[id] = lvl + 1;
@@ -147,30 +159,285 @@ export function setDealPolicy(state: GameState, policy: DealPolicy): GameState {
 }
 
 /**
- * Stage gate: buy the lot. This is the moment the game changes shape — the
- * finance desk opens and every sale becomes a choice rather than a transaction.
+ * Change one or more house rules.
+ *
+ * Takes a patch rather than a whole policy so a control that owns one setting
+ * cannot clobber the other two, and clamps rather than rejects so an out-of-range
+ * value lands somewhere sane instead of silently doing nothing.
  */
-export function canBuyLot(state: GameState): boolean {
-  return state.stage === 'curbstoner' && state.cash >= BALANCE.lotPurchaseCost;
-}
-
-export function buyLot(state: GameState): GameState {
+export function setBusinessPolicy(state: GameState, patch: Partial<BusinessPolicy>): GameState {
   return act(state, (s) => {
-    if (s.stage !== 'curbstoner' || s.cash < BALANCE.lotPurchaseCost) return false;
-    s.cash -= BALANCE.lotPurchaseCost;
-    s.stage = 'bhph';
-    logEvent(s, {
-      t: s.t,
-      kind: 'stage-up',
-      label: 'Bought the lot. The finance desk is open.',
-      amount: -BALANCE.lotPurchaseCost,
-    });
+    const current = businessPolicy(s);
+    const next = clampBusinessPolicy(patch, current);
+    if (
+      next.minWorkingCapital === current.minWorkingCapital &&
+      next.repoAfterMissedPayments === current.repoAfterMissedPayments &&
+      next.minBuyMargin === current.minBuyMargin
+    ) {
+      // No-op: returning false keeps state identity, so the UI does not re-render
+      // the whole lot every time a control re-reports the value it already had.
+      return false;
+    }
+    s.business = next;
     return true;
   });
+}
+
+/**
+ * Everything a move costs you, beyond the cheque. Computed before the move so
+ * the UI can put it in front of the player, and computed from the same data the
+ * move itself uses so the warning cannot drift from what actually happens.
+ *
+ * Not just the next rung. Any store on the ladder can be previewed from any
+ * other, because the card the player reads this through lets them look ahead at
+ * stores they cannot afford, jump straight past rungs they can, and walk back
+ * down to a smaller one. `direction` is what the caller should branch on;
+ * everything else is filled in for whichever move it describes.
+ */
+export interface StageMovePreview {
+  /** The store you are standing in. */
+  from: StageDef;
+  /** The store this preview is about. Null only at the top of the ladder. */
+  target: StageDef | null;
+  direction: 'up' | 'down' | 'stay';
+  /**
+   * Cash the move costs. A bigger store is bought at its own entry price —
+   * skipping rungs does not compound, because you are buying one dealership and
+   * this is what that dealership costs. Zero going down: nobody sells you a
+   * smaller store, you just leave.
+   */
+  cost: number;
+  /**
+   * What going down writes off: everything you paid to move into the store you
+   * are leaving. You take your cash and your cars, and you get none of that
+   * back. Zero going up, where the property comes with you.
+   */
+  forfeit: number;
+  /** Rungs you would step straight past. Zero for a single step. */
+  rungsSkipped: number;
+  /** Whether the cheque clears. Trivially true going down, which is free. */
+  affordable: boolean;
+  /** Whether `moveToStage` would actually do this. The gate to put on a button. */
+  allowed: boolean;
+  /** Employees who do not come with you, by name, at their current level. */
+  staffLost: { name: string; level: number }[];
+  /** Contracts on the book against the collections desk you would be left with. */
+  bookAfter: { active: number; capacity: number };
+  /** Cars you are holding against the space the new store has for them. */
+  lotAfter: { held: number; capacity: number };
+}
+
+export function stageMovePreview(state: GameState, targetId?: StageId): StageMovePreview {
+  const from = getStage(state.stage);
+  const target = targetId
+    ? stageRank(targetId) >= 0
+      ? getStage(targetId)
+      : null
+    : nextStage(state.stage);
+
+  const here = stageRank(state.stage);
+  const there = target ? stageRank(target.id) : here;
+  const direction: StageMovePreview['direction'] =
+    !target || there === here ? 'stay' : there > here ? 'up' : 'down';
+
+  const cost = direction === 'up' ? target!.entryCost : 0;
+  const affordable = state.cash >= cost;
+
+  const staffLost = UPGRADES.filter((u) => u.staff && level(state, u.id) > 0).map((u) => ({
+    name: u.name,
+    level: level(state, u.id),
+  }));
+
+  // The collections desk is staff, so it resets too — and the book does not.
+  // A player carrying 40 contracts into a new store lands there with capacity
+  // for 8 until they rehire, which is the single sharpest edge in the move.
+  const withoutStaff = { upgrades: { ...state.upgrades } };
+  for (const u of UPGRADES) if (u.staff) delete withoutStaff.upgrades[u.id];
+
+  return {
+    from,
+    target,
+    direction,
+    cost,
+    forfeit: direction === 'down' ? from.entryCost : 0,
+    rungsSkipped: direction === 'up' ? there - here - 1 : 0,
+    affordable,
+    allowed: direction !== 'stay' && affordable,
+    staffLost,
+    bookAfter: {
+      active: activeNotes(state.notes).length,
+      capacity: collectionsCapacity(withoutStaff),
+    },
+    lotAfter: {
+      held: state.cars.filter((c) => c.status !== 'sold').length,
+      // Capacity upgrades are property and carry, so only the store's own floor
+      // moves. Going down that floor drops, which is how a downgrade can leave
+      // you standing on a lot too small for the cars already on it.
+      capacity: target ? carCapacity({ ...state, stage: target.id }) : carCapacity(state),
+    },
+  };
+}
+
+export function canAdvanceStage(state: GameState): boolean {
+  return stageMovePreview(state).allowed;
+}
+
+/**
+ * Move the business to another store on the ladder, in either direction.
+ *
+ * GOING UP is the moment the game changes shape. What survives is deliberate and
+ * is the whole design of the progression: cash, inventory, the loan book,
+ * property, contracts, process and — above all — skills. What does not survive
+ * is the payroll. You are hiring into a bigger operation and you are hiring from
+ * scratch, at that operation's prices.
+ *
+ * You may jump as many rungs as your cash covers, and the price is the target's
+ * entry cost and nothing else. Entry cost is what a dealership costs, not a toll
+ * on the rung below it, so a player who has ground out $32M at a small lot has
+ * genuinely bought a Valmont store — they just arrive with a two-man payroll and
+ * a book sized for a small lot, which is punishment enough and is exactly what
+ * the confirmation says.
+ *
+ * GOING DOWN takes your cash, your cars and your paper with you, and writes off
+ * every dollar you ever put into the store you are leaving. There is no partial
+ * refund and there is deliberately no discount on the way back up: down-then-up
+ * pays the full entry price twice, which is what stops this being a way to park
+ * money. It is an escape hatch, not a strategy.
+ *
+ * The payroll resets in BOTH directions, for the same reason it resets going up:
+ * the rule is "would this person have to be hired again", and at a different
+ * store they would. Cheaper to rehire at a smaller one, which is the only mercy
+ * in it.
+ *
+ * Inventory is deliberately NOT liquidated in either direction. Beaters bought
+ * at a small lot are still yours at a franchise store even though nothing like
+ * them will ever come across the feed again; six-figure Valmonts are still yours
+ * on a driveway that has room for two of them. Selling them off is the player's
+ * problem and their first taste of what the new store's traffic wants.
+ */
+export function moveToStage(state: GameState, targetId: StageId): GameState {
+  return act(state, (s) => {
+    const move = stageMovePreview(s, targetId);
+    const target = move.target;
+    if (!target || !move.allowed) return false;
+
+    const leaving = move.from;
+    s.cash -= move.cost;
+    s.stage = target.id;
+
+    // Staff do not come with you. Deleted rather than set to zero so a save
+    // never carries a key the player has not bought at this store.
+    const released: string[] = [];
+    for (const def of UPGRADES) {
+      if (!def.staff || level(s, def.id) === 0) continue;
+      released.push(def.name);
+      delete s.upgrades[def.id];
+    }
+
+    // The sales manager was staff, so the standing order has nobody to carry it
+    // out. Left set, the policy would silently do nothing and the player would
+    // think the desk was still running.
+    if (s.dealPolicy !== 'manual') s.dealPolicy = 'manual';
+
+    // The feed belonged to the old store. Left alone, a brand new franchise
+    // spends its first two minutes showing auction beaters on a feed that has
+    // just promised one make and factory pricing — which reads as a bug and, on
+    // the used stages, quietly lets a big lot buy the small lot's inventory.
+    // Cars already bought are yours; leads are not.
+    s.listings = [];
+
+    if (move.direction === 'up') {
+      logEvent(s, {
+        t: s.t,
+        kind: 'stage-up',
+        label:
+          move.rungsSkipped > 0
+            ? `Bought straight into the ${target.name.toLowerCase()}, past ${move.rungsSkipped} store${move.rungsSkipped > 1 ? 's' : ''}.`
+            : `Took on the ${target.name.toLowerCase()}.`,
+        amount: -move.cost,
+      });
+    } else {
+      // No `amount`: nothing left the cash balance. The write-off is in the
+      // words, because a minus sign in the ledger would read as a payment.
+      logEvent(s, {
+        t: s.t,
+        kind: 'stage-down',
+        label: `Walked away from the ${leaving.name.toLowerCase()} — everything it cost, gone.`,
+      });
+    }
+    if (released.length > 0) {
+      logEvent(s, {
+        t: s.t,
+        kind: move.direction === 'up' ? 'stage-up' : 'stage-down',
+        label: `Payroll reset — rehiring ${released.length} at the new store.`,
+      });
+    }
+    return true;
+  });
+}
+
+/** Take on the next dealership up. The common case, and what automation uses. */
+export function advanceStage(state: GameState): GameState {
+  const next = nextStage(state.stage);
+  return next ? moveToStage(state, next.id) : state;
 }
 
 /** Expected value of the paper on this prospect, for the deal sheet. */
 export function financeExpectedValue(state: GameState, prospectId: string): number {
   const capFactor = overCapacityFactor(activeNotes(state.notes).length, collectionsCapacity(state));
   return expectedFinanceValue(state, prospectId, capFactor);
+}
+
+// ------------------------------------------------------------- admin console
+
+/**
+ * Change one tuning constant.
+ *
+ * Writes the override onto the save *and* into the live globals, because those
+ * globals are what every valuation and negotiation actually reads. Doing both
+ * here keeps the two in step on the only path that can change them from inside
+ * the app; the other path is load, in the store. See tuning.ts for why the
+ * simulation is allowed a global at all.
+ *
+ * Setting a knob back to its shipped value removes the override rather than
+ * storing it, so `tuning` stays a record of what the player deliberately
+ * changed instead of a snapshot of everything.
+ */
+export function setTuning(state: GameState, path: string, value: number): GameState {
+  return act(state, (s) => {
+    const def = getTunable(path);
+    if (!def) return false;
+
+    const coerced = coerceTunable(def, value);
+    const wasSet = path in s.tuning;
+    const nowSet = coerced !== defaultValue(path);
+    if (!wasSet && !nowSet) return false;
+    if (wasSet && nowSet && s.tuning[path] === coerced) return false;
+
+    const next = { ...s.tuning };
+    if (nowSet) next[path] = coerced;
+    else delete next[path];
+
+    s.tuning = next;
+    applyTuning(s.tuning);
+    return true;
+  });
+}
+
+/** Put every constant back to the value the game shipped with. */
+export function resetTuning(state: GameState): GameState {
+  return act(state, (s) => {
+    if (Object.keys(s.tuning ?? {}).length === 0) return false;
+    s.tuning = {};
+    applyTuning(s.tuning);
+    return true;
+  });
+}
+
+/** Drop overrides for knobs this build no longer has, and re-apply the rest. */
+export function reconcileTuning(state: GameState): GameState {
+  const pruned = pruneTuning(state.tuning ?? {});
+  applyTuning(pruned);
+  if (Object.keys(pruned).length === Object.keys(state.tuning ?? {}).length) return state;
+  return { ...cloneState(state), tuning: pruned };
 }

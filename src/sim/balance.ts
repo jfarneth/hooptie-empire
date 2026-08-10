@@ -50,9 +50,11 @@ export const BALANCE = {
   listingIntervalMs: 22_000,
   listingIntervalPerScoutLevel: 0.78,
   listingLifetimeMs: 150_000,
-  /** Seller ask relative to wholesale. Below 1.0 is a genuine deal. */
-  listingAskMin: 0.86,
-  listingAskMax: 1.14,
+  // The seller ask band moved into `STAGES[].sourcing` in stages.ts when the
+  // ladder landed, because a franchise buys at invoice and a used lot does not.
+  // It is still the sharpest knob in the game; it just lives per stage now.
+  /** Condition points of appraisal miss worth telling the player about. */
+  appraisalSurpriseThreshold: 0.08,
 
   // --------------------------------------------------------------------- recon
   /** Sim ms to raise condition by a full 1.0 point. */
@@ -98,13 +100,36 @@ export const BALANCE = {
     roomMean: 0.46,
     roomSpread: 0.44,
 
-    /** Odds they accept a counter placed exactly at their reservation price. */
-    acceptanceAtReservation: 0.55,
+    /**
+     * Odds they accept a counter placed exactly at their reservation price.
+     *
+     * Halved from 0.55 in the tune-up that took the negotiation success rate
+     * down by half. Read it as: being asked for the absolute most you would pay
+     * is uncomfortable, and most people balk rather than shrug.
+     *
+     * This knob and `baseWalkChance` had to move together, and the reason is
+     * worth knowing before either is touched again. The sales desk counters
+     * once, so per haggle `P(walk) = (1 - acceptance) x walkChance` — an
+     * accepted counter can never walk. At the old 0.55 acceptance, roughly half
+     * of all counters were simply taken, which capped the achievable walk rate
+     * near 49% even with `baseWalkChance` at 1.0 and no Closing protection.
+     * Walk odds alone cannot move this metric past that ceiling.
+     */
+    acceptanceAtReservation: 0.2,
     /** How fast acceptance dies once you push past the reservation. */
     stretchDecay: 3.2,
 
-    /** Walk odds after a rejected counter. */
-    baseWalkChance: 0.14,
+    /**
+     * Walk odds after a rejected counter.
+     *
+     * 0.9 rather than 1.0 deliberately. At 1.0 every rejected counter loses the
+     * buyer outright for a level-1 closer, which kills the "they come back with
+     * a better number" branch of `resolveCounter` entirely — haggle.test.ts
+     * asserts all three outcomes stay reachable at base skill, and that test is
+     * the design guard, not an inconvenience. At 0.9 the branch survives, and
+     * Closing's `walkChanceMult` is what buys more of it.
+     */
+    baseWalkChance: 0.9,
     /** Added walk odds per unit of overreach beyond the reservation. */
     walkPerExcess: 0.6,
     /** Patience wears out across rounds. */
@@ -121,24 +146,41 @@ export const BALANCE = {
   },
 
   // ---------------------------------------------------------------- capacities
-  /** Cars you can hold at once. */
-  drivewayCapacity: 2,
+  // Base capacity per store is `STAGES[].baseCarCapacity`. What survives here is
+  // only what each *upgrade level* adds, which does not vary by stage.
   capacityPerDrivewayLevel: 1,
-  lotCapacity: 6,
   capacityPerLotLevel: 4,
 
   // ---------------------------------------------------------------------- BHPH
-  /** Lot price on a buy-here-pay-here deal, as a multiple of cash retail. */
-  bhphPriceMultiplier: 1.5,
+  // The window markup is per stage (`STAGES[].bhphMultiplier`) — it falls as the
+  // store moves upmarket, so there is no single house number any more.
   /** Contract length options, in game weeks. */
   termWeeks: [18, 24, 30, 36] as const,
 
-  /** Per-tier: down payment share, APR, per-payment miss chance, arrival weight. */
+  /**
+   * Per-tier: down payment share, APR, per-payment miss chance, arrival weight.
+   *
+   * Miss chances are a uniform 1.2x on what they were, which puts the odds the
+   * deal sheet quotes — "chance you take it back", averaged over the walk-in mix
+   * and the four contract lengths — at ~30%, up from ~21.6%. Uniform on purpose:
+   * scaling every tier by the same factor preserves the ladder's shape, and the
+   * ladder is the credit model. On a 24-week contract that reads A 0% / B 4% /
+   * C 25% / D 73%, against A 0% / B 2% / C 16% / D 54% before.
+   *
+   * Tune this against the deal sheet number, NOT against the harness's
+   * `default rate` line. That line measures the automated underwriter's
+   * selectivity as much as the paper's riskiness: the sales desk finances on
+   * expected value, so raising risk makes it write safer paper, and the measured
+   * rate saturates around 22-25% and then falls. At a 4x miss chance it reads
+   * 12.2% — below where it started — because by then the desk will only touch
+   * A-tier. Measured non-monotonicity in that metric is the automation reacting,
+   * not the economy misbehaving.
+   */
   creditTiers: {
-    A: { downShare: 0.14, apr: 0.149, missChance: 0.03, weight: 0.14 },
-    B: { downShare: 0.18, apr: 0.199, missChance: 0.08, weight: 0.26 },
-    C: { downShare: 0.24, apr: 0.239, missChance: 0.16, weight: 0.34 },
-    D: { downShare: 0.31, apr: 0.289, missChance: 0.27, weight: 0.26 },
+    A: { downShare: 0.14, apr: 0.149, missChance: 0.036, weight: 0.14 },
+    B: { downShare: 0.18, apr: 0.199, missChance: 0.096, weight: 0.26 },
+    C: { downShare: 0.24, apr: 0.239, missChance: 0.192, weight: 0.34 },
+    D: { downShare: 0.31, apr: 0.289, missChance: 0.324, weight: 0.26 },
   },
 
   /**
@@ -147,20 +189,206 @@ export const BALANCE = {
    * portfolio needs watching rather than just growing.
    */
   delinquencyMissMultiplier: 1.5,
+  /** Default repo trigger. The player can move it; see `business` below. */
   repoAfterMissedPayments: 3,
   repoFee: 250,
-  /** Condition lost when a car comes back on the hook. */
+  /** Condition lost when a car comes back on the hook, at the default trigger. */
   repoConditionLoss: 0.18,
+  /**
+   * How much worse a repo comes back per missed payment you let ride past the
+   * default trigger — and how much better it comes back if you pull sooner.
+   *
+   * This is what makes the repo trigger a decision rather than a free lunch.
+   * Left flat, a longer leash is strictly better: the borrower gets more chances
+   * to cure, so expected collections rise and defaults fall, and a financed car
+   * occupies no lot space while it is out. Damage that scales with patience puts
+   * the cost where the real business puts it — the unit you finally recover has
+   * been driven by someone who stopped paying for it two months ago.
+   */
+  repoConditionLossPerExtraMiss: 0.25,
+  /** Floor on that multiplier, so a hair-trigger repo is not damage-free. */
+  repoConditionLossFloor: 0.5,
 
-  /** Active notes you can service before collections quality degrades. */
+  /**
+   * Active notes the collections desk will carry. This is a hard limit: the
+   * finance desk refuses to write past it.
+   *
+   * It used to be a soft one — you could write as much paper as you liked and
+   * pay for it in delinquency — which meant the number on the HUD was a
+   * suggestion, and the book ran ~3.5x over a fully-staffed desk by hour four.
+   */
   baseCollectionsCapacity: 8,
   collectionsCapacityPerLevel: 7,
-  /** Miss chance multiplier applied per 100% over collections capacity. */
+  /**
+   * Miss chance multiplier applied per 100% over collections capacity.
+   *
+   * Still load-bearing even though the cap is hard now: a save written before
+   * the cap, or one whose desk shrank, can sit over the line, and it should
+   * degrade rather than break.
+   *
+   * Moving up a dealership made that the normal case rather than the legacy one.
+   * The collections desk is staff, so it resets on a move, and a player carrying
+   * a full book lands at the new store with capacity for eight. Uncapped that is
+   * a 4.6x multiplier — the entire portfolio defaults inside a game month, which
+   * turns a strategic decision into a trap.
+   */
   overCapacityMissPenalty: 0.9,
+  /**
+   * Ceiling on that multiplier. A desk this buried is as buried as it gets; past
+   * here the player is already rehiring as fast as they can and there is nothing
+   * left for more punishment to teach.
+   */
+  overCapacityMissPenaltyCap: 2.2,
+
+  // ------------------------------------------------------- business management
+  /**
+   * The house rules a player can set, and the range they can set them over.
+   *
+   * `defaults` is the invariant: every one of these reproduces what the game did
+   * before the suite existed, so a fresh save and a migrated one behave the same
+   * and the only thing this feature changes on its own is what the player can
+   * now choose to change.
+   */
+  business: {
+    defaults: {
+      minWorkingCapital: 500,
+      repoAfterMissedPayments: 3,
+      minBuyMargin: 0,
+    },
+    /** Offered as a choice rather than a slider: these are decisions, not dials. */
+    workingCapitalChoices: [0, 500, 2_500, 10_000, 50_000],
+    repoTriggerMin: 1,
+    repoTriggerMax: 6,
+    buyMarginChoices: [0, 0.05, 0.1, 0.2],
+  },
 
   // -------------------------------------------------------------- progression
-  /** Cash required to buy the lot and enter stage 2. */
-  lotPurchaseCost: 18_000,
+  // Entry costs, staff cost multipliers, per-stage capacities and per-stage
+  // sourcing all live in the STAGES table in stages.ts, following the precedent
+  // upgrades.ts sets for a definition table that carries its own costs. They are
+  // meaningless apart from the stage they belong to, and splitting them across
+  // two files would mean every tuning pass had to edit both.
+
+  // -------------------------------------------------------------------- skills
+  /**
+   * Player proficiencies: Buying, Closing, Wrenching.
+   *
+   * Every effect is declared as its value at level 1 and at max level, with an
+   * easing exponent applied to normalized progress. `ease < 1` front-loads the
+   * gain so the first levels are the ones a player feels.
+   *
+   * INVARIANT: every `at1` equals the constant the game used before skills
+   * existed, so a level-1 save behaves exactly like the pre-skills build. There
+   * is a test for it (skills.test.ts) and it is what makes it safe to land the
+   * substrate ahead of the effects that read it.
+   *
+   * Every `atMax` currently equals its `at1`, so the curves are flat and levels
+   * buy nothing yet. That is deliberate: the substrate ships provably inert, and
+   * each later phase turns one skill on by editing these numbers and wiring the
+   * accessor that already exists. Target values live in docs/skills-plan.md and
+   * are not committed here until the harness has argued with them.
+   */
+  skills: {
+    maxLevel: 10,
+    /** XP to go from level 1 to 2; each level costs `xpGrowth` times the last. */
+    xpBase: 100,
+    xpGrowth: 1.55,
+
+    /**
+     * XP awards. Money-driven grants scale with a square root so one expensive
+     * car cannot leapfrog a skill, and recon pays per condition point so beaters
+     * train the shop just as well as clean cars do.
+     */
+    xp: {
+      buyPerCar: 12,
+      buyPriceRef: 1_500,
+      sellPerDeal: 10,
+      sellPriceRef: 2_500,
+      /** Closing a deal you actually haggled for teaches more than taking list. */
+      sellCounterBonus: 6,
+      /** You learn from the ones who walk, too. */
+      sellWalkaway: 4,
+      repairPerPoint: 55, // Shop work is rarer than buying or selling; this keeps Wrenching roughly in step.
+    },
+
+    /**
+     * Buying. The one skill whose level 1 is deliberately NOT the old game:
+     * before this, the feed printed exact condition and exact spread, and
+     * "should I buy this" was a comparison rather than a decision.
+     *
+     * σ = 0.18 moves `conditionFactor` by about 0.10, which on a typical car is
+     * ~13% of retail — several hundred dollars against a spread of similar
+     * size. Enough to make the call real, not enough to make it a coin flip.
+     *
+     * Buying carries NO throughput at all, which is a deliberate departure from
+     * the original brief of "locate more cars as you level".
+     *
+     * Both throughput levers were built, measured and switched off, because
+     * this economy compounds throughput exponentially over four hours: the
+     * interval term measured +15% end cash on its own, and a single extra feed
+     * slot measured +21%. Against a late game already flagged as running hot,
+     * that is a great deal of money for a small perk. `scout` is how a player
+     * buys feed throughput, with cash, at a price.
+     *
+     * The machinery for both is intact and tested — raising either atMax turns
+     * it back on — so this is a balance call, not a missing feature.
+     */
+    buy: {
+      /** 1σ of appraisal error, in condition points. */
+      appraisalSigma: { at1: 0.18, atMax: 0.03, ease: 0.7 },
+      listingInterval: { at1: 1, atMax: 1, ease: 0.7 },
+      listingSlots: { at1: 0, atMax: 0, ease: 0.7 },
+    },
+    /**
+     * Closing. Shipped at the full planned strength, because measurement says
+     * it costs nothing: across 64 seeds every setting from timid to strong
+     * landed within ±3% on lifetime profit, which is inside the noise.
+     *
+     * The reason is structural, and it is worth knowing before anyone "fixes"
+     * it. The sales desk counters exactly once and takes whatever comes back,
+     * so it cannot exploit a better negotiator; and two of these five effects
+     * are invisible to the harness by construction — a bot never reads a tell,
+     * and never uses a third counter it does not ask for. Closing is a skill
+     * that pays out almost entirely to someone playing by hand, which is the
+     * intent. The corollary is that the harness cannot bound its upside for a
+     * player who does use all three counters. Watch that in playtest, not here.
+     */
+    sell: {
+      tellJitter: { at1: 0.3, atMax: 0.05, ease: 0.7 },
+      walkChanceMult: { at1: 1, atMax: 0.6, ease: 0.7 },
+      roomMean: { at1: 0.46, atMax: 0.52, ease: 0.7 },
+      deskCounterFrac: { at1: 0.55, atMax: 0.72, ease: 0.7 },
+      /** Level at which the player gets a third counter. 0 disables it. */
+      extraCounterAt: 6,
+    },
+    /**
+     * Wrenching. Caps deliberately well short of what the shop could bear.
+     *
+     * Raised in phase 5. The original caps were held low pending the ambiguity
+     * acting as a deflationary counterweight — it does not; see the appraisal
+     * note above. With that reasoning void, these were re-argued on their own
+     * merits: at 0.92/0.82/0.40 the skill was barely perceptible (cost -8%,
+     * speed -18%) which is a poor thing to make a player level for.
+     *
+     * At 64 seeds all three skills together now land +24% end cash and +13%
+     * lifetime profit against the pre-skills build. The next step up
+     * (0.85/0.72/0.45) measured +31% and was declined: the late game was
+     * already flagged as hot, and that call needs a human playing it rather
+     * than another sweep.
+     *
+     * Two things the harness genuinely cannot answer, so do not re-derive them
+     * from it: it separates the mild band from the strong band and nothing
+     * finer — end-cash medians swing ±12 points between settings that are
+     * within 0.5% of each other at the levels a 4h run actually reaches — and
+     * it cannot tell the easings apart at all. `ease: 0.7` front-loads the gain
+     * on feel alone: the first few levels are the ones a player is present for.
+     */
+    repair: {
+      costMult: { at1: 1, atMax: 0.88, ease: 0.7 },
+      speedMult: { at1: 1, atMax: 0.76, ease: 0.7 },
+      maxLift: { at1: 0.35, atMax: 0.43, ease: 0.7 },
+    },
+  },
 } as const;
 
 export type BalanceConfig = typeof BALANCE;

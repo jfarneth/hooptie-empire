@@ -9,9 +9,9 @@
  * how you find out which constant to reach for.
  */
 import {
+  advanceStage,
   buyListing,
-  buyLot,
-  canBuyLot,
+  canAdvanceStage,
   counterOffer,
   listForSale,
   purchaseUpgrade,
@@ -22,11 +22,15 @@ import {
 } from '../sim/actions';
 import { BALANCE } from '../sim/balance';
 import { canRecon, reconCost } from '../sim/cars';
+import { reconModsFor } from '../sim/skills';
 import { deskCounter } from '../sim/haggle';
+import { SKILL_IDS, appraisalSigma, getSkill, haggleSkillFor } from '../sim/skills';
+import { estimatedRetail, estimatedWholesale } from '../sim/appraisal';
 import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
-import { advance, createInitialState, expectedCollections } from '../sim/engine';
-import { activeNotes, overCapacityFactor } from '../sim/notes';
-import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level } from '../sim/upgrades';
+import { acquisitionCeiling, advance, createInitialState, expectedCollections } from '../sim/engine';
+import { activeNotes, canWriteNote, overCapacityFactor } from '../sim/notes';
+import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level, upgradeCost } from '../sim/upgrades';
+import { STAGES, getStage, nextStage, stageRank } from '../sim/stages';
 import type { GameState } from '../sim/types';
 
 const STEP_MS = 5_000;
@@ -49,15 +53,27 @@ const UPGRADE_PRIORITY = [
   'nightManager',
 ];
 
-function botTurn(state: GameState): GameState {
+interface AppraisalTally {
+  judged: number;
+  /** Sum of |estimated - true| retail, as a share of true retail. */
+  absError: number;
+  /** Buys that were above the car's real wholesale value. */
+  overpaid: number;
+}
+
+function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
   let s = state;
 
-  // 1. Take the lot the moment it is affordable — it is the whole point.
-  if (canBuyLot(s)) s = buyLot(s);
+  // 1. Move up the moment it is affordable. A real player would weigh the
+  //    payroll reset against a full book; the bot takes every rung as it comes,
+  //    which makes it the *worst* case for the move and the right thing to
+  //    measure the ladder against.
+  if (canAdvanceStage(s)) s = advanceStage(s);
 
-  // 2. Close any walk-up standing in front of us.
+  // 2. Close any walk-up standing in front of us. Paper when it pays better and
+  //    the desk has room for it; otherwise sell them the car.
   for (const prospect of [...s.prospects]) {
-    if (s.stage === 'bhph') {
+    if (getStage(s.stage).financing && canWriteNote(s)) {
       const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
       const ev =
         prospect.downPayment +
@@ -75,8 +91,9 @@ function botTurn(state: GameState): GameState {
   }
 
   // 3. Recondition anything worth reconditioning, then list it.
+  const reconMods = reconModsFor(s);
   for (const car of s.cars) {
-    if (car.status === 'ready' && canRecon(car) && reconCost(car) <= s.cash * 0.4) {
+    if (car.status === 'ready' && canRecon(car, reconMods) && reconCost(car, reconMods) <= s.cash * 0.4) {
       s = startRecon(s, car.id);
     }
   }
@@ -87,27 +104,51 @@ function botTurn(state: GameState): GameState {
   // 4. Buy the best deal on the feed if there is room and money.
   const held = s.cars.filter((c) => c.status !== 'sold').length;
   if (held < carCapacity(s)) {
+    // The bot buys on the appraisal, not on the truth. Left on ground truth the
+    // harness would measure a game nobody can play — the whole point of the
+    // ambiguity is that this decision is made with incomplete information.
+    const sigma = appraisalSigma(s);
+    // The same ceiling the retainer buyer uses, so the harness cannot measure a
+    // buying rule nothing in the game actually applies. On a franchise stage
+    // that ceiling is the sticker rather than wholesale — an allocation is
+    // always priced over wholesale, and gating on wholesale there meant the bot
+    // bought literally nothing for the rest of the run.
+    const ceiling = (l: (typeof s.listings)[number]) => acquisitionCeiling(s, l, 'estimate');
     const deals = s.listings
-      .map((l) => ({ l, margin: retailValue(l.car) - l.price }))
-      .filter((d) => d.l.price <= wholesaleValue(d.l.car) * 1.02)
+      .map((l) => ({ l, margin: estimatedRetail(l, sigma) - l.price }))
+      .filter((d) => d.l.price <= ceiling(d.l) * 1.02)
       .sort((a, b) => b.margin - a.margin);
+    const judging = !getStage(s.stage).sourcing.makeId;
     for (const { l } of deals) {
       if (s.cars.filter((c) => c.status !== 'sold').length >= carCapacity(s)) break;
       if (s.cash - l.price < 400) continue;
+      // Recorded before the buy, while the listing still exists to compare
+      // against — and only on the open market. "Paid over wholesale" is the
+      // definition of a bad buy when you are guessing at a stranger's car and
+      // meaningless when you are reading a factory invoice, where every unit is
+      // over wholesale by design and there is nothing to misjudge.
+      if (judging) {
+        appraisal.judged += 1;
+        appraisal.absError += Math.abs(estimatedRetail(l, sigma) - retailValue(l.car)) / Math.max(1, retailValue(l.car));
+        if (l.price > wholesaleValue(l.car)) appraisal.overpaid += 1;
+      }
       s = buyListing(s, l.id);
     }
   }
 
-  // 5. Reinvest — but stop and save once the lot is genuinely in reach, the way
-  //    a player who can see the goal post would.
-  const savingForLot = s.stage === 'curbstoner' && s.cash >= BALANCE.lotPurchaseCost * 0.55;
-  if (!savingForLot) {
+  // 5. Reinvest — but stop and save once the next store is genuinely in reach,
+  //    the way a player who can see the goal post would.
+  const upNext = nextStage(s.stage);
+  const savingForNextStore = upNext !== null && s.cash >= upNext.entryCost * 0.55;
+  if (!savingForNextStore) {
     for (const id of UPGRADE_PRIORITY) {
       if (!canBuyUpgrade(s, id)) continue;
       const def = UPGRADES.find((u) => u.id === id)!;
-      const cost = def.baseCost * Math.pow(def.costGrowth, level(s, id));
-      // Keep enough working capital to keep a car pipeline moving.
-      if (s.cash - cost < 3_000) continue;
+      const cost = upgradeCost(def, level(s, id), s.stage);
+      // Keep enough working capital to keep a car pipeline moving. Scaled to the
+      // store, because $3k of float is a pipeline at a curbstone and a rounding
+      // error at a Valmont franchise.
+      if (s.cash - cost < 3_000 * getStage(s.stage).staffCostMultiplier) continue;
       s = purchaseUpgrade(s, id);
       if (id === 'salesDesk') s = setDealPolicy(s, 'auto');
     }
@@ -129,7 +170,7 @@ function haggleThenClose(state: GameState, prospectId: string): GameState {
 
   const neg = prospect.negotiation;
   if (neg.status === 'open' && neg.countersMade === 0) {
-    const counter = deskCounter(neg);
+    const counter = deskCounter(neg, haggleSkillFor(s));
     if (counter > neg.currentOffer) s = counterOffer(s, prospectId, counter);
   }
 
@@ -146,6 +187,7 @@ interface Milestones {
 
 function runOne(seed: number, hours: number, verbose: boolean) {
   let s = createInitialState(seed, 0);
+  const appraisal: AppraisalTally = { judged: 0, absError: 0, overpaid: 0 };
   const milestones: Milestones = {};
   const totalMs = hours * 60 * 60 * 1000;
   let lastReport = 0;
@@ -154,17 +196,36 @@ function runOne(seed: number, hours: number, verbose: boolean) {
     if (milestones[key] === undefined) milestones[key] = s.t;
   };
 
-  while (s.t < totalMs) {
-    s = advance(s, STEP_MS);
-    s = botTurn(s);
-
-    if (s.cash >= BALANCE.lotPurchaseCost) mark('cash for lot');
-    if (s.stage === 'bhph') mark('stage 2: BHPH');
+  /**
+   * Checked either side of the bot's turn, because some milestones describe a
+   * state the bot immediately spends away.
+   *
+   * The stage milestones are why. botTurn moves up on its first line, so a check
+   * that only ran afterwards would never see the balance that paid for the move
+   * — the original 'cash for lot' milestone silently reported the time to earn
+   * $18k *back*, which made stage 1 look about twenty minutes longer than it was.
+   */
+  const markMilestones = () => {
+    // One milestone per rung, so the whole ladder is visible in one run.
+    for (const def of STAGES) {
+      if (stageRank(s.stage) >= stageRank(def.id)) mark(def.name);
+    }
     if (s.stats.financeDeals >= 1) mark('first note written');
     if (s.stats.reposCompleted >= 1) mark('first repo');
     if (s.notes.filter((n) => n.status === 'paid').length >= 1) mark('first note paid off');
     if (portfolioValue(s.notes) >= 50_000) mark('$50k portfolio');
     if (s.cash >= 100_000) mark('$100k cash');
+    // Does levelling keep pace with the stages it is meant to accompany?
+    for (const id of SKILL_IDS) {
+      if (s.skills[id].level >= 5) mark(`${getSkill(id).name} 5`);
+    }
+  };
+
+  while (s.t < totalMs) {
+    s = advance(s, STEP_MS);
+    markMilestones();
+    s = botTurn(s, appraisal);
+    markMilestones();
 
     if (verbose && s.t - lastReport >= 15 * 60 * 1000) {
       lastReport = s.t;
@@ -172,13 +233,13 @@ function runOne(seed: number, hours: number, verbose: boolean) {
         `  ${fmtTime(s.t).padStart(7)}  cash ${fmtMoney(s.cash).padStart(10)}` +
           `  portfolio ${fmtMoney(portfolioValue(s.notes)).padStart(9)}` +
           `  cars ${String(s.cars.filter((c) => c.status !== 'sold').length).padStart(2)}` +
-          `  notes ${String(activeNotes(s.notes).length).padStart(3)}` +
+          `  notes ${String(activeNotes(s.notes).length).padStart(3)}/${String(collectionsCapacity(s)).padEnd(3)}` +
           `  sold ${String(s.stats.carsSold).padStart(3)}`,
       );
     }
   }
 
-  return { state: s, milestones };
+  return { state: s, milestones, appraisal };
 }
 
 function fmtMoney(n: number): string {
@@ -206,13 +267,15 @@ function main() {
 
   const allMilestones: Record<string, number[]> = {};
   const finals: GameState[] = [];
+  const tallies: AppraisalTally[] = [];
   const started = Date.now();
 
   for (let i = 0; i < seeds; i++) {
     const seed = 1000 + i * 7919;
     if (verbose) console.log(`\nseed ${seed}`);
-    const { state, milestones } = runOne(seed, hours, verbose);
+    const { state, milestones, appraisal } = runOne(seed, hours, verbose);
     finals.push(state);
+    tallies.push(appraisal);
     for (const [key, t] of Object.entries(milestones)) {
       if (t === undefined) continue;
       (allMilestones[key] ??= []).push(t);
@@ -222,13 +285,13 @@ function main() {
   console.log(`\nMilestones (median, reached-by-count of ${seeds})`);
   console.log('-'.repeat(64));
   const order = [
-    'cash for lot',
-    'stage 2: BHPH',
+    ...STAGES.slice(1).map((def) => def.name),
     'first note written',
     'first repo',
     'first note paid off',
     '$50k portfolio',
     '$100k cash',
+    ...SKILL_IDS.map((id) => `${getSkill(id).name} 5`),
   ];
   for (const key of order) {
     const times = allMilestones[key];
@@ -253,6 +316,23 @@ function main() {
   console.log(`  portfolio          ${fmtMoney(median((s) => portfolioValue(s.notes))).padStart(12)}`);
   console.log(`  lifetime profit    ${fmtMoney(median((s) => s.stats.lifetimeProfit)).padStart(12)}`);
   console.log(`  cars sold          ${String(median((s) => s.stats.carsSold)).padStart(12)}`);
+
+  // Health of the ambiguity system. A bad-buy rate near zero means the feed is
+  // still telling the player the answer; near half means it is a coin flip.
+  const judged = tallies.reduce((n, t) => n + t.judged, 0);
+  if (judged > 0) {
+    const err = tallies.reduce((n, t) => n + t.absError, 0) / judged;
+    const bad = tallies.reduce((n, t) => n + t.overpaid, 0) / judged;
+    console.log(`  appraisal error    ${(err * 100).toFixed(1).padStart(11)}%`);
+    console.log(`  bad-buy rate       ${(bad * 100).toFixed(1).padStart(11)}%`);
+  }
+  // The book limit is a hard constraint now, so how close the bot runs to it —
+  // and whether it ever staffs the desk high enough to matter — is the first
+  // thing to look at when the finance side of a run looks wrong.
+  console.log(
+    `  book / limit       ${String(median((s) => activeNotes(s.notes).length)).padStart(6)} /${String(median((s) => collectionsCapacity(s))).padStart(5)}`,
+  );
+  console.log(`  collections desk   ${String(median((s) => level(s, 'collections'))).padStart(12)}`);
   console.log(`  cash / finance     ${String(median((s) => s.stats.cashDeals)).padStart(6)} /${String(median((s) => s.stats.financeDeals)).padStart(5)}`);
   console.log(`  notes paid / dflt  ${String(median((s) => s.stats.notesPaidOff)).padStart(6)} /${String(median((s) => s.stats.notesDefaulted)).padStart(5)}`);
   console.log(`  repos              ${String(median((s) => s.stats.reposCompleted)).padStart(12)}`);

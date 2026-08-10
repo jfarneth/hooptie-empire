@@ -1,12 +1,14 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { canRecon, reconCost, reconDurationMs, reconLift, reconValueGain } from '../../sim/cars';
-import { bhphPrice, retailValue, wholesaleValue } from '../../sim/economy';
+import { reconModsFor } from '../../sim/skills';
+import { retailValue, wholesaleValue } from '../../sim/economy';
 import { getModel } from '../../sim/models';
-import { level } from '../../sim/upgrades';
+import { getStage } from '../../sim/stages';
+import { windowPrice } from '../../sim/engine';
 import type { Car, GameState } from '../../sim/types';
 import { duration, money, theme } from '../theme';
-import { CarSvg } from './CarSvg';
+import { CarArt } from '../art/CarArt';
 import { Sheet } from './Sheet';
 import { Button, Meter, Row } from './ui';
 
@@ -32,14 +34,15 @@ export function CarSheet({
 
   const model = getModel(car.modelId);
   const retail = retailValue(car);
-  const reference = state.stage === 'bhph' ? bhphPrice(car) : retail;
-  const cost = reconCost(car);
-  const canWork = canRecon(car);
+  const reference = windowPrice(state, car);
+  const shop = reconModsFor(state);
+  const cost = reconCost(car, shop);
+  const canWork = canRecon(car, shop);
   const affordable = state.cash >= cost;
 
   // Quoted straight from the sim so the sheet can never promise a different
   // number than the engine delivers.
-  const gain = reconValueGain(car);
+  const gain = reconValueGain(car, shop);
   const reconProgress = car.reconTotalMs > 0 ? 1 - car.reconRemainingMs / car.reconTotalMs : 0;
 
   return (
@@ -52,8 +55,8 @@ export function CarSheet({
       onClose={onClose}
     >
       <View style={styles.hero}>
-        <CarSvg
-          bodyStyle={model.bodyStyle}
+        <CarArt
+          modelId={car.modelId}
           colorIndex={car.colorIndex}
           condition={car.condition}
           width={220}
@@ -63,8 +66,8 @@ export function CarSheet({
       <View style={styles.figures}>
         <Figure label="You paid" value={money(car.costBasis)} />
         <Figure label="Cash retail" value={money(retail)} />
-        {state.stage === 'bhph' ? (
-          <Figure label="Lot price" value={money(bhphPrice(car))} accent />
+        {getStage(state.stage).financing ? (
+          <Figure label="Lot price" value={money(windowPrice(state, car))} accent />
         ) : (
           <Figure label="Wholesale" value={money(wholesaleValue(car))} />
         )}
@@ -90,8 +93,8 @@ export function CarSheet({
             <Text style={styles.blockValue}>{money(cost)}</Text>
           </Row>
           <Text style={styles.hint}>
-            Takes {duration(reconDurationMs(car, level(state, 'mechanic')))}, lifts condition to{' '}
-            {Math.round(Math.min(1, car.condition + reconLift(car)) * 100)}% and adds roughly{' '}
+            Takes {duration(reconDurationMs(car, shop))}, lifts condition to{' '}
+            {Math.round(Math.min(1, car.condition + reconLift(car, shop)) * 100)}% and adds roughly{' '}
             {money(gain)} of value.
           </Text>
           <Button

@@ -15,6 +15,9 @@ export type CarTier = 'beater' | 'commuter' | 'family' | 'truck' | 'luxury';
 
 export interface CarModel {
   id: string;
+  /** Marque. On the franchise stages the whole feed is one of these. */
+  makeId: string;
+  /** Full display name, make included: "Renwick Comet". */
   name: string;
   tier: CarTier;
   bodyStyle: BodyStyle;
@@ -58,6 +61,15 @@ export interface Listing {
   expiresAt: Millis;
   /** Cosmetic label for the UI: where the car came from. */
   source: string;
+  /**
+   * How wrong this car looks, as a z-score drawn once at spawn.
+   *
+   * Stored rather than the estimate itself, so the displayed appraisal is a
+   * pure function of this draw and the current Buying level — levelling up
+   * sharpens the whole feed at once without re-rolling anything. See
+   * appraisal.ts.
+   */
+  appraisalNoise: number;
 }
 
 /**
@@ -90,7 +102,7 @@ export interface Note {
   paymentsTotal: number;
   paymentsRemaining: number;
   nextDueAt: Millis;
-  /** Consecutive missed payments. Repo triggers at BALANCE.repoAfterMissedPayments. */
+  /** Consecutive missed payments. Repo triggers at the player's repo threshold. */
   missedPayments: number;
   /** Cash actually collected so far, down payment excluded. */
   collected: number;
@@ -148,7 +160,37 @@ export interface Prospect {
   expiresAt: Millis;
 }
 
-export type StageId = 'curbstoner' | 'bhph';
+/**
+ * The dealership you are currently running. Ordered; see `STAGE_ORDER` and the
+ * stage table in stages.ts, which is where everything that varies by stage lives.
+ *
+ * Never test a capability by comparing stage ids — ask the stage. `financing`
+ * is true for five of the six, and a `=== 'smallUsed'` check would silently mean
+ * "no finance desk at a Valmont store".
+ */
+export type StageId =
+  | 'curbstone'
+  | 'smallUsed'
+  | 'largeUsed'
+  | 'lowCostFranchise'
+  | 'midsizeFranchise'
+  | 'premiumFranchise';
+
+/**
+ * Player proficiencies. These level from doing the thing rather than from
+ * spending money — upgrades buy capacity, skills earn quality.
+ *
+ * Kept as a `Record` rather than three named fields so the paper side of the
+ * business can get its own skill later without another save migration.
+ */
+export type SkillId = 'buy' | 'sell' | 'repair';
+
+export interface Skill {
+  /** 1..BALANCE.skills.maxLevel. */
+  level: number;
+  /** Progress toward the next level. Reset on level-up, pinned at 0 once maxed. */
+  xp: number;
+}
 
 /**
  * Standing instruction for the sales desk once it is staffed.
@@ -156,6 +198,35 @@ export type StageId = 'curbstoner' | 'bhph';
  * which is the same calculation the deal sheet shows the player.
  */
 export type DealPolicy = 'manual' | 'cash' | 'finance' | 'auto';
+
+/**
+ * The house rules: standing constraints the player sets once and the business
+ * then runs under, whether or not anyone is watching.
+ *
+ * These live in GameState rather than in React for the same reason a negotiation
+ * does — they have to hold while the app is closed, or a policy would silently
+ * stop applying exactly when it matters most. Every default reproduces the
+ * behaviour the game had before the suite existed.
+ */
+export interface BusinessPolicy {
+  /**
+   * Cash the automation will not spend below. The retainer buyer and the
+   * standing shop order both stop here rather than running the float to zero.
+   */
+  minWorkingCapital: number;
+  /**
+   * Consecutive missed payments before the car comes back. Lower recovers the
+   * unit sooner and in better shape; higher gives a borrower rope to cure and
+   * collects more, at the cost of a rougher car whenever it does go bad.
+   */
+  repoAfterMissedPayments: number;
+  /**
+   * What the retainer buyer insists on: a discount to the worst-case wholesale
+   * it can see, as a share of that value. 0 is "anything that looks cheap at
+   * the bad end", which is what the buyer did before this existed.
+   */
+  minBuyMargin: number;
+}
 
 export interface Stats {
   carsSold: number;
@@ -184,7 +255,10 @@ export interface SimEvent {
     | 'repo'
     | 'walkaway'
     | 'recon-done'
-    | 'stage-up';
+    | 'stage-up'
+    | 'stage-down'
+    | 'skill-up'
+    | 'appraisal';
   label: string;
   amount?: number;
 }
@@ -208,8 +282,19 @@ export interface GameState {
   notes: Note[];
   /** Upgrade id -> level owned. */
   upgrades: Record<string, number>;
+  /** Proficiencies earned by playing. See skills.ts. */
+  skills: Record<SkillId, Skill>;
   /** Standing order for the sales desk. Only acted on once 'salesDesk' is owned. */
   dealPolicy: DealPolicy;
+  /** House rules the whole business runs under. See BusinessPolicy. */
+  business: BusinessPolicy;
+  /**
+   * Admin console overrides on the tuning constants, keyed by dotted path.
+   * Sparse — only knobs that differ from the shipped value. Lives on the save so
+   * a run still replays identically; see tuning.ts for why this is the one place
+   * the simulation is allowed to write a global.
+   */
+  tuning: Record<string, number>;
   stats: Stats;
   /** Ring buffer of recent events; trimmed to BALANCE.eventLogSize. */
   events: SimEvent[];

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { reconcileTuning } from '../sim/actions';
 import { advance, createInitialState } from '../sim/engine';
 import { offlineCapMs } from '../sim/upgrades';
 import type { GameState, Stats } from '../sim/types';
@@ -20,6 +21,8 @@ export interface AwaySummary {
   collected: number;
   notesPaid: number;
   repos: number;
+  /** Levels gained while the app was closed, e.g. ['Buying reached level 4']. */
+  skillUps: string[];
 }
 
 interface GameStore {
@@ -54,12 +57,18 @@ export const useGame = create<GameStore>((set, get) => ({
   lastTickAt: Date.now(),
 
   load: async () => {
-    const { state: saved, elapsedMs } = await readSave();
+    const { state: loaded, elapsedMs } = await readSave();
 
-    if (!saved) {
+    if (!loaded) {
       set({ state: createInitialState(makeSeed(), Date.now()), ready: true, lastTickAt: Date.now() });
       return;
     }
+
+    // Admin overrides are written into the tuning globals, and this has to
+    // happen BEFORE offline catch-up: those hours are simulated against the
+    // constants, so applying them afterwards would replay the absence at the
+    // player's settings and produce a summary of a run that never happened.
+    const saved = reconcileTuning(loaded);
 
     // Offline catch-up: exactly the same engine, just more of it.
     const cap = offlineCapMs(saved);
@@ -71,6 +80,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (simulatedMs > 60_000) {
       const before = { ...saved.stats };
       const cashBefore = saved.cash;
+      const eventsBefore = saved.events.length;
       next = advance(saved, simulatedMs);
       const delta = diffStats(before, next.stats);
 
@@ -80,6 +90,14 @@ export const useGame = create<GameStore>((set, get) => ({
         capped: elapsedMs > cap,
         cashDelta: next.cash - cashBefore,
         payments: next.events.filter((e) => e.kind === 'payment').length,
+        // Read from the events the catch-up actually logged, so the summary
+        // cannot claim a level the sim did not award. The log is a ring buffer,
+        // so a very long absence reports only the tail — under-reporting beats
+        // inventing.
+        skillUps: next.events
+          .slice(next.events.length > eventsBefore ? -(next.events.length - eventsBefore) : 0)
+          .filter((e) => e.kind === 'skill-up')
+          .map((e) => e.label),
         ...delta,
       };
     }
@@ -114,7 +132,14 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   hardReset: async () => {
-    const fresh = createInitialState(makeSeed(), Date.now());
+    // Admin overrides survive a wipe. They are a tuning setting rather than
+    // progress, and someone restarting to watch their new numbers play out from
+    // hour zero is the main reason to press this. Carrying them also keeps the
+    // save and the globals in step: the globals are already overridden, so a
+    // fresh state with an empty override map would disagree with the world it
+    // was just generated in — `createInitialState` reads the tuned constants.
+    const tuning = { ...(get().state?.tuning ?? {}) };
+    const fresh = { ...createInitialState(makeSeed(), Date.now()), tuning };
     set({ state: fresh, awaySummary: null, lastTickAt: Date.now() });
     await writeSave(fresh);
   },
