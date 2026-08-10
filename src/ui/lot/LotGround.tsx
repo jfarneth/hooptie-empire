@@ -13,6 +13,7 @@ import Svg, {
 import type { StageId } from '../../sim/types';
 import { theme } from '../theme';
 import {
+  PYLON_RESERVE,
   crackPaths,
   environmentFor,
   lightPositions,
@@ -353,7 +354,10 @@ function Building({
 
   if (env.building === 'shack') {
     const boxW = width * 0.46;
-    const boardX = width * 0.55;
+    // Stops short of the pylon strip: the board and the sign are two different
+    // signs, and overlapping them reads as one broken one.
+    const boardX = width * 0.52;
+    const boardW = Math.max(90, width - PYLON_RESERVE - 6 - boardX);
     const boardRise = tiltRise(150);
 
     return (
@@ -371,9 +375,9 @@ function Building({
         <Rect x={boxW / 2} y={roofD + rise * 0.24} width={20} height={rise * 0.76} fill="#33302a" stroke={env.trim} strokeWidth={1.5} />
 
         {/* the hand-painted board, standing on two posts */}
-        <Rect x={boardX} y={face - boardRise - 44} width={width * 0.4} height={44} fill="#5c4a33" stroke="#33291c" strokeWidth={3} />
+        <Rect x={boardX} y={face - boardRise - 44} width={boardW} height={44} fill="#5c4a33" stroke="#33291c" strokeWidth={3} />
         <SvgText
-          x={boardX + width * 0.2}
+          x={boardX + boardW / 2}
           y={face - boardRise - 24}
           fontSize={12}
           fontWeight="700"
@@ -384,7 +388,7 @@ function Building({
         </SvgText>
         {financing ? (
           <SvgText
-            x={boardX + width * 0.2}
+            x={boardX + boardW / 2}
             y={face - boardRise - 10}
             fontSize={7}
             fill="#d8c9a4"
@@ -395,7 +399,7 @@ function Building({
           </SvgText>
         ) : null}
         <Rect x={boardX + 12} y={face - boardRise} width={4.5} height={boardRise} fill="#3a3128" />
-        <Rect x={boardX + width * 0.4 - 16} y={face - boardRise} width={4.5} height={boardRise} fill="#3a3128" />
+        <Rect x={boardX + boardW - 16} y={face - boardRise} width={4.5} height={boardRise} fill="#3a3128" />
       </G>
     );
   }
@@ -403,9 +407,13 @@ function Building({
   // Brick and up: a flat roof with plant on it, and a glazed front elevation.
   // Glass belongs on a wall — putting a showroom window on the roof, which is
   // what a pure plan view forced, never made sense.
+  // The elevation ends where the pylon strip begins — glazing that ran under the
+  // sign would be half a showroom window with a post through it.
+  const frontRight = width - PYLON_RESERVE;
   const glassInset = env.building === 'flagship' ? 0 : 14;
   const bayW = env.building === 'flagship' ? 0 : Math.min(96, width * 0.26);
-  const glassW = width - glassInset * 2 - (bayW ? bayW + 10 : 0);
+  const bayX = frontRight - bayW - 4;
+  const glassW = (bayW > 30 ? bayX - 10 : frontRight) - glassInset;
   const glassTop = roofD + rise * 0.16;
   const glassH = rise * (env.building === 'flagship' ? 0.62 : 0.5);
 
@@ -460,12 +468,12 @@ function Building({
 
       {bayW > 30 ? (
         <G>
-          <Rect x={width - bayW - 12} y={glassTop} width={bayW} height={glassH} fill="#1b1f26" stroke="#5a6270" strokeWidth={1.5} />
+          <Rect x={bayX} y={glassTop} width={bayW} height={glassH} fill="#1b1f26" stroke="#5a6270" strokeWidth={1.5} />
           {Array.from({ length: 3 }, (_, i) => (
-            <Rect key={i} x={width - bayW - 10} y={glassTop + 4 + i * (glassH / 3.4)} width={bayW - 4} height={1.6} fill="#39404c" />
+            <Rect key={i} x={bayX + 2} y={glassTop + 4 + i * (glassH / 3.4)} width={bayW - 4} height={1.6} fill="#39404c" />
           ))}
           <SvgText
-            x={width - bayW / 2 - 12}
+            x={bayX + bayW / 2}
             y={glassTop + glassH / 2 + 2.5}
             fontSize={6.5}
             fontWeight="700"
@@ -480,7 +488,7 @@ function Building({
 
       {/* the sign, mounted on the elevation */}
       <SvgText
-        x={env.building === 'flagship' ? width / 2 : glassInset + 6}
+        x={env.building === 'flagship' ? frontRight / 2 : glassInset + 6}
         y={financing && env.building !== 'flagship' ? face - 19 : face - 9}
         fontSize={env.building === 'flagship' ? 15 : 12}
         fontWeight="800"

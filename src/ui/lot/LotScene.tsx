@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Ellipse } from 'react-native-svg';
+import { stageMovePreview } from '../../sim/actions';
 import { retailValue } from '../../sim/economy';
 import { getStage } from '../../sim/stages';
 import type { Car, GameState, Prospect } from '../../sim/types';
 import { CarArt } from '../art/CarArt';
 import { duration, money, moneyShort, theme } from '../theme';
+import { LadderPylon } from './LadderPylon';
 import { LotGround } from './LotGround';
 import { environmentFor } from './environment';
 import { assignSlots, lotLayout, variantOf, type LotSlot } from './layout';
@@ -58,6 +60,11 @@ export function LotScene({ state, capacity, onSelectCar, onSelectProspect, onPre
   const occupied = new Set(parked.map((p) => p.slot.index));
   const markerScale = Math.max(0.66, Math.min(1.1, layout.carScale));
 
+  // What the pylon out front is counting toward. Read from the same preview the
+  // ladder card acts on, so the sign and the card can never disagree about how
+  // close the next store is.
+  const move = stageMovePreview(state);
+
   return (
     <View style={{ width: layout.width, height: layout.height }}>
       <LotGround
@@ -67,11 +74,25 @@ export function LotScene({ state, capacity, onSelectCar, onSelectProspect, onPre
         financing={stage.financing}
       />
 
-      {/* the sign opens the ladder — the store you are in is the store you leave */}
+      <LadderPylon
+        layout={layout}
+        env={env}
+        progress={move.cost > 0 ? state.cash / move.cost : 1}
+        targetName={move.target?.shortName ?? ''}
+        atTop={move.target === null}
+      />
+
+      {/* the sign and the pylon both open the ladder — the store you are in is
+          the store you leave. Last of the building-band layers so it takes the
+          tap; the pylon above it has pointer events off. */}
       <Pressable
         onPress={onPressSign}
         accessibilityRole="button"
-        accessibilityLabel={`${stage.name} — see the next store`}
+        accessibilityLabel={
+          move.target
+            ? `${stage.name} — ${Math.round(Math.min(1, state.cash / move.cost) * 100)}% of the way to the ${move.target.name.toLowerCase()}. See every store.`
+            : `${stage.name} — see every store on the ladder`
+        }
         style={[styles.signHit, { width: layout.width, height: layout.showroomDepth }]}
       />
 

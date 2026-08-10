@@ -30,12 +30,32 @@ given save replaying identically.
 Worth internalising before touching anything stage-shaped, because almost every
 bug in this area comes from missing one of them.
 
-**Moving up resets the payroll.** Staff (`staff: true` in `upgrades.ts`) drop to
-zero and cost `staffCostMultiplier` more to rehire at the new store. Property,
-process, cash, inventory, the loan book and skills all carry. The line is "would
-this person have to be hired again", which is why `scout` (a book of contacts)
-and `advertising` (a spend) stay. **Skills never reset** — they are the
-carry-over currency and always have been.
+**Moving resets the payroll — in both directions.** Staff (`staff: true` in
+`upgrades.ts`) drop to zero and cost `staffCostMultiplier` more to rehire at the
+new store. Property, process, cash, inventory, the loan book and skills all
+carry. The line is "would this person have to be hired again", which is why
+`scout` (a book of contacts) and `advertising` (a spend) stay, and why walking
+back *down* the ladder resets the payroll too — at a different store they would.
+**Skills never reset** — they are the carry-over currency and always have been.
+
+**The ladder is climbable out of order.** `moveToStage(state, id)` in
+`actions.ts` is the one path; `advanceStage` is the single-step wrapper the
+harness and automation use. Two rules make it work and both are easy to break
+into generosity without a test noticing:
+
+- **A dealership costs its own entry price, whichever rung you were on.**
+  Skipping does not compound. Grinding out $32M at a small lot really does buy a
+  Valmont store — you just arrive with a two-man payroll and a book sized for a
+  small lot, which is punishment enough and is what the confirmation says.
+- **Going down is free and refunds nothing.** Cash, cars, paper and skills come
+  with you; every dollar the store you leave cost is written off, and there is
+  deliberately no discount coming back up, so a round trip pays the entry price
+  twice. That is what stops it being a way to park money. `StageMovePreview`
+  carries `direction`, `cost`, `forfeit`, `rungsSkipped`, `bookAfter` and
+  `lotAfter` for exactly one reason: the UI must never compute any of it itself.
+
+The harness bot only ever climbs one rung at a time, so **nothing measures either
+of these** — the same caveat the house rules carry.
 
 **Franchise stages are a different game.** The three used stages buy on the open
 market: condition is hidden, the ask swings ±20%, and judgement is the game. The
@@ -147,6 +167,25 @@ must keep doing:
   stall lands on the tail of the car in the row in front, which put price tags on
   the wrong cars until it was caught in a screenshot.
 
+**The lot is paved for `max(capacity, cars held)`, not for capacity.** A lot can
+legitimately be over capacity — a repo comes back to a full lot, and walking back
+down the ladder lands thirty cars on a driveway with room for five. A car with no
+stall is a car that cannot be tapped, which is a car that can never be sold; the
+HUD still reports the real `held / capacity`, so nothing pretends the space was
+bought.
+
+**The pylon sign is the progress readout, and it lives outside the memoised
+ground plate.** `LadderPylon.tsx` draws the sign at the right-hand end of the
+building: the cap names the store you are saving for, the column fills with cash,
+and it reads READY when the cheque would clear. It is a separate tiny `Svg` on
+purpose — it changes as cash changes, and putting it inside `LotGround` would
+defeat the memo that stops ~400 elements redrawing at 4Hz. It has pointer events
+off so taps fall through to the sign target that already opens the ladder.
+`PYLON_RESERVE` in `environment.ts` is the strip it stands in, and `LotGround`
+reads the same constant to keep the service bay, the showroom glazing and the
+shack's board out of it — without that, the pylon lands on a service department
+at three of the six stores.
+
 The HUD floats over the screens rather than sitting above them, so every scroll
 view pads its content by `HUD_HEIGHT`. A new screen that forgets starts under the
 cash readout.
@@ -154,7 +193,7 @@ cash readout.
 ## Verify
 
 ```bash
-npm test        # 186 tests
+npm test        # 229 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=32 --seeds=16   # the whole ladder, ~15s
@@ -307,6 +346,13 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   the stage reset, and it is what makes moving up a decision instead of a button.
   Anything new on the upgrade table needs a deliberate answer to "would this have
   to be hired again at a bigger store".
+- **The ladder reads both ways, and only one direction is generous.** A player
+  can page through all six stores from the sign — including ones they cannot
+  afford — because a ladder whose card only ever names the next rung hides four
+  fifths of the game from someone deciding whether to keep grinding. They can
+  also jump rungs, and walk back down. Going down is the escape hatch, not a
+  strategy: it costs nothing, refunds nothing, and coming back pays full price.
+  If a way down ever looks free, it is not a way down.
 - **A franchise buys at invoice, not below wholesale.** Automation must gate on
   `acquisitionCeiling`, never on a bare wholesale comparison. The first cut of
   the ladder gated both buyers on "is this under wholesale?", which a factory
