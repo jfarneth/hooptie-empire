@@ -808,6 +808,18 @@ These will waste your time if you discover them the hard way:
 
 ## Deployment
 
+**SHIPPING IS THE DEFAULT. The owner's standing instruction: when they ask for
+something to be built, assume it goes all the way to production** — branch,
+commit, and merge to `master` so Pages rebuilds — **unless they say "let's plan"
+or "planning"**, which means stop at a proposal. Do not leave finished work
+sitting on a feature branch waiting to be asked, and do not make them choose a
+merge strategy: they are not here to operate git. Say what went live and what
+they will see.
+
+The one thing still worth flagging rather than doing silently is anything that
+would *destroy* something — a save-breaking change, a force-push over somebody
+else's work. Shipping is not in that category.
+
 Pushing to `master` builds and publishes to GitHub Pages via
 `.github/workflows/deploy-web.yml`. The export writes absolute asset URLs, so
 `app.config.js` sets a base path from `EXPO_WEB_BASE_URL`, which the workflow
