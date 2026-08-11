@@ -8,7 +8,7 @@ import {
   generateCar,
   reconCost,
 } from './cars';
-import { appraisalError, estimatedWholesale, pessimisticWholesale } from './appraisal';
+import { appraisalError, estimatedRetail, pessimisticRetail } from './appraisal';
 import { businessDefaults, minBuyMargin, minWorkingCapital, repoThreshold } from './business';
 import { generateProspect } from './customers';
 import { deskCounter, resolveCounter } from './haggle';
@@ -775,14 +775,22 @@ export type AppraisalStance = 'worstCase' | 'estimate';
  * construction, and so neither ever bought a single car at a franchise. The feed
  * sat there for ten hours and the economy flatlined.
  *
- *  - **Open market.** Wholesale is what the car is worth to a dealer, so paying
- *    over it is overpaying — and you are guessing at condition besides, which is
- *    what `stance` is about.
+ *  - **Open market: margin against RETAIL, because retail is where the cars
+ *    go.** This branch gated on wholesale for a long time, and that was the
+ *    same bug as the franchise one in a milder key. The used stages price the
+ *    feed at 0.84-1.38x wholesale ON PURPOSE — the band straddling retail
+ *    break-even is the whole judgement game — so a buyer that refuses to pay
+ *    over wholesale rejects ~90% of a feed the store's own economy calls
+ *    profitable. The player found it with a screenshot: eight listings, every
+ *    one showing a green margin, none bought. The buyer now asks the question
+ *    the sticker asks — "does the worst case still clear the price by the
+ *    margin the house rules demand?" — with `stance` deciding whether "worst
+ *    case" means the bottom of the band (anything spending money unattended)
+ *    or the estimate (the harness bot, because that is what a person does).
  *  - **Franchise.** There is no wholesale market for an allocation and nothing to
  *    appraise; sigma is zero, so both stances agree. Invoice is the price, every
  *    unit is saleable, and the only question is whether the sticker leaves the
- *    margin you asked for. That is the point of the franchise stages: judgement
- *    stops being the game and throughput starts.
+ *    margin you asked for.
  */
 export function acquisitionCeiling(
   s: GameState,
@@ -795,8 +803,8 @@ export function acquisitionCeiling(
   const sigma = appraisalSigma(s);
   const basis =
     stance === 'worstCase'
-      ? pessimisticWholesale(listing, sigma)
-      : estimatedWholesale(listing, sigma);
+      ? pessimisticRetail(listing, sigma)
+      : estimatedRetail(listing, sigma);
   return basis * keepBack;
 }
 

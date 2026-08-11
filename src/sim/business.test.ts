@@ -10,7 +10,7 @@ import {
 import { generateProspect } from './customers';
 import { generateCar } from './cars';
 import { getStage, typicalCarPrice } from './stages';
-import { pessimisticWholesale } from './appraisal';
+import { pessimisticRetail, pessimisticWholesale } from './appraisal';
 import {
   advance,
   cloneState,
@@ -262,6 +262,65 @@ describe('minimum working capital', () => {
     // doing its job. But whenever it IS dealt a bargain it has to take it.
     expect(dealt).toBeGreaterThan(0);
     expect(bought).toBe(dealt);
+  });
+
+  /**
+   * THE SCREENSHOT BUG. Eight listings on a small lot's feed, every one showing
+   * a green est-vs-retail margin, $98k in the till, floor at zero, buyer hired
+   * — and nothing bought, for a session. The buyer was gating on wholesale
+   * (retail x 0.74) while the stage's own ask band prices the feed at
+   * 0.84-1.38x wholesale by design, so ~90% of retail-profitable cars were
+   * "overpaying" by a rule the store's economy does not share. The ceiling now
+   * judges margin against worst-case RETAIL, which is where the cars actually
+   * go.
+   */
+  it('buys a retail-profitable car even when it is priced over wholesale', () => {
+    let bought = 0;
+    let eligible = 0;
+    for (let seed = 700; seed < 760; seed++) {
+      const s = cloneState(createInitialState(seed, 0));
+      s.upgrades = { autoBuy: 1, driveway: 3 };
+      s.business = { ...businessDefaults(), minWorkingCapital: 0 };
+      s.cash = 30_000;
+
+      const sigma = appraisalSigma(s);
+      // The exact shape from the report: over wholesale, but the WORST CASE
+      // retail still clears the price. The old gate refused every one of these.
+      const target = s.listings.find(
+        (l) => l.price > pessimisticWholesale(l, sigma) && l.price <= pessimisticRetail(l, sigma),
+      );
+      if (!target) continue;
+      eligible += 1;
+      const after = advance(s, 5_000);
+      if (after.cars.length > 0) bought += 1;
+    }
+    expect(eligible).toBeGreaterThan(10);
+    expect(bought).toBe(eligible);
+  });
+
+  it('gets pickier, not blind, when the margin rule is raised', () => {
+    // The house rule still means what it said: higher margin, fewer cars,
+    // better ones. At 20% the buyer must skip a deal whose worst case clears
+    // the price by less than that.
+    for (let seed = 700; seed < 760; seed++) {
+      const s = cloneState(createInitialState(seed, 0));
+      s.upgrades = { autoBuy: 1, driveway: 3 };
+      s.business = { ...businessDefaults(), minWorkingCapital: 0, minBuyMargin: 0.2 };
+      s.cash = 30_000;
+
+      const sigma = appraisalSigma(s);
+      const thin = s.listings.find(
+        (l) =>
+          l.price <= pessimisticRetail(l, sigma) &&
+          l.price > pessimisticRetail(l, sigma) * 0.8,
+      );
+      if (!thin) continue;
+      const after = advance(s, 5_000);
+      // The thin deal specifically must not be in the garage.
+      expect(after.cars.some((c) => c.id === thin.car.id)).toBe(false);
+      return;
+    }
+    throw new Error('fixture: no seed dealt a thin-margin listing');
   });
 
   it('holds the standing shop order to the same floor', () => {

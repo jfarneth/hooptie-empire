@@ -174,14 +174,16 @@ function botTurn(state: GameState, appraisal: AppraisalTally, stay = false): Gam
       if (s.cars.filter((c) => c.status !== 'sold').length >= carCapacity(s)) break;
       if (s.cash - l.price < 400 + float) continue;
       // Recorded before the buy, while the listing still exists to compare
-      // against — and only on the open market. "Paid over wholesale" is the
-      // definition of a bad buy when you are guessing at a stranger's car and
-      // meaningless when you are reading a factory invoice, where every unit is
-      // over wholesale by design and there is nothing to misjudge.
+      // against — and only on the open market, where there is something to
+      // misjudge. A BAD BUY IS A CAR WHOSE TRUE RETAIL IS UNDER THE PRICE — a
+      // purchase that loses money even sold perfectly. It used to be "paid
+      // over wholesale", which stopped meaning anything the day the buyer's
+      // ceiling moved to retail margin: paying over wholesale for a
+      // retail-profitable car is now the policy, not the mistake.
       if (judging) {
         appraisal.judged += 1;
         appraisal.absError += Math.abs(estimatedRetail(l, sigma) - retailValue(l.car)) / Math.max(1, retailValue(l.car));
-        if (l.price > wholesaleValue(l.car)) appraisal.overpaid += 1;
+        if (l.price > retailValue(l.car)) appraisal.overpaid += 1;
       }
       // Both halves of the rarity deal, while they still exist together.
       const grade = appraisal.byRarity[l.car.rarity];

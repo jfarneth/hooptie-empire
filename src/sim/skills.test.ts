@@ -6,6 +6,7 @@ import {
   estimatedCondition,
   estimatedRetail,
   estimatedWholesale,
+  pessimisticRetail,
   pessimisticWholesale,
 } from './appraisal';
 import { retailValue, wholesaleValue } from './economy';
@@ -251,30 +252,41 @@ describe('appraisal', () => {
    * could not.
    */
   it('will not let the retainer buyer take a deal the player cannot see', () => {
+    // The buyer must judge the APPEARANCE, never the hidden truth. The honest
+    // way to test that is a pair of listings whose truths and appearances
+    // disagree in opposite directions: if the buyer can see condition, it takes
+    // the disguised bargain and skips the flattered lemon; if it is honestly
+    // working from the appraisal, it does exactly the reverse. (The old fixture
+    // priced a car at true wholesale with zero noise — under the retail-margin
+    // gate that IS a visible bargain, so it stopped separating the two.)
     const base = createInitialState(77, 0);
-    const car = { ...base.listings[0].car, condition: 0.5 };
-    const truth = wholesaleValue(car);
+    const sigma = appraisalSigma({ ...base, upgrades: { autoBuy: 1 } } as GameState);
+    expect(sigma).toBeGreaterThan(0);
 
-    const s: GameState = {
+    const rig = (condition: number, noise: number, price: number): GameState => ({
       ...cloneState(base),
       cash: 500_000,
       upgrades: { autoBuy: 1 },
-      // Priced exactly at what it is really worth: a bargain to someone who
-      // knows the truth, a coin flip to someone appraising it.
-      listings: [{ ...base.listings[0], car, price: truth, appraisalNoise: 0 }],
+      listings: [
+        { ...base.listings[0], car: { ...base.listings[0].car, condition }, price, appraisalNoise: noise },
+      ],
       cars: [],
-    };
+    });
 
-    const after = advance(s, 2_000);
-    expect(after.cars.length).toBe(0);
-    expect(after.listings.length).toBe(1);
+    // A genuinely clean car (0.85) that LOOKS like a wreck: noise -3 drags the
+    // estimate to the floor of the band. Priced at a level the truth would make
+    // a steal — an omniscient buyer takes this every time.
+    const hiddenGem = rig(0.85, -3, Math.round(retailValue({ ...base.listings[0].car, condition: 0.85 }) * 0.6));
+    const gemAppearance = pessimisticRetail(hiddenGem.listings[0], sigma);
+    expect(hiddenGem.listings[0].price).toBeGreaterThan(gemAppearance); // looks bad
+    expect(advance(hiddenGem, 2_000).cars.length).toBe(0); // and is treated as it looks
 
-    // Cheap enough to survive being wrong, and it takes it.
-    const obvious: GameState = {
-      ...s,
-      listings: [{ ...s.listings[0], price: Math.round(truth * 0.5) }],
-    };
-    expect(advance(obvious, 2_000).cars.length).toBe(1);
+    // A rough car (0.25) that LOOKS clean: noise +3 flatters it past its price.
+    // An omniscient buyer skips it; an honest one takes the bait.
+    const flatteredLemon = rig(0.25, 3, Math.round(retailValue({ ...base.listings[0].car, condition: 0.25 }) * 1.05));
+    const lemonAppearance = pessimisticRetail(flatteredLemon.listings[0], sigma);
+    expect(flatteredLemon.listings[0].price).toBeLessThan(lemonAppearance); // looks fine
+    expect(advance(flatteredLemon, 2_000).cars.length).toBe(1); // bait taken
   });
 
   it('prices the pessimistic read at or below the midpoint', () => {

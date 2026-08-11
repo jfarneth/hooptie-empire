@@ -53,6 +53,16 @@ export function pessimisticWholesale(listing: Listing, sigma: number): number {
 }
 
 /**
+ * Retail at the bad end of the band — `appraisalBand(...).low`, named for what
+ * the retainer buyer actually asks: "if this car is as rough as it could
+ * plausibly be, what would it still sell for?"
+ */
+export function pessimisticRetail(listing: Listing, sigma: number): number {
+  const condition = clamp01(estimatedCondition(listing, sigma) - sigma);
+  return retailValue({ ...listing.car, condition });
+}
+
+/**
  * The ±1σ range the UI should quote.
  *
  * Honest by construction: the band shown really is the error distribution, so

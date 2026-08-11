@@ -1,6 +1,10 @@
 # The overnight problem — measurement and candidate levers
 
-**Status: OPTION E SHIPPED, then the till was made honest.** A follow-up pass
+**Status: OPTION E SHIPPED, then the till was made honest, then the buyer's
+gate was fixed** — see the postscript at the bottom for the third pass, which
+turned out to be the real answer to "why isn't my buyer buying".
+
+A follow-up pass
 removed the hidden automation reserve (the player's working-capital floor is now
 the only floor, with the weekly bill quoted beside its selector), made every
 bill charge in full so cash goes genuinely negative, and shrank the small lot to
@@ -203,3 +207,46 @@ A and B compose cleanly (B is what A's cap "feels like" from inside) but
 either alone closes the reported bug. A is one evening of work; B is a
 weekend; **E is a weekend and is the one that adds a decision rather than a
 limit.**
+
+## Postscript: the buyer that would not buy
+
+Two screenshots from the same live save drove the last two passes. The first
+($30k cash, a full book, an empty lot, a hired buyer) exposed the hidden
+automation reserve, and the honest-till pass above removed it. The second was
+the harder one: **$98k cash, floor at zero, buyer hired, eight listings all
+showing green margins — and still almost nothing bought.**
+
+The gate was the bug. `acquisitionCeiling` capped the used-market buyer at
+pessimistic WHOLESALE × (1 − margin), a rule written when the ask band sat
+mostly under wholesale. The band has straddled retail break-even since the
+margin reshaping — 0.84–1.38× wholesale at the small lot, on purpose — so a
+buyer that refuses to pay over wholesale rejects roughly nine-tenths of a feed
+the store's own economy calls profitable. Re-deriving the screenshot's own
+numbers (`gate-check.ts`, scratchpad rig) confirmed it exactly: 7 of the 8
+listings were over the old ceiling — cars the buyer skips — despite every one
+clearing retail with margin to spare.
+
+The fix moves the basis to RETAIL: the buyer now asks "does the worst case
+still clear the price by the margin the house rules demand?" — the same
+question the sticker answers. `pessimisticRetail` (band-bottom condition on
+the retail curve) is the unattended stance; the harness bot reads
+`estimatedRetail` because that is what a person does. The franchise branch
+(invoice against the window) is untouched.
+
+What it changed, measured:
+
+- **The overnight brake holds.** Same protocol as the grid above, fixed buyer:
+  sleep at 2h → wake **$521k**, `affordBig` **0%** — the shipped band. Sleep
+  at 3h → $790k and 12.5%, the first marginal re-arm since Option E landed.
+  One seed in eight at a later bedtime is worth watching, not the old 81%.
+- **The whole ladder was throttled, not just that save.** The harness bot
+  shared the gate, so every documented pacing number was measured through a
+  buyer skipping most of the feed. Fixed (32h, 8 seeds): large used 7h04m →
+  **5h43m**, low-cost franchise 16h37m → **10h30m**, 32h profit +23%. At
+  4h/64: lifetime profit ~$570k → **$800k**, 419 cars sold, and the lot-full
+  share jumps to ~78% — the 13-stall small lot genuinely binds now.
+- **The bad-buy metric moved with the rule.** "Paid over wholesale" is policy
+  now, not a mistake, so the harness counts a bad buy as `price >
+  retailValue(car)` — a true loss — and reads **1.4%** where the old
+  definition read ~28%. The two numbers answer different questions; never
+  compare them across the change.

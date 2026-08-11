@@ -533,25 +533,26 @@ property of moving stores, not of automation, and it kept the bug the old
 reserve caused out of the move path.
 
 **The premium franchise still kills the economy, and honest bills just put a
-price on it: the 350h end state is now cash −$40.3M** where it used to read a
-frozen $0 — same dead store, real ledger. Milestones are untouched (271h23m vs
-271h06m pre-change), so this is accounting, not pacing; but a player who stalls
-at Valmont now watches debt mount instead of a quiet zero, which makes the
-late-game retune urgent rather than cosmetic. The escape hatches are unchanged
+price on it: the 350h end state is cash −$45.2M** where it used to read a
+frozen $0 — same dead store, real ledger. (It measured −$40.3M when honest
+bills landed; the buyer-gate fix then pulled the premium store in to ~264h,
+so the same flatline now bleeds for a few more weeks of rent by the 350h
+snapshot.) A player who stalls at Valmont watches debt mount instead of a
+quiet zero, which makes the late-game retune urgent rather than cosmetic. The escape hatches are unchanged
 and both stop the bleeding: walking down the ladder is free and ends the rent,
 and retirement settles everything. **There is also a measured lever on the
 flatline itself.** Setting the three franchise stages'
-`raritySellerCapture` to 0 (one slider in Office → Admin) takes the 350h end
-state from cash $0 / book 0/8 to **$62.3M cash and a full 43/43 book**. It is not
+`raritySellerCapture` to 0 (one slider in Office → Admin) took the 350h end
+state from a dead store to **$62.3M cash and a full 43/43 book** when it was
+measured during the rarity work. It is not
 shipped that way because rarity should not be a stealth economy patch, and
 because the honest fix is probably still the upgrade multiplier — but it is the
 cheapest known thing that makes the top of the ladder trade at all.
 
-The ladder is completable — 8/8 seeds buy the premium store at ~321h — but the
-business then flatlines and never trades again. The tell is the one this file
-already names: lifetime profit is identical to the dollar at 350h and 420h,
-which means cash is pinned at zero. It dies rebuilding an 18x-priced office on
-4.5-9% margins. Raising `reopeningCars` to 12 was measured and made it worse —
+The ladder is completable — 8/8 seeds buy the premium store at ~264h — but the
+business then flatlines and never trades again: the 350h snapshot reads
+`broke, lot empty` 96% of the run, a $0 portfolio and an empty book. It dies
+rebuilding an 18x-priced office on 4.5-9% margins. Raising `reopeningCars` to 12 was measured and made it worse —
 it gated every earlier rung harder without saving the last one. The likely fix
 is the upgrade multiplier at the top, not the float.
 
@@ -592,7 +593,7 @@ upgrades, which is the bot's brain rather than the game's rule. The third guard
 ## Verify
 
 ```bash
-npm test        # 327 tests
+npm test        # 331 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~4min
@@ -603,77 +604,87 @@ npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~4min
 npm run sim -- --seeds=64 --set=balance.rarity.valueStep=0
 ```
 
-The ladder, **re-measured with trim grades at `--seeds=8 --hours=350`**, reached
-by 8/8. The `no trim` column is the same build with `valueStep=0`, so the two
-columns share an RNG stream and the difference is the feature and nothing else:
+The ladder at `--seeds=8 --hours=350`, reached by 8/8 — **re-measured after
+the retainer buyer's ceiling moved from wholesale to retail margin**. The
+`wholesale gate` column is the previous build's table; the gate has no
+constant to zero, so unlike the trim A/B these two columns do NOT share an
+RNG stream and the deltas are cross-build:
 
-| | no trim | shipped |
+| | wholesale gate | shipped |
 |---|---|---|
-| Small used dealership | 2h46m | ~2h31m |
-| Large used dealership | 8h04m | ~7h04m |
-| Low-cost franchise | 18h44m | ~16h37m |
-| Midsize franchise | 55h00m | ~50h34m |
-| Premium franchise | 318h24m | ~271h06m |
+| Small used dealership | 2h31m | ~2h28m |
+| Large used dealership | 7h04m | ~5h43m |
+| Low-cost franchise | 16h37m | ~10h30m |
+| Midsize franchise | 50h34m | ~44h13m |
+| Premium franchise | 271h06m | ~264h29m |
 
-The used stages move ~10% because they keep the whole trim premium; the top two
-move less because the franchises price most of it into the invoice. The `no trim`
-column also reproduces the pre-rarity numbers below to within noise, which is how
-you can tell the harness and the ladder are still measuring the same thing.
+The shape of the delta is the diagnosis restated: the middle rungs move hugely
+because that is where the old gate skipped ~90% of a profitable feed; stage 2
+barely moves because a curbstone feed sits mostly under wholesale anyway; the
+franchises barely move because their branch of the ceiling was always right.
+**Every pacing number older than this table was measured through the throttled
+buyer** — treat pre-fix baselines as historical record, not as targets.
+
+The trim-grade A/B (same build with `valueStep=0`, so both columns shared one
+RNG stream) put the trim premium at ~10% on the used rungs and less up top,
+where the invoice prices most of it in. That A/B — zero the feature's own
+constant rather than comparing builds — is still the model for measuring a
+feature against itself.
 
 The first three rungs came in by 45%, 18% and 6% when `typicalCarPrice` was
 fixed — see the regression note below. That decay up the ladder is the shape to
 expect from that fix and is how you can tell it is the cause: the number was
 only ever wrong on the used stages. The bottom two rungs are the ones to re-read
 if anyone wants the old pacing back, and `reopeningCars` is the honest lever for
-it. The midsize and premium figures predate the fix and are still measured at
-`--hours=350 --seeds=8`; nothing reaches them in 32h.
+it.
 
-Measured at `--hours=350 --seeds=8`, because the ladder no longer fits in 32h.
-Roughly a tripling per rung now, steepening at the top — the shape to preserve. A 4h run only ever
-reaches large used, so **a default `npm run sim` cannot tell you anything about
-the franchise stages** — use the 32h invocation for those.
+Measured at `--hours=350 --seeds=8`, because the ladder does not fit in 32h.
+Roughly a tripling per rung, steepening sharply at the top — the shape to
+preserve. A default 4h run no longer reaches large used at all, so **`npm run
+sim` with no flags says nothing above stage 2** — use `--hours=32` for the used
+rungs and the low-cost franchise, and the 350h invocation for the top two.
 
 Targets **at `--seeds=64`** over the default 4h, which is the number to quote and
 compare against for everything below the franchise:
 
 | | |
 |---|---|
-| stage 2 reached | ~2h22m (64/64) |
-| first note written | ~2h24m |
-| first repossession | ~2h56m |
-| take-it-back odds on the deal sheet | ~30% |
-| walk-away rate | ~61% |
-| bad-buy rate | ~28% |
-| appraisal error | ~7.7% |
-| Buying / Closing / Wrenching to level 5 | 50m / 43m / 46m |
-| $100k cash | ~2h30m |
-| end cash at 4h | ~$31k |
-| end portfolio at 4h | ~$196k |
-| lifetime profit at 4h | ~$543k |
-| cars sold at 4h | ~275 |
+| stage 2 reached | ~2h21m (64/64) |
+| first note written | ~2h23m |
+| first repossession | ~2h53m |
+| first note paid off | ~3h15m |
+| $100k cash | ~2h19m |
+| $50k portfolio | ~2h30m |
+| walk-away rate | ~60% |
+| bad-buy rate (true loss: `price > retailValue`) | ~1.4% |
+| appraisal error | ~6.6% |
+| Buying / Closing / Wrenching to level 5 | 38m / 31m / 33m |
+| end cash at 4h | ~$39k |
+| end portfolio at 4h | ~$300k |
+| lifetime profit at 4h | ~$800k |
+| cars sold at 4h | ~419 |
+| lot at capacity | ~78% of the run |
 
-**These were re-measured, and the numbers they replaced were badly stale.** The
-old table dated from before running costs, the ladder stretch and the margin
-reshaping landed, and it claimed stage 2 at ~1h11m and end cash at ~$20k against
-a build that actually reached stage 2 at ~3h54m with ~$125k. It is worth knowing
-that happened, because the file's own advice — always state the seed count,
-never compare across builds — is exactly what stops it happening again. A 4h run
-now barely reaches the small lot at all, so **the default `npm run sim` says
-nothing about anything above stage 1**; use the 32h and 350h invocations for the
-rest of the ladder. The first repossession, the first note paid off and the
-portfolio numbers no longer land inside 4h and have been dropped rather than
-quoted from a run that does not reach them.
+**This table has been badly stale twice** — once when it outlived the
+running-costs and margin work (claiming stage 2 at ~1h11m against a build
+delivering ~3h54m), and once when everything in it turned out to be measured
+through the wholesale-gated buyer. It is worth knowing that happened, because
+the file's own advice — always state the seed count, never compare across
+builds — is exactly what stops it happening again. The buyer fix brought the
+first repossession, the first note paid off and the portfolio milestones back
+inside the 4h window, which is why they are quoted again after a spell out of
+the table.
 
 **Always state the seed count.** Seed count moves these numbers further than most
 features do, and comparing a 6-seed run against a 64-seed target is the single
 easiest way to conclude you broke something you didn't.
 
-End cash at 4h is low and that is not a regression: the bot buys the large used
-dealership at ~3h37m, which spends the balance, resets the payroll *and now sells
-the lot*, so the 4h snapshot lands squarely mid-rebuild — it is the most
-liquidation-sensitive number in the table and should be read as noise unless it
-moves by a lot. Read `lifetime profit` (~$1.30M) for the health of the economy
-and the ladder table above for pacing.
+End cash at 4h is low and that is not a regression: the snapshot lands
+mid-climb at the small lot — the large used store is bought at ~5h43m, outside
+the window — with the till ploughed into stock and the book while the bot
+accumulates toward the next rung. Cash is the residual after restocking and
+the most volatile number in the table; read `lifetime profit` (~$800k) for the
+health of the economy and the ladder table above for pacing.
 
 Clearing the lot on a move cost the ladder about 5-8% per rung (large used 3h16m
 to 3h36m, premium 27h36m to 28h05m at 16 seeds) and took 4h lifetime profit from
@@ -713,8 +724,9 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   lifetime profit +0.7% — all inside the noise band) while level 5 arrives about
   three times sooner (Buying 2h46m → 52m). The visible cost is that a 4h run now
   finishes in the high twenties rather than maxed, so Buying's σ stays wider for
-  longer: appraisal error 7.8% → 9.6% and bad-buy rate 21.5% → 25.1%, which
-  lands that health metric back on the ~25% this file already calls the target.
+  longer: appraisal error 7.8% → 9.6% and bad-buy rate 21.5% → 25.1% — both
+  quoted under the old over-wholesale definition of a bad buy, which was
+  retired with the buyer's retail gate.
   **A level number is not comparable across a change to either constant** — see
   the v9 → v10 migration, which re-derives the level from the XP behind it
   rather than carrying the number across.
@@ -835,15 +847,22 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   also jump rungs, and walk back down. Going down is the escape hatch, not a
   strategy: it costs nothing, refunds nothing, and coming back pays full price.
   If a way down ever looks free, it is not a way down.
-- **A franchise buys at invoice, not below wholesale.** Automation must gate on
-  `acquisitionCeiling`, never on a bare wholesale comparison. The first cut of
-  the ladder gated both buyers on "is this under wholesale?", which a factory
-  allocation can never satisfy — the feed sat untouched for ten hours and the
-  economy flatlined with no test failing. `AppraisalStance` keeps the two buyers
-  distinct on the used stages: the retainer buyer works from the worst case
-  because it spends money unattended, the harness bot works from the estimate
-  because that is what a person does. Collapsing them cost 35 minutes off the
-  stage-2 milestone before it was caught.
+- **Nothing gates a buy on wholesale: a franchise buys at invoice, and a used
+  lot buys for RETAIL margin.** Automation must gate on `acquisitionCeiling`,
+  never on a bare wholesale comparison — both branches of that function have now
+  paid for the lesson separately. The first cut of the ladder gated both buyers
+  on "is this under wholesale?", which a factory allocation can never satisfy —
+  the feed sat untouched for ten hours and the economy flatlined with no test
+  failing. The used stages carried the same bug in a milder key for far longer:
+  the ask band straddles retail break-even on purpose, so a buyer that refuses
+  to pay over wholesale rejects ~90% of a feed the store's own economy calls
+  profitable (see the regression entry below). The used ceiling is now
+  worst-case retail × (1 − the house minimum margin) — the question the sticker
+  answers. `AppraisalStance` keeps the two buyers distinct on the used stages:
+  the retainer buyer works from the worst case because it spends money
+  unattended, the harness bot works from the estimate because that is what a
+  person does. Collapsing them cost 35 minutes off the stage-2 milestone before
+  it was caught.
 - **What the UI reveals.** The deal sheet shows exact expected value and default
   odds for financing, because those are long-run properties a dealer genuinely
   learns. It hides negotiation acceptance odds and a car's true condition,
@@ -906,6 +925,24 @@ Most have a guarding test; check before "simplifying" the code around them.
   `typicalCarPrice`, so it traded happily all the way up a ladder the retainer
   buyer was frozen on. Automation the harness does not itself use is unmeasured
   by construction — check it by playing, or by instrumenting the actual gate.
+- **The buyer must not gate on wholesale at a store that prices in retail
+  margin.** The used-market `acquisitionCeiling` capped every automated buy at
+  pessimistic wholesale × (1 − margin) long after the margin reshaping moved
+  the ask band to straddle retail break-even, so it silently skipped ~90% of a
+  feed that was deliberately profitable. No test failed, and the harness said
+  nothing because the bot SHARED the gate — every pacing baseline in this file
+  up to that point was measured through the throttled buyer, which is the
+  inverse of the entry above: automation the harness does use is still
+  unmeasured if the harness has the same bug. It was found the only way it
+  could be — a player's screenshot of eight green-margin listings and an idle
+  buyer; re-deriving those exact numbers showed 7 of the 8 were over the old
+  ceiling despite every one clearing retail with margin to spare. Fixing the
+  basis to retail took the 32h ladder in by 19% and 37% on its two rungs and
+  4h lifetime profit up 40%, which is how much economy the old gate was
+  quietly discarding. The bad-buy metric moved with the rule: paying over
+  wholesale is policy now, so a bad buy is `price > retailValue(car)` — a true
+  loss — and reads ~1.4% where the old definition read ~28%. Never compare
+  the two across the change.
 - **A test that computes its expectation by calling the thing under test cannot
   fail.** Every test around the working-capital floor sized its fixture with
   `typicalCarPrice`, so they agreed with the broken value by construction and
@@ -1008,8 +1045,12 @@ need a branch preview, build it somewhere that is not the live site.
 - **Two things only playtesting can answer**, both live now:
   - Is Closing's third counter (level 6) stronger than the harness can see? The
     bot never uses it, so its upside is genuinely unmeasured.
-  - Does a ~28% bad-buy rate read as a fair judgement call or as a coin flip?
-    That number is the health metric for the whole appraisal system.
+  - Does the buy still read as a fair judgement call? The old health metric —
+    a ~28% bad-buy rate — died with the wholesale gate: paying over wholesale
+    is policy now, so the harness counts a bad buy as a true loss (`price >
+    retailValue`) and reads ~1.4%. Appraisal error (~6.6%) is the number left
+    on the health dashboard, and whether a judgement game where the bot almost
+    never truly loses money still has teeth is a playtest question.
 - **Wrenching's ceiling is under-argued.** It was held low waiting for the
   ambiguity to act as a deflationary counterweight; it doesn't — widening the
   ask band helps a selective buyer, so the appraisal rework came out
@@ -1026,23 +1067,18 @@ need a branch preview, build it somewhere that is not the live site.
   nobody has argued it, and "the loan book is the game" sits oddly next to a book
   whose *count* never grows. A per-stage capacity term in `STAGES` is the obvious
   lever if it needs one.
-- **Nothing on the ladder is a per-stage sink yet.** Staff cost more to rehire,
-  but there are no ongoing costs at all — no rent, no salaries, no floorplan
-  interest. That is why the franchise stages are pure upside once you clear the
-  entry cost. Recurring cost is the natural next mechanic and would make the
-  working-capital floor mean much more than it currently does.
 - **Buying goes dead at the top.** `appraisalSigmaMult: 0` retires the appraisal
   on all three franchise stages, so a maxed Buying skill buys nothing there. That
   is the intended character change, but it does leave a levelled skill inert for
   the back half of the game. If that reads badly in play, the honest fix is to
   give Buying a franchise-side effect (allocation throughput, say) rather than to
   put fake uncertainty back on a new car.
-- **The late game is no longer hot; stage 1 may now be too slow.** End cash is
-  ~$503k at hour 4, down from $1.36M across two retunes. The standing complaint
-  is resolved, but the stage-2 gate moved from 48m to 1h11m, and a 70-minute
+- **The late game is no longer hot; stage 1 may now be too slow.** The
+  stage-2 gate has drifted from 48m through 1h11m to ~2h21m across the running
+  costs, the ladder stretch and the honest-till passes, and a 140-minute
   tutorial is a lot to ask before the game changes shape. If that needs
-  shortening, `lotPurchaseCost` is the honest lever — it targets stage 1 without
-  undoing the negotiation change. Needs a human playing it.
+  shortening, `lotPurchaseCost` is the honest lever — it targets stage 1
+  without undoing the negotiation change. Needs a human playing it.
 - **Fifty levels is a shape nobody has felt yet.** The retune keeps a maxed
   skill worth exactly what it was and hands out level-ups roughly three times as
   often early, which is the trade it was chosen for — but the harness can only
