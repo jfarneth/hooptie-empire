@@ -154,6 +154,35 @@ export interface StageDef {
    */
   rentPerWeek: number;
   /**
+   * Walk-up traffic per LISTED CAR, as a multiple of the base arrival rate.
+   *
+   * DWELL TIME IS THE CHARACTER OF A STORE, and this is the knob that sets it.
+   * Below 1 means a car here waits longer before anybody comes to look at it.
+   *
+   * It falls as you climb, which is the opposite of what the game did before it
+   * existed. Traffic used to be a flat per-car rate, so a forty-car franchise
+   * ran forty arrival processes in parallel and turned its stock over in three
+   * and a half game days — one car in seven gone inside a single day. A driveway
+   * with two cars on it turning them in a week is a curbstoner; a franchise lot
+   * doing the same thing is a vending machine.
+   *
+   * THIS IS BOUGHT WITH THROUGHPUT AND PAID BACK WITH MARGIN, and the two halves
+   * must move together. Inventory on the lot is the sale rate times the dwell
+   * time — Little's law, and the lot is capacity-bound or cash-bound at all
+   * times — so there is no way to make cars sit longer that does not sell fewer
+   * of them. Holding more instead was measured and does not work: doubling
+   * capacity at the first two stages took "broke, lot empty" from 18% of turns
+   * to 40% and dwell went DOWN, because the constraint is the till and not the
+   * tarmac. The franchise ask bands were widened in the same commit to pay for
+   * this, and moving one without the other is how you get either a dead store or
+   * an infinite one.
+   *
+   * Consumes no extra RNG draw, so setting every stage back to 1 reproduces the
+   * pre-change build on an identical stream — which is how the numbers in
+   * CLAUDE.md were measured.
+   */
+  trafficPerCar: number;
+  /**
    * Markup the finance desk can put on the window price, as a multiple of cash
    * retail. It falls as you move upmarket: a buy-here-pay-here lot sells
    * approval and charges for it, a premium franchise sells a car to someone who
@@ -246,6 +275,7 @@ export const STAGES: readonly StageDef[] = [
     financing: false,
     upgradeCostMultiplier: 1,
     rentPerWeek: 0,
+    trafficPerCar: 1,
     bhphMultiplier: 1,
     creditShift: 0,
     desk: { title: 'Business partner', commission: 0.5, salaried: false },
@@ -264,6 +294,7 @@ export const STAGES: readonly StageDef[] = [
     financing: true,
     upgradeCostMultiplier: 1,
     rentPerWeek: 400,
+    trafficPerCar: 0.6,
     bhphMultiplier: 1.5,
     creditShift: 0,
     desk: { title: 'Sales manager', commission: 0.25, salaried: true },
@@ -287,6 +318,7 @@ export const STAGES: readonly StageDef[] = [
     financing: true,
     upgradeCostMultiplier: 2.4,
     rentPerWeek: 2000,
+    trafficPerCar: 0.5,
     bhphMultiplier: 1.42,
     creditShift: 0.4,
     desk: { title: 'Sales manager', commission: 0.2, salaried: true },
@@ -310,6 +342,7 @@ export const STAGES: readonly StageDef[] = [
     financing: true,
     upgradeCostMultiplier: 5,
     rentPerWeek: 4000,
+    trafficPerCar: 0.5,
     bhphMultiplier: 1.3,
     creditShift: 0.9,
     desk: { title: 'Sales manager', commission: 0.12, salaried: true },
@@ -328,6 +361,7 @@ export const STAGES: readonly StageDef[] = [
     financing: true,
     upgradeCostMultiplier: 10,
     rentPerWeek: 9000,
+    trafficPerCar: 0.5,
     bhphMultiplier: 1.22,
     creditShift: 1.6,
     desk: { title: 'Sales manager', commission: 0.1, salaried: true },
@@ -346,6 +380,7 @@ export const STAGES: readonly StageDef[] = [
     financing: true,
     upgradeCostMultiplier: 18,
     rentPerWeek: 20000,
+    trafficPerCar: 0.5,
     bhphMultiplier: 1.15,
     creditShift: 2.6,
     desk: { title: 'Sales manager', commission: 0.08, salaried: true },

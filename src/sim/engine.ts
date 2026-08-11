@@ -455,6 +455,9 @@ function stepProspects(s: GameState): void {
   // car either way: the rate is already zero above `maxViablePriceRatio`, and
   // twice nothing is nothing.
   const promotion = promotionTrafficMultiplier(s);
+  // How busy this store is per car on the lot. Hoisted because it is the same
+  // for every car and this loop runs once per listed car per second.
+  const storeTraffic = getStage(s.stage).trafficPerCar;
 
   for (const car of s.cars) {
     if (car.status !== 'listed') continue;
@@ -465,7 +468,11 @@ function stepProspects(s: GameState): void {
     // in. Judging the ask against the finance window instead made a car priced
     // at what it is worth look like a 30% discount to the traffic model.
     const reference = retailValue(car);
-    const rate = prospectRate(car.askPrice, reference, advertising) * promotion;
+    // Store traffic multiplies the same way a promotion does, and for the same
+    // reason: `prospectRate` stays a pure function of price and advertising, and
+    // neither term can rescue an overpriced car, because the rate is already
+    // zero above `maxViablePriceRatio` and any multiple of nothing is nothing.
+    const rate = prospectRate(car.askPrice, reference, advertising) * promotion * storeTraffic;
     if (!chance(s.rng, arrivalChance(rate, TICK_MS))) continue;
 
     s.prospects.push(generateProspect(s, s.rng, car, underwriting, haggle, s.t));

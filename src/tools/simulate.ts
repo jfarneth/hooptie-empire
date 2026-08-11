@@ -20,7 +20,7 @@ import {
   takeCashDeal,
   takeFinanceDeal,
 } from '../sim/actions';
-import { BALANCE } from '../sim/balance';
+import { BALANCE, MS_PER_GAME_DAY } from '../sim/balance';
 import { canRecon, reconCost } from '../sim/cars';
 import { reconModsFor } from '../sim/skills';
 import { deskCounter } from '../sim/haggle';
@@ -83,6 +83,25 @@ interface AppraisalTally {
   turns: number;
   lotFull: number;
   brokeNotFull: number;
+}
+
+/**
+ * How long a car actually sits before it goes.
+ *
+ * Sampled by watching cars leave: a cash sale removes the car outright and a
+ * financed one flips to `sold`, so "no longer on the lot" catches both. Held in
+ * sim ms and reported in game days, because days-on-lot is the number a real
+ * dealer lives by and the one a player feels.
+ */
+interface DwellTally {
+  /** ms from the car being LISTED to it leaving the lot, by the stage it left at. */
+  listedMs: Record<string, number[]>;
+  /** ms from purchase to leaving — includes recon and any wait to be listed. */
+  ownedMs: number[];
+}
+
+function blankDwell(): DwellTally {
+  return { listedMs: Object.fromEntries(STAGES.map((s) => [s.id, [] as number[]])), ownedMs: [] };
 }
 
 function blankRarityTally(): AppraisalTally['byRarity'] {
@@ -213,7 +232,17 @@ function botTurn(state: GameState, appraisal: AppraisalTally, stay = false): Gam
       // one car at a small lot. It then had no stock, no income, and a rent
       // bill, which is the definition of the spiral. A player learns to keep
       // cars on the lot before they buy a nicer office.
-      const keep = float + typicalCarPrice(getStage(s.stage)) * 4;
+      //
+      // FOUR CARS WAS THAT LESSON HALF-LEARNED. It is a lot at a curbstone and a
+      // rounding error at a franchise: arriving at a midsize store the bot spent
+      // its entire $4.6M opening balance rebuilding the office, then ran five
+      // cars on a thirty-two stall lot against the payroll it had just hired —
+      // $10.6k a week of gross against $29k of wages and rent. It never traded
+      // again, and the same shape killed the premium store. Stock the lot you
+      // are standing on FIRST; the office can wait for the cars to pay for it.
+      const stage = getStage(s.stage);
+      const restock = Math.max(4, Math.ceil(carCapacity(s) * BALANCE.expenses.reopeningLotShare));
+      const keep = float + typicalCarPrice(stage) * restock;
       if (s.cash - cost < keep) continue;
       s = purchaseUpgrade(s, id);
       if (id === 'salesDesk') s = setDealPolicy(s, 'auto');
@@ -269,6 +298,9 @@ function runOne(
     brokeNotFull: 0,
   };
   const milestones: Milestones = {};
+  const dwell: DwellTally = blankDwell();
+  /** carId -> when it was bought and when it was listed, for the cars on the lot. */
+  let held = new Map<string, { acquiredAt: number; listedAt: number | null }>();
   const totalMs = hours * 60 * 60 * 1000;
   let lastReport = 0;
 
@@ -311,6 +343,20 @@ function runOne(
     if (attending) s = botTurn(s, appraisal, stay);
     markMilestones();
 
+    {
+      const now = new Map<string, { acquiredAt: number; listedAt: number | null }>();
+      for (const c of s.cars) {
+        if (c.status === 'sold') continue;
+        now.set(c.id, { acquiredAt: c.acquiredAt, listedAt: c.listedAt });
+      }
+      for (const [id, was] of held) {
+        if (now.has(id)) continue;
+        dwell.ownedMs.push(s.t - was.acquiredAt);
+        if (was.listedAt !== null) dwell.listedMs[s.stage].push(s.t - was.listedAt);
+      }
+      held = now;
+    }
+
     if (verbose && s.t - lastReport >= 15 * 60 * 1000) {
       lastReport = s.t;
       console.log(
@@ -323,7 +369,7 @@ function runOne(
     }
   }
 
-  return { state: s, milestones, appraisal };
+  return { state: s, milestones, appraisal, dwell };
 }
 
 function fmtMoney(n: number): string {
@@ -413,14 +459,22 @@ function main() {
   const allMilestones: Record<string, number[]> = {};
   const finals: GameState[] = [];
   const tallies: AppraisalTally[] = [];
+  const dwells: DwellTally = blankDwell();
   const started = Date.now();
 
   for (let i = 0; i < seeds; i++) {
     const seed = 1000 + i * 7919;
     if (verbose) console.log(`\nseed ${seed}`);
-    const { state, milestones, appraisal } = runOne(seed, hours, verbose, stay, cadence);
+    const { state, milestones, appraisal, dwell } = runOne(seed, hours, verbose, stay, cadence);
     finals.push(state);
     tallies.push(appraisal);
+    // Pushed one at a time: a spread of a multi-million-element array blows the
+    // call stack, and a 350h run produces exactly that.
+    for (const def of STAGES) {
+      const into = dwells.listedMs[def.id];
+      for (const ms of dwell.listedMs[def.id]) into.push(ms);
+    }
+    for (const ms of dwell.ownedMs) dwells.ownedMs.push(ms);
     for (const [key, t] of Object.entries(milestones)) {
       if (t === undefined) continue;
       (allMilestones[key] ??= []).push(t);
@@ -515,6 +569,35 @@ function main() {
     const broke = tallies.reduce((n, t) => n + t.brokeNotFull, 0) / turns;
     console.log(`  lot full           ${(full * 100).toFixed(1).padStart(11)}%`);
     console.log(`  broke, lot empty   ${(broke * 100).toFixed(1).padStart(11)}%`);
+  }
+
+  /**
+   * Days on the lot, pooled across seeds.
+   *
+   * Pooled rather than medianed per seed for the same reason the rarity table
+   * is: this is a distribution over cars, not a property of a run. The p90 is
+   * the one to watch when the complaint is "nothing ever sits" — a median of
+   * two days with a p90 of three means the lot is a conveyor belt.
+   */
+  {
+    const days = (ms: number) => ms / MS_PER_GAME_DAY;
+    const q = (xs: number[], p: number) => {
+      const sorted = [...xs].sort((a, b) => a - b);
+      return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
+    };
+    console.log(`\nDays on the lot, by store (all seeds pooled)`);
+    console.log('-'.repeat(64));
+    for (const def of STAGES) {
+      const xs = dwells.listedMs[def.id];
+      if (xs.length === 0) continue;
+      const quick = xs.filter((ms) => ms < MS_PER_GAME_DAY).length / xs.length;
+      console.log(
+        `  ${def.shortName.padEnd(10)} ${String(xs.length).padStart(5)} cars` +
+          `   p50 ${days(q(xs, 0.5)).toFixed(1).padStart(5)}d` +
+          `   p90 ${days(q(xs, 0.9)).toFixed(1).padStart(5)}d` +
+          `   <1d ${(quick * 100).toFixed(0).padStart(3)}%`,
+      );
+    }
   }
 
   const pooled = blankRarityTally();

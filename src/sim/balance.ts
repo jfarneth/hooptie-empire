@@ -339,15 +339,62 @@ export const BALANCE = {
      * that keeps enough float to make rent, and buys with what is left.
      */
     reserveWeeks: 3,
-    /** Cars you must be able to buy at the new store before the move is allowed. */
     /**
-     * Cars you must be able to buy at the new store before the move is allowed.
+     * FLOOR on the cars you must be able to buy at the new store before the move
+     * is allowed. The real requirement is `reopeningLotShare` of the store's
+     * stalls; this is what a very small store needs regardless.
      *
      * Six. Raising it to twelve was measured and made everything worse — it
-     * gated every rung harder without saving the top one, which dies for a
-     * different reason (see the note on the premium franchise in CLAUDE.md).
+     * gated every rung harder without saving the top one, which was dying of
+     * something else entirely. See `reopeningLotShare`.
      */
     reopeningCars: 6,
+    /**
+     * Share of the target store's STALLS you must be able to stock before the
+     * move is allowed.
+     *
+     * THIS IS WHAT KILLED THE PREMIUM FRANCHISE, and the diagnosis took a
+     * measurement to find because the symptom looked like a margin problem. The
+     * requirement used to be a flat six cars at every rung — which is three
+     * driveways' worth at a curbstone and one seventh of a lot at a Valmont
+     * store. So the top of the ladder was reached with $70M spent on the keys
+     * and enough left to stock six stalls out of forty-two, against $20k a week
+     * of rent. Six cars at premium margins gross about $21.6k a week and the
+     * bill is about $22.4k: the store opened its doors ALREADY INSOLVENT, by a
+     * margin too thin to see, and then bled for two hundred hours.
+     *
+     * That is why widening the franchise ask band read as a cliff rather than a
+     * dial — anything under about eight points of extra margin left the store
+     * dead and anything over it left the store compounding without limit. The
+     * band was never the problem; the store was under-capitalised on arrival.
+     *
+     * Expressed as a share of the lot, because that is the honest form of the
+     * requirement: you may not take on a dealership you cannot put cars on. It
+     * leaves the early rungs exactly where they were (the floor above still
+     * binds through the large used lot) and raises only the franchises, which
+     * are the stores that were failing.
+     */
+    reopeningLotShare: 0.5,
+    /**
+     * Opening working capital a move must leave behind, as a share of the new
+     * store's ENTRY COST.
+     *
+     * The other half of the same bug. Automation — and the harness bot, and any
+     * player who is not deliberately saving past the goal post — moves the
+     * moment the move is affordable, so whatever this function asks for IS the
+     * balance the business opens its doors with. Ask for the price of a few cars
+     * and the business opens with the price of a few cars, which is why the
+     * premium franchise arrived holding $21,233 against $86,000 cars, an empty
+     * feed, a released payroll and $20,000 a week of rent.
+     *
+     * Stocking the lot is not enough on its own, because the whole upgrade table
+     * has to be bought again here too — that rebuild is the dominant cost of a
+     * rung by design. Sized against the entry cost rather than against the table
+     * because the entry cost is the honest scale of the store and it does not
+     * over-gate the early rungs: a fifth of $70,000 is a small lot's float, and
+     * a fifth of $70,000,000 is a franchise's.
+     */
+    reopeningCapitalShare: 0.2,
   },
 
   // ---------------------------------------------------------------- promotions
