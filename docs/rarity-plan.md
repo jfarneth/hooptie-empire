@@ -116,38 +116,88 @@ which is the sharpest knob in the game and would move common cars too.
 
 ### How often this actually happens
 
-Base feed is one listing per 22 s (~164/hour):
+**Measured, not derived.** The naive figure is one listing per 22 s = 164/hour,
+but that is the *arrival* rate and the feed is slot-capped: at four slots and a
+150 s listing life the offered load is 6.8 listings' worth of arrivals into four
+slots, so **52% of would-be listings are never spawned at all.** Stepping the
+real engine over 8 seeds × 6 h:
 
-| grade | at scout 0 | fully scouted (3.3× faster) |
+| scout | listings dealt per hour |
+|---|---|
+| 0 | 78.4 |
+| 1 | 119.4 |
+| 2 | 163.6 |
+| 3 | 211.0 |
+
+So the base feed deals 78/hour, and 164/hour is what a *scout-2* feed does:
+
+| grade | at scout 0 | fully scouted (2.7×) |
 |---|---|---|
-| rare | every ~4 min | every ~1 min |
-| epic | every ~41 min | every ~12 min |
-| legendary | every ~6.1 h | every ~2.9 h |
+| rare | every ~8.5 min | every ~3 min |
+| epic | every ~85 min | every ~32 min |
+| legendary | every ~12.8 h | every ~4.7 h |
+
+This matters beyond bookkeeping: the feed being slot-limited rather than
+interval-limited is what makes slot-time the expensive currency below.
 
 ---
 
 ## The open design problem: the good stuff happens while nobody is watching
 
-A listing lives 150 s. At one in a thousand, **a legendary will almost always
-turn up and expire during an offline stretch.** The rarest event in the game
-would be one a player essentially never witnesses — and if the retainer buyer
-quietly bought it, they would find a neon car on the lot with no idea where it
-came from.
+`advance()` runs the same `step()` whether or not anybody is watching, so
+`stepListings` spawns and expires cars the whole time the app is closed. Close
+it for eight hours and about 630 cars come and go on a feed nobody is looking
+at. Every legendary among them is simply gone.
 
-Recommended answer, cheapest first:
+**The size of the problem.** For a Poisson arrival with a fixed shelf life, the
+chance one is on the feed at the moment you open the app is `rate × lifetime`.
+At scout 0 that is `0.078/h × 150 s` = **0.33%**, or about one session in three
+hundred.
 
-1. **`rarityListingLifetimeMult`** — epic 3x and legendary 8x, so the top two
-   grades sit on the feed for 7.5 and 20 minutes. Sellers of special cars hold
-   out. This is one multiply in `spawnListing`, it is the right fiction, and it
-   is very idle-game-correct: when you open the app after a break, the good
-   thing is still there waiting.
-2. **The away summary names them.** A `rarity` `SimEvent` when an epic or
-   legendary is *bought* (not when one spawns — a spawn line for every rare car
-   would be four an hour of noise). "Bought a legendary Ironmark 1500."
-3. **Nothing special for the retainer buyer.** It already gates on
-   `acquisitionCeiling`, which derives from `pessimisticWholesale`, which
-   derives from `conditionFreeValue` — so it will correctly pay more for a rare
-   car with no change at all. Leave it.
+### What a lifetime multiplier is
+
+`spawnListing` currently stamps a flat shelf life on everything:
+
+```ts
+expiresAt: s.t + BALANCE.listingLifetimeMs                        // 150 s, always
+expiresAt: s.t + BALANCE.listingLifetimeMs * rarityLifetimeMult(rarity)   // proposed
+```
+
+At epic 3× and legendary 8× the top two grades sit for 7.5 and 20 minutes. The
+fiction is right — somebody selling a special car holds out for their number —
+and the shipped effect is that the odds of opening the app to a legendary go
+0.33% → **2.6%** at scout 0, and 0.88% → **7.0%** at scout 3. That is a change
+in kind, not a fix: at one in a thousand it *should* stay rare.
+
+### What it costs, which is the part to weigh
+
+**Slot-time is the most expensive currency in the game.** The feed is already
+slot-limited — 52% of arrivals are blocked at scout 0 — so a car that stays
+longer is a car that stops another one being dealt. Epic at 3× and legendary at
+8× hold about **2.9% of all slot-time**. Against the measured throughput→cash
+elasticity (scout 1 is +52% listings for CLAUDE.md's +21% end cash), that is
+roughly **1–1.5% of end cash, permanently**, bought for an event that happens
+twice a day.
+
+**So do not buy it with shared slots.** Give the top two grades their own:
+`StageSourcing.slots` plus a `specialSlots: 1` that only epic and legendary may
+occupy. Then the long shelf life costs ordinary throughput nothing, and the
+fiction is better again — the good stuff gets its own line on the board.
+
+### The thing that may make most of this moot
+
+**The retainer buyer already handles it correctly with zero changes.** `autoBuy`
+gates on `acquisitionCeiling` → `pessimisticWholesale` → `conditionFreeValue`,
+so it already pays more for a rare car and will happily buy an offline legendary
+at a bargain. Add a `SimEvent` when an epic or legendary is *bought* — not when
+one spawns, which at scout 3 would be two lines an hour of noise — and coming
+back to "the buyer picked up a legendary Ironmark 1500, $4,200 under book"
+is a **good** offline moment rather than a miss.
+
+Which reframes the whole thing: the lifetime multiplier is an **early-game**
+fix, covering the window before `autoBuy` is bought. That argues for a gentler
+2×/3× rather than 3×/8×, and it makes the special slot optional rather than
+required.
 
 ---
 
