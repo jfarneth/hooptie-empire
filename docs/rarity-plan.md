@@ -468,8 +468,13 @@ Two of these are the ones that matter; the rest are ordinary.
 1. **Sim first, no art.** Types, `rarity.ts`, the two seams, the migration,
    tuning, tests. The game is fully playable at this point with rarity invisible.
 2. **Measure.** `npm run sim -- --seeds=64` for the used stages and
-   `--hours=350 --seeds=8` for the franchises. Compare against a re-run of the
-   current build on the same invocation, **not** against CLAUDE.md's table.
+   `--hours=350 --seeds=8` for the franchises. Compare with a `--set=` A/B that
+   zeroes the feature's own constant, which holds the RNG stream identical and
+   costs one run — **not** against CLAUDE.md's table, which is a different build.
+   (This used to say "compare against a re-run of the current build", which
+   doubled the cost of every franchise measurement for no extra information: a
+   re-run of the same build is a determinism check, and the harness is
+   deterministic. Use it only when there is no constant to zero.)
 3. **Decide on `raritySellerCapture`** from that measurement, not from taste.
 4. **Art.** `RarityTrim`, then the three in-game surfaces (feed chip, sheet
    line, lot pip).

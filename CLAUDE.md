@@ -31,6 +31,32 @@ collects part of it, so an average note sits +1.2σ to +3.3σ up the cash scale
 depending on the store) and that
 **"take any deal" has to be its own stop** rather than the bottom of the range.
 
+## Working fast here
+
+The owner's standing complaint, and the thing to protect: **a change to this game
+should take minutes, not an afternoon.** Five rules, all of them learned by
+breaking them.
+
+- **Match the verification to the change.** The table in the Verify section is
+  the contract. A UI change does not need the balance harness; a stage-shaped one
+  does. Running everything every time is how a slider became half an hour.
+- **Long runs go in the background.** The ladder is 2m45s of nothing to watch.
+  Start it, keep working, read it when it lands.
+- **Never re-run something to confirm it.** Two runs of one build measure
+  determinism, which is settled. If a measurement looks wrong, fix the
+  measurement and run once — do not run both.
+- **Answer questions with one command, not a fleet.** Most questions about this
+  repo are a `grep`, a `git log -S`, or one harness run. Spinning up parallel
+  investigators to answer "why is this slow" costs more than the thing being
+  investigated.
+- **Only install what the change needs.** Playwright and a browser are worth it
+  when you are changing something you have to LOOK at — and CLAUDE.md is emphatic
+  that you should look — but they are three minutes that a pure-sim change never
+  needs to spend.
+
+`.claude/settings.json` runs `npm install` on session start, so a fresh container
+is warming up while you read this rather than blocking your first command.
+
 **Every car carries a trim grade** — common, rare, epic, legendary at
 90/9/0.9/0.1 — and it is worth 10% more of the car at each step. `src/sim/rarity.ts`
 is the table and `docs/rarity-plan.md` is the design record with every
@@ -647,17 +673,50 @@ upgrades, which is the bot's brain rather than the game's rule. The third guard
 
 ## Verify
 
+**MATCH THE VERIFICATION TO THE CHANGE. This is a rule, not a suggestion**, and
+it is here because the opposite convention — run everything, every time — is what
+made a one-line UI change cost half an hour. The harness is the slowest thing in
+this repo by two orders of magnitude; reach for the expensive tiers only when the
+change can actually move what they measure.
+
+| the change touches | run |
+|---|---|
+| UI only (`src/ui`, screens, components) | `npm test`, `npm run typecheck`, and **look at it in the browser** |
+| `src/sim` but not pacing (a new field, a migration, plumbing) | the above, plus `npm run sim` (~3s) |
+| pacing below the franchises (traffic, negotiation, skills, recon) | plus `npm run sim -- --seeds=64` (~15s) |
+| anything stage-, margin- or ladder-shaped | plus the whole ladder (~2m45s) |
+
 ```bash
-npm test        # 376 tests
+npm test        # 376 tests, ~8s
 npm run typecheck
-npm run sim     # balance harness — 4h of simulated play in ~2s
-npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~4min
+npm run sim     # balance harness — 4h of simulated play in ~3s
+npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2m45s
 
 # A/B a change against an IDENTICAL RNG stream by zeroing the new feature's own
 # constant, rather than against the previous build — which measures the reshuffle
 # from any added draw as much as the change itself.
 npm run sim -- --seeds=64 --set=balance.rarity.valueStep=0
 ```
+
+**Seeds run one per core (`--jobs=N` to override, `--jobs=1` for the old serial
+path), which took the whole-ladder run from 11m30s to 2m45s.** Seeds are
+independent by construction — each builds its own state from its own RNG — so
+this changes the wall clock and NOT one number in the report; there is a
+`--jobs=1` diff proving it. If you ever see parallel and serial disagree,
+something has grown shared state between seeds and that is a real bug, not a
+harness artefact. Note the crossover: a worker takes a SLICE of the seeds rather
+than one seed, because node's ~0.7s start paid per seed cost more than the whole
+default run.
+
+**Run the long one in the background and keep working.** It is 2m45s of nothing
+to watch. Blocking on it — and worse, running it twice because the first pass
+measured the wrong thing — is most of what makes a change feel slow.
+
+**Do not re-run the ladder to confirm a run you already have.** Two runs of the
+same build tell you the harness is deterministic, which it is. If the question is
+"did my change move this", the comparison is against a DIFFERENT build or a
+`--set=` A/B on the same stream; if the question is "where does the ladder sit",
+one run answers it.
 
 The ladder at `--seeds=8 --hours=350`, reached by 8/8 — **re-measured after the
 dwell retune** (per-store traffic, the reopening float, and the collections desk

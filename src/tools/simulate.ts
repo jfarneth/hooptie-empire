@@ -32,6 +32,7 @@ import { activeNotes, canWriteNote, overCapacityFactor } from '../sim/notes';
 import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level, upgradeCost } from '../sim/upgrades';
 import { STAGES, getStage, nextStage, stageRank, typicalCarPrice } from '../sim/stages';
 import { RARITIES, RARITY_ORDER } from '../sim/rarity';
+import os from 'node:os';
 import { landedCost } from '../sim/market';
 import { freightMoments, marginScale } from '../sim/margins';
 import { applyTuning, getTunable } from '../sim/tuning';
@@ -467,7 +468,96 @@ function fmtTime(ms: number): string {
   return h > 0 ? `${h}h${String(m).padStart(2, '0')}m` : `${m}m`;
 }
 
-function main() {
+/** What one seed hands back, and the only thing that crosses a process boundary. */
+interface SeedResult {
+  state: GameState;
+  milestones: Milestones;
+  appraisal: AppraisalTally;
+  dwell: DwellTally;
+}
+
+/**
+ * ONE SEED PER CORE.
+ *
+ * Seeds are completely independent — each builds its own state from its own RNG
+ * — so the only reason this ever ran serially is that nobody had needed it not
+ * to. It became the thing worth fixing when the ladder run reached eleven and a
+ * half minutes: the harness is the slowest step in the whole development loop,
+ * and every minute of it is a minute nobody can do anything else in.
+ *
+ * Children are spawned through `process.execArgv`, which carries tsx's loader,
+ * so a worker costs one node start (~0.7s) rather than an `npx` resolve. They
+ * write a JSON blob to a temp file rather than to stdout: a 350h seed returns a
+ * few megabytes of dwell samples, and a pipe that large is a deadlock waiting
+ * for somebody to forget to drain it.
+ *
+ * DETERMINISM IS UNTOUCHED, which is the whole reason this is safe. Seed `i` is
+ * `1000 + i * 7919` wherever it runs, the override set is re-applied inside each
+ * worker from the same argv, and nothing is shared between seeds — so `--jobs`
+ * changes the wall clock and no number in the report.
+ */
+async function runSeedsParallel(args: string[], seeds: number, jobs: number): Promise<SeedResult[]> {
+  const { spawn } = await import('node:child_process');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hooptie-sim-'));
+  // Everything except the seed count and the worker flags is passed through
+  // verbatim, so --hours, --stay, --cadence and every --set= reach the worker.
+  const passthrough = args.filter((a) => !a.startsWith('--jobs=') && !a.startsWith('--worker='));
+
+  // A WORKER TAKES A SLICE, NOT A SEED. Spawning per seed pays node's ~0.7s
+  // start once per seed, which at the default 4h run is more than the whole
+  // simulation costs — measured, that version took 5.4s against 3.9s serial.
+  // Dealt round-robin so a slow seed cannot land four-deep on one worker.
+  const slices: number[][] = Array.from({ length: Math.min(jobs, seeds) }, () => []);
+  for (let i = 0; i < seeds; i++) slices[i % slices.length].push(i);
+
+  const results = new Array<SeedResult>(seeds);
+
+  await Promise.all(
+    slices.map(
+      (indices, w) =>
+        new Promise<void>((resolve, reject) => {
+          const out = path.join(dir, `slice-${w}.json`);
+          const child = spawn(
+            process.execPath,
+            [
+              ...process.execArgv,
+              process.argv[1],
+              ...passthrough,
+              `--worker=${indices.join(',')}`,
+              `--out=${out}`,
+            ],
+            { stdio: ['ignore', 'ignore', 'inherit'] },
+          );
+          child.on('error', reject);
+          child.on('exit', (code) => {
+            if (code !== 0) return reject(new Error(`worker ${w} exited ${code}`));
+            try {
+              const parsed = JSON.parse(fs.readFileSync(out, 'utf8')) as SeedResult[];
+              indices.forEach((seedIndex, k) => {
+                // A Set does not survive JSON and the report never reads it; it
+                // is per-seed scratch for deduping the feed. Restored empty so
+                // the shape the report sees is the shape serial produces.
+                parsed[k].appraisal.seenListings = new Set<string>();
+                results[seedIndex] = parsed[k];
+              });
+              resolve();
+            } catch (err) {
+              reject(err as Error);
+            }
+          });
+        }),
+    ),
+  );
+
+  fs.rmSync(dir, { recursive: true, force: true });
+  return results;
+}
+
+async function main() {
   const args = process.argv.slice(2);
   const getArg = (name: string, fallback: number) => {
     const hit = args.find((a) => a.startsWith(`--${name}=`));
@@ -531,6 +621,33 @@ function main() {
   }
   if (Object.keys(overrides).length > 0) applyTuning(overrides);
 
+  /**
+   * Worker mode: run exactly one seed, write it out, say nothing.
+   *
+   * Deliberately below the override block, so a worker applies the same tuning
+   * the parent parsed — a worker that ran the shipped constants while the parent
+   * printed an override header would be the quietest possible way to make an A/B
+   * lie.
+   */
+  const workerArg = args.find((a) => a.startsWith('--worker='));
+  if (workerArg) {
+    const outArg = args.find((a) => a.startsWith('--out='));
+    if (!outArg) throw new Error('--worker needs --out=<file>');
+    const results = workerArg
+      .slice('--worker='.length)
+      .split(',')
+      .map((n) => {
+        const result = runOne(1000 + Number(n) * 7919, hours, false, stay, cadence);
+        // `seenListings` is dropped rather than serialized: it is per-seed
+        // scratch the report never reads, and at 350h it is ~380,000 strings
+        // that would otherwise be stringified, written and parsed for nothing.
+        return { ...result, appraisal: { ...result.appraisal, seenListings: undefined } };
+      });
+    const fs = await import('node:fs');
+    fs.writeFileSync(outArg.slice('--out='.length), JSON.stringify(results));
+    return;
+  }
+
   console.log(
     `\nBalance run — ${hours}h of play, ${seeds} seeds${stay ? ', STAYING PUT' : ''}${
       cadence ? `, cadence ${cadence.activeMs / 60_000}m on / ${cadence.idleMs / 60_000}m off` : ''
@@ -546,10 +663,26 @@ function main() {
   const dwells: DwellTally = blankDwell();
   const started = Date.now();
 
-  for (let i = 0; i < seeds; i++) {
-    const seed = 1000 + i * 7919;
-    if (verbose) console.log(`\nseed ${seed}`);
-    const { state, milestones, appraisal, dwell } = runOne(seed, hours, verbose, stay, cadence);
+  /**
+   * `--jobs=N` — how many seeds to run at once. Defaults to one per core.
+   *
+   * Serial when there is one job, one seed, or `--verbose`: verbose interleaves
+   * per-seed progress into one stream, and four seeds shouting over each other
+   * is worse than waiting.
+   */
+  const jobs = Math.max(1, Math.min(seeds, getArg('jobs', os.cpus().length)));
+  const parallel = jobs > 1 && seeds > 1 && !verbose;
+  if (parallel) console.log(`  ${jobs} seeds at a time`);
+
+  const collected: SeedResult[] = parallel
+    ? await runSeedsParallel(args, seeds, jobs)
+    : Array.from({ length: seeds }, (_, i) => {
+        const seed = 1000 + i * 7919;
+        if (verbose) console.log(`\nseed ${seed}`);
+        return runOne(seed, hours, verbose, stay, cadence);
+      });
+
+  for (const { state, milestones, appraisal, dwell } of collected) {
     finals.push(state);
     tallies.push(appraisal);
     // Pushed one at a time: a spread of a multi-million-element array blows the
@@ -782,4 +915,7 @@ function main() {
   console.log(`\nharness wall time: ${((Date.now() - started) / 1000).toFixed(1)}s\n`);
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

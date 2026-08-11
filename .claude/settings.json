@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && [ -d node_modules ] || npm install --no-audit --no-fund >/tmp/hooptie-npm-install.log 2>&1",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}
