@@ -40,6 +40,7 @@ export interface TunableDef {
 
 export const TUNABLE_GROUPS = [
   'Economy',
+  'Rarity',
   'The feed',
   'Reconditioning',
   'Traffic & pricing',
@@ -66,6 +67,14 @@ export const TUNABLES: readonly TunableDef[] = [
   { path: 'balance.repoValuePenalty', label: 'Value lost per prior repo', group: 'Economy', kind: 'ratio', min: 0, max: 0.5 },
   { path: 'balance.forcedSaleRate', label: 'Forced sale, share of wholesale', group: 'Economy', kind: 'ratio', min: 0, max: 1,
     help: 'What you get when a car must go now: the lot on a stage move, or a repo with nowhere to park. At 1 neither costs anything.' },
+
+  // -------------------------------------------------------------------- rarity
+  { path: 'balance.rarity.valueStep', label: 'Value added per grade', group: 'Rarity', kind: 'percent', min: 0, max: 1,
+    help: 'Each grade is worth this much more of the car at retail. The seller’s ask is always priced in stock trim, so the whole step is margin.' },
+  { path: 'balance.rarity.rareChance', label: 'Chance of Sport trim', group: 'Rarity', kind: 'percent', min: 0, max: 1 },
+  { path: 'balance.rarity.epicChance', label: 'Chance of Special Edition', group: 'Rarity', kind: 'percent', min: 0, max: 1 },
+  { path: 'balance.rarity.legendaryChance', label: 'Chance of a Unicorn', group: 'Rarity', kind: 'percent', min: 0, max: 1,
+    help: 'Only affects cars generated after the change — a grade is rolled once and lives on the car.' },
 
   // ---------------------------------------------------------- running costs
   { path: 'balance.expenses.wageOfCost', label: 'Weekly wage, share of hire cost', group: 'Running costs', kind: 'percent', min: 0, max: 0.5,

@@ -226,6 +226,34 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       },
     };
   },
+
+  /**
+   * v10 -> v11: cars carry a trim grade.
+   *
+   * Every existing car becomes 'common', which reproduces the pre-rarity game
+   * exactly — `rarityValueMult('common')` is 1, so not a dollar of anyone's
+   * inventory or book moves. Rolling real grades here would be worse in both
+   * directions: a save that had been sitting on ordinary metal would either
+   * inflate overnight for no reason a player could point at, or hand them a
+   * neon car they never bought.
+   *
+   * Listings are covered too. They rotate off within ~150 s, but the engine
+   * reads `listing.car.rarity` on the very next tick to price the ask, and an
+   * undefined grade would fall through `rarityRank` to stock — right answer,
+   * arrived at by accident. Backfilling says it on purpose.
+   *
+   * Written out longhand rather than calling into rarity.ts: a migration has to
+   * keep meaning what it meant the day it shipped, and a shared default is free
+   * to change underneath it.
+   */
+  10: (s) => ({
+    ...s,
+    cars: (s.cars ?? []).map((c: any) => ({ ...c, rarity: 'common' })),
+    listings: (s.listings ?? []).map((l: any) => ({
+      ...l,
+      car: { ...l.car, rarity: 'common' },
+    })),
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

@@ -2,6 +2,7 @@ import { BALANCE } from './balance';
 import { clamp01, conditionFreeValue, valuePerConditionPoint } from './economy';
 import { mintId } from './ids';
 import { BODY_COLORS, getModel } from './models';
+import { rollRarity } from './rarity';
 import { intRange, normalish } from './rng';
 import type { RngState } from './types';
 import type { Car, CarModel, CarTier, GameState, Millis } from './types';
@@ -58,10 +59,17 @@ export function generateCar(
     Math.round(normalish(rng, (mMin + mMax) / 2, (mMax - mMin) / 2, mMin, mMax) / grain) * grain;
   const condition = Math.round(normalish(rng, (cMin + cMax) / 2, (cMax - cMin) / 2, cMin, cMax) * 100) / 100;
 
+  // Drawn unconditionally and last, so the stream every existing draw sits on is
+  // unchanged and a franchise consumes exactly what an auction does. A grade is
+  // rolled for every car at every stage — a special-edition Valmont is as much a
+  // thing as a lifted Ironmark.
+  const rarity = rollRarity(rng);
+
   return {
     id: mintId(state, 'car'),
     modelId: model.id,
     colorIndex: intRange(rng, 0, BODY_COLORS.length - 1),
+    rarity,
     mileage,
     condition,
     costBasis: 0,

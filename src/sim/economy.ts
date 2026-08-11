@@ -1,5 +1,6 @@
 import { BALANCE } from './balance';
 import { getModel } from './models';
+import { rarityValueMult } from './rarity';
 import type { Car } from './types';
 
 /**
@@ -36,11 +37,18 @@ export function conditionFactor(condition: number): number {
  * Pricing recon off the model's base value instead makes bodywork on a
  * 200k-mile beater cost as much as bodywork on a new one, which silently makes
  * reconditioning a trap on every car in the opening stage.
+ *
+ * Trim grade belongs here for exactly that reason, and it is the ONLY place the
+ * rarity multiplier is applied. Retail, wholesale, the finance window, recon
+ * cost, recon value gain and the forced-sale haircut all compose from this, so
+ * one multiply prices a spoiler correctly everywhere. It also keeps recon ROI
+ * flat across grades — cost and value gain scale together — which is right: a
+ * lift kit does not make bodywork a better or worse investment.
  */
 export function conditionFreeValue(car: Car): number {
   const model = getModel(car.modelId);
   const repoPenalty = Math.max(0.5, 1 - car.repoCount * BALANCE.repoValuePenalty);
-  return model.baseValue * mileageFactor(car.mileage) * repoPenalty;
+  return model.baseValue * mileageFactor(car.mileage) * repoPenalty * rarityValueMult(car.rarity);
 }
 
 /** What the car will actually fetch in a straight cash sale. */

@@ -25,6 +25,7 @@ import {
   overCapacityFactor,
 } from './notes';
 import { prestigeEdge } from './prestige';
+import { baseTrim } from './rarity';
 import {
   expirePromotions,
   getPromotion,
@@ -60,7 +61,7 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -108,8 +109,11 @@ function spawnStarterListing(s: GameState): void {
   const model = pick(s.rng, models);
   const car = generateCar(s, s.rng, model, s.t);
 
+  // Stock trim, same rule the rotating feed follows — if the dealt car happens
+  // to roll a grade, the opening deal is quietly a very good one rather than a
+  // more expensive one.
   const affordable = BALANCE.startingCash * range(s.rng, 0.5, 0.72);
-  const price = Math.round(Math.min(wholesaleValue(car) * 0.95, affordable));
+  const price = Math.round(Math.min(wholesaleValue(baseTrim(car)) * 0.95, affordable));
 
   s.listings.push({
     id: mintId(s, 'lst'),
@@ -375,7 +379,15 @@ function spawnListing(s: GameState): void {
   // Applied after the draw so the RNG stream is identical with or without an
   // edge; the discount is deterministic from the save's prestige points.
   const edge = 1 - prestigeEdge(s);
-  const ask = Math.round(wholesaleValue(car) * range(s.rng, sourcing.askMin, sourcing.askMax) * edge);
+  // THE ASK IS PRICED IN STOCK TRIM. This is one half of the rarity feature and
+  // the whole of its economics: a dealer auction does not pay extra for a
+  // spoiler and a wholesale book does not carry one, so the seller quotes the
+  // base car and the premium is left on the table for whoever spots it. Pricing
+  // the trimmed car here instead would scale ask and retail together and make
+  // rarity worth exactly nothing.
+  const ask = Math.round(
+    wholesaleValue(baseTrim(car)) * range(s.rng, sourcing.askMin, sourcing.askMax) * edge,
+  );
 
   s.listings.push({
     id: mintId(s, 'lst'),

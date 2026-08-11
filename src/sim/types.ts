@@ -27,11 +27,23 @@ export interface CarModel {
 
 export type CarStatus = 'recon' | 'ready' | 'listed' | 'sold';
 
+/**
+ * Trim grade. Rolled once when the car is generated and never changes.
+ *
+ * Unlike condition, this is PUBLIC — you can see a spoiler and a lift kit — so
+ * it carries no appraisal noise. It multiplies what the car is worth while the
+ * seller's ask is drawn against stock trim, which is where the margin comes
+ * from. See rarity.ts.
+ */
+export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
+
 export interface Car {
   id: string;
   modelId: string;
   /** Paint colour index into BODY_COLORS, kept in state so it is stable across renders. */
   colorIndex: number;
+  /** Trim grade. Save data — see the v10 → v11 migration. */
+  rarity: Rarity;
   mileage: number;
   /** 0 = rough, 1 = showroom. */
   condition: number;

@@ -40,6 +40,24 @@ export const BALANCE = {
   /** Each prior repossession knocks this much off retail. */
   repoValuePenalty: 0.06,
 
+  /**
+   * Trim grades. See rarity.ts — the probabilities are the share of cars at each
+   * grade above stock, and common is whatever is left over.
+   *
+   * `valueStep` is the whole economic content of the feature: each grade is
+   * worth this much more of the car at retail, while the seller's ask is drawn
+   * against stock trim, so the step lands entirely on the dealer's margin.
+   * Weighted across the population it is a small lift at a curbstone lot and a
+   * much larger one at a franchise, because the same ten points of value are
+   * worth more where there was less margin to start with.
+   */
+  rarity: {
+    rareChance: 0.09,
+    epicChance: 0.009,
+    legendaryChance: 0.001,
+    valueStep: 0.1,
+  },
+
   // ------------------------------------------------------------------ sourcing
   /** How many listings can sit on the feed at once (before upgrades). */
   baseListingSlots: 4,

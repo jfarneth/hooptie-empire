@@ -20,6 +20,7 @@ function makeCar(over: Partial<Car> = {}): Car {
     id: 'car_1',
     modelId: 'comet',
     colorIndex: 0,
+    rarity: 'common',
     mileage: 150_000,
     condition: 0.5,
     costBasis: 2_000,

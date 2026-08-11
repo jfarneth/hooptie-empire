@@ -188,6 +188,27 @@ describe('taking on the next dealership', () => {
     return s;
   }
 
+  /**
+   * Run until there is actually stock parked, rather than for a fixed 40
+   * minutes and hoping.
+   *
+   * A fully automated lot buys, lists and sells continuously, so at any given
+   * instant the number of cars on it oscillates through zero — measured, this
+   * fixture sits at 0 on fifteen of its first forty minutes. Advancing a fixed
+   * span and asserting the lot is non-empty is therefore a coin toss dressed as
+   * a precondition, and it lands differently the moment anything shifts the RNG
+   * stream. Both tests below need cars on the ground to mean anything at all,
+   * so they wait for cars on the ground.
+   */
+  function withStockOnTheLot(s: GameState): GameState {
+    let next = s;
+    for (let minute = 0; minute < 90; minute++) {
+      next = advance(next, 60_000);
+      if (next.cars.some((c) => c.status !== 'sold') && next.listings.length > 0) return next;
+    }
+    throw new Error('the fixture never held stock — the automated lot has stopped trading');
+  }
+
   it('charges the entry cost and moves the store', () => {
     const before = goingConcern();
     const after = advanceStage(before);
@@ -260,7 +281,7 @@ describe('taking on the next dealership', () => {
   it('clears the old store’s feed and sells the lot to a wholesaler', () => {
     const before = goingConcern();
     before.upgrades.autoBuy = 1;
-    before.cars = advance(before, 40 * 60_000).cars;
+    before.cars = withStockOnTheLot(before).cars;
     const held = before.cars.filter((c) => c.status !== 'sold');
     expect(held.length).toBeGreaterThan(0);
     expect(before.listings.length).toBeGreaterThan(0);
@@ -289,7 +310,7 @@ describe('taking on the next dealership', () => {
     // and every contract against it is stranded.
     const before = goingConcern();
     before.upgrades.autoBuy = 1;
-    before.cars = advance(before, 40 * 60_000).cars;
+    before.cars = withStockOnTheLot(before).cars;
     const out = before.cars[0];
     out.status = 'sold';
 

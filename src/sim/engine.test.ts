@@ -26,7 +26,12 @@ function fingerprint(s: GameState) {
     rng: s.rng.s,
     cash: Math.round(s.cash * 100),
     nextId: s.nextId,
-    cars: s.cars.map((c) => `${c.id}:${c.status}:${c.condition.toFixed(4)}:${c.costBasis}`),
+    // Rarity is drawn inside generateCar, so it is part of what the tick
+    // consumes from the stream — a draw that moved or went conditional shows up
+    // here rather than as a mystery divergence months later.
+    cars: s.cars.map(
+      (c) => `${c.id}:${c.status}:${c.condition.toFixed(4)}:${c.costBasis}:${c.rarity}`,
+    ),
     notes: s.notes.map((n) => `${n.id}:${n.status}:${n.principal.toFixed(4)}:${n.paymentsRemaining}`),
     // The tick amortizes the shark's loan, so the schedule is part of the
     // fingerprint — a slice-size bug here would double- or skip-charge it.
