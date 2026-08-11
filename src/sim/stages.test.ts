@@ -510,7 +510,7 @@ describe('staffing a bigger store', () => {
   it('adds the store’s base capacity to whatever property you own', () => {
     const s = stateAt('largeUsed', { upgrades: { lot: 2 } });
     expect(carCapacity(s)).toBe(
-      getStage('largeUsed').baseCarCapacity + 2 * BALANCE.capacityPerLotLevel,
+      getStage('largeUsed').baseCarCapacity + 2 * getStage('largeUsed').capacityPerLevel,
     );
     // Property carries, so the same rows keep paying at the next store up.
     expect(carCapacity(stateAt('premiumFranchise', { upgrades: { lot: 2 } }))).toBeGreaterThan(

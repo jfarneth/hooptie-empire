@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { setBusinessPolicy, setDealPolicy } from '../../sim/actions';
 import { BALANCE } from '../../sim/balance';
+import { weeklyExpenses } from '../../sim/engine';
 import { businessPolicy, repoDamageMultiplier } from '../../sim/business';
 import { activeNotes } from '../../sim/notes';
 import { getStage } from '../../sim/stages';
@@ -42,6 +43,7 @@ const POLICY_HINT: Record<DealPolicy, string> = {
 export function BusinessPanel({ state }: { state: GameState }) {
   const apply = useGame((s) => s.apply);
   const policy = businessPolicy(state);
+  const bill = weeklyExpenses(state);
   const hasDesk = level(state, 'salesDesk') > 0;
   const hasBuyer = level(state, 'autoBuy') > 0;
 
@@ -91,7 +93,17 @@ export function BusinessPanel({ state }: { state: GameState }) {
           </Row>
           <Text style={styles.hint}>
             Nothing that runs without you will spend the till below this. The shop order and the
-            buyer on retainer both stop here.
+            buyer on retainer both stop here — and nothing else does: this is the only floor, and
+            bills come out whether the money is there or not.
+          </Text>
+          {/* The number the floor exists to cover, quoted from the same
+              function the bill charges — set it blind and "why is my account
+              overdrawn" is the next question. */}
+          <Text style={styles.expensesNote}>
+            Your bills run {money(bill.total)} a week right now
+            {bill.debtService > 0
+              ? ` — ${money(bill.rent + bill.payroll + bill.floorplan)} of costs and ${money(bill.debtService)} to the shark.`
+              : ` (rent ${money(bill.rent)}, payroll ${money(bill.payroll)}, floorplan ${money(bill.floorplan)}).`}
           </Text>
           <View style={styles.choices}>
             {workingCapitalChoices.map((amount) => (
@@ -214,6 +226,12 @@ function Choice({
 }
 
 const styles = StyleSheet.create({
+  expensesNote: {
+    color: '#e3b341',
+    fontSize: 12,
+    lineHeight: 16,
+    fontVariant: ['tabular-nums'],
+  },
   ruleName: { color: theme.colors.text, fontSize: 14, fontWeight: '700', flex: 1 },
   ruleValue: {
     color: theme.colors.accent,

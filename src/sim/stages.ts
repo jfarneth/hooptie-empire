@@ -119,6 +119,16 @@ export interface StageDef {
   baseCarCapacity: number;
   /** Which capacity upgrade adds space at this stage. */
   capacityUpgradeId: 'driveway' | 'lot';
+  /**
+   * Spaces each level of that upgrade adds AT THIS STORE. Per stage rather than
+   * one global constant, because "small" is a claim the maxed-out number has to
+   * back up: the small lot used to top out at 26 cars, which is not a small
+   * lot, it is a mid-sized one wearing the wrong sign. It now tops out at 13.
+   * The stages above keep their +4 rows — capacity was measured as a nearly
+   * dead pacing lever up there (lot full 5% of turns), so this is theme, not
+   * balance.
+   */
+  capacityPerLevel: number;
   /** Whether you can carry your own paper here. */
   financing: boolean;
   /**
@@ -232,6 +242,7 @@ export const STAGES: readonly StageDef[] = [
     entryCost: 0,
     baseCarCapacity: 2,
     capacityUpgradeId: 'driveway',
+    capacityPerLevel: 1,
     financing: false,
     upgradeCostMultiplier: 1,
     rentPerWeek: 0,
@@ -247,8 +258,9 @@ export const STAGES: readonly StageDef[] = [
     blurb:
       'A real lot and a finance desk. Instead of selling a car once, you sell it once for the down payment and again as paper.',
     entryCost: 70_000,
-    baseCarCapacity: 6,
+    baseCarCapacity: 8,
     capacityUpgradeId: 'lot',
+    capacityPerLevel: 1,
     financing: true,
     upgradeCostMultiplier: 1,
     rentPerWeek: 400,
@@ -271,6 +283,7 @@ export const STAGES: readonly StageDef[] = [
     entryCost: 900_000,
     baseCarCapacity: 14,
     capacityUpgradeId: 'lot',
+    capacityPerLevel: 4,
     financing: true,
     upgradeCostMultiplier: 2.4,
     rentPerWeek: 2000,
@@ -293,6 +306,7 @@ export const STAGES: readonly StageDef[] = [
     entryCost: 5_400_000,
     baseCarCapacity: 22,
     capacityUpgradeId: 'lot',
+    capacityPerLevel: 4,
     financing: true,
     upgradeCostMultiplier: 5,
     rentPerWeek: 4000,
@@ -310,6 +324,7 @@ export const STAGES: readonly StageDef[] = [
     entryCost: 20_000_000,
     baseCarCapacity: 32,
     capacityUpgradeId: 'lot',
+    capacityPerLevel: 4,
     financing: true,
     upgradeCostMultiplier: 10,
     rentPerWeek: 9000,
@@ -327,6 +342,7 @@ export const STAGES: readonly StageDef[] = [
     entryCost: 70_000_000,
     baseCarCapacity: 42,
     capacityUpgradeId: 'lot',
+    capacityPerLevel: 4,
     financing: true,
     upgradeCostMultiplier: 18,
     rentPerWeek: 20000,

@@ -27,6 +27,14 @@ anything together: `conditionFreeValue` multiplies by the grade, and
 `spawnListing` prices the ask against `baseTrim(car)`. Scale both and rarity is
 worth exactly zero; scale neither and it is paint.
 
+**The working-capital floor is the player's own, and it is the ONLY floor.**
+The automation reserve used to be `max(player floor, weeks of expenses, price of
+N cars)`; the two hidden terms are gone, and with them the era of "why isn't my
+buyer buying" having an answer the game refused to show. The Business panel
+quotes the weekly bill directly above the floor selector, and **every bill now
+charges in full — cash goes negative honestly.** The shark lost his monopoly on
+the minus sign; what he keeps is a schedule nothing but retirement stops.
+
 **Sales staff work for a cut.** The `salesDesk` upgrade is the curbstone
 **business partner** (no salary, 50% of profit on deals he closes) and the
 salaried **sales manager** above (thinning cut per stage, in `STAGES[].desk`).
@@ -450,14 +458,13 @@ the RNG draw so the stream is identical with or without it.
 
 **The shark is the other half of the system.** One loan at a time, sized in
 cars (`BALANCE.loan.carsOffered`) but never presented that way — the UI shows
-his dollar figure, take it or leave it. His weekly payment rides `stepBills`,
-and it is **the one charge in the game allowed to drive cash below zero.** Rent
-and wages still floor at zero; his cut does not. That asymmetry is the entire
-design: a business with no loan can never go negative, so the old invariant
-holds for everyone who has not signed with him, and the trapdoor only opens by
-choice. There is no missed-payment state — the schedule simply runs, the hole
-deepens, and the way out is recovery or retirement, where he is settled from
-the proceeds even if that leaves a zero on the board.
+his dollar figure, take it or leave it. His weekly payment rides `stepBills`. Every
+bill drives cash below zero now, so what distinguishes his money is no longer
+the minus sign — it is the schedule: rent stops when you move and wages stop
+when staff reset, but the shark's payment survives everything short of
+retirement, where he is settled from the proceeds even if that leaves a zero on
+the board. There is no missed-payment state — the schedule simply runs and the
+hole deepens until the player recovers or quits.
 
 **The harness never retires and never borrows**, so both mechanics are
 unmeasured by `npm run sim` — the same caveat the house rules carry. A fresh
@@ -514,12 +521,16 @@ in prose rot exactly like dead constants do. Two measured facts about it:
   15–22% to 4.5–14% moved the midsize milestone 49h38m → 76h03m and pushed
   premium out past 350h. If the late game needs to move, this is the knob.
 
-**A reserve measured in weeks of rent is not a reserve.** Thin franchise margins
-exposed this: a business would arrive at a midsize store with $18k, which is not
-one $34k car, so it could never restock, never earn, and died with the rent still
-running. The working-capital floor is now `max(player floor, weeks of expenses,
-price of N cars at this store)` — denominated in the unit that actually matters.
-`reopeningFloat` is sized the same way.
+**The automation reserve is the player's floor, full stop.** It spent a year as
+`max(player floor, weeks of expenses, price of N cars)` — protective terms added
+when bills floored at zero and a broke business froze silently forever. Both
+hidden terms are gone, deliberately: an invisible safety rail was exactly why a
+player with $30k, a hired buyer and a floor of zero could not tell why nothing
+was being bought. The floor selector now quotes the weekly bill beside it, and
+what to keep back is the player's call, informed and theirs to get wrong.
+`reopeningFloat` (the ladder gate) still sizes itself in cars — that one is a
+property of moving stores, not of automation, and it kept the bug the old
+reserve caused out of the move path.
 
 **The premium franchise still kills the economy, and it is the top open bug —
 but there is now a measured lever on it.** Setting the three franchise stages'
@@ -551,31 +562,25 @@ retune that moves margins, entry costs and the multiplier together is one job,
 not three. This is what stops a franchise
 being pure upside once its entry cost clears.
 
-**Cash at zero is an ABSORBING state, and that is the whole difficulty.** No
-cash buys no stock, no stock earns nothing, and the bill still arrives. The first
-cut of this killed 12 of 16 harness seeds outright while the surviving 4 ran at
-the old pace — a bimodal result, which is the signature of a spiral rather than a
-tax. Three things had to land before expenses became a dial instead of a cliff,
-and removing any one of them brings the spiral back:
+**Cash at zero used to be an ABSORBING state; now it is a visible hole.** Under
+the old floored bills, a business at $0 paid nothing, earned nothing, and froze
+forever — the first cut of running costs killed 12 of 16 harness seeds that way,
+and the diagnostic was **identical lifetime profit under different expense
+settings**, the signature of `Math.min(cash, bill)` charging nothing. Bills now
+charge in full and the balance goes where it goes, which retires that entire
+failure mode: a business that cannot make rent shows a negative number, keeps
+its buying gates shut (`cash >= price` everywhere), and digs out by selling
+stock and collecting payments — both of which work at any balance. The old tell
+is dead too, in the good way: expense settings always show up in profit now,
+because they always charge.
 
-- **`BALANCE.expenses.reserveWeeks`** — automation never spends below a few
-  weeks of running costs, on top of the player's own working-capital floor.
-- **`reopeningFloat`** — the ladder will not let you move unless you keep enough
-  back to restock the new lot and cover its first weeks of rent. The entry cost
-  buys the keys; this buys something to sell. **It is a property of the TARGET
-  store only.** The first version also charged for rebuilding the office you were
-  leaving, which scales with what you own — so every upgrade pushed the next rung
-  further away and the bot stalled forever. A requirement that grows when you
-  invest is a trap, not a gate.
-- **The harness bot keeps restock money back** before it rebuys upgrades. With
-  the whole table wiped on a move, the bot's old "$3k float" heuristic left it
-  unable to buy a single car.
-
-The tell for all three failures was the same and worth recognising: **identical
-lifetime profit under different expense settings.** That means the economy is
-pinned at zero, where `Math.min(cash, bill)` charges nothing, so the setting
-cannot matter. If two expense configs report the same profit to the dollar, the
-business is dead, not taxed.
+Two of the three original spiral guards remain, because they guard the *move*
+rather than the till: **`reopeningFloat`** — the ladder will not let you move
+without enough to restock the new lot, a property of the TARGET store only
+(charging for the store you leave scales with what you own and stalls the bot
+forever); and **the harness bot keeps restock money back** before rebuying
+upgrades, which is the bot's brain rather than the game's rule. The third guard
+— the hidden automation reserve — is gone; see the working-capital note above.
 
 ## Verify
 

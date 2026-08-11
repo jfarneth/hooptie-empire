@@ -180,8 +180,6 @@ export const BALANCE = {
   // ---------------------------------------------------------------- capacities
   // Base capacity per store is `STAGES[].baseCarCapacity`. What survives here is
   // only what each *upgrade level* adds, which does not vary by stage.
-  capacityPerDrivewayLevel: 1,
-  capacityPerLotLevel: 4,
 
   // ---------------------------------------------------------------------- BHPH
   // The window markup is per stage (`STAGES[].bhphMultiplier`) — it falls as the
@@ -341,8 +339,6 @@ export const BALANCE = {
      * that keeps enough float to make rent, and buys with what is left.
      */
     reserveWeeks: 3,
-    /** ...and never below the price of this many cars at the current store. */
-    reserveCars: 2,
     /** Cars you must be able to buy at the new store before the move is allowed. */
     /**
      * Cars you must be able to buy at the new store before the move is allowed.

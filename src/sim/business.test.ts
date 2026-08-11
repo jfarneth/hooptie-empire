@@ -210,26 +210,21 @@ describe('minimum working capital', () => {
   });
 
   it('lets the same buy through once the floor is out of the way', () => {
-    // The floor the buyer actually respects is the player's, OR enough to make
-    // rent for a few weeks, whichever is higher — running costs landed after
-    // this test was written. Clearing the player's floor is therefore necessary
-    // but not sufficient, so the fixture is topped up past the expense reserve
-    // to isolate the thing under test.
+    // THE PLAYER'S FLOOR IS THE ONLY FLOOR. Two hidden terms used to sit under
+    // it — weeks of expenses and the price of a couple of cars — and this test
+    // had to top the fixture up past both to isolate anything. They are gone:
+    // bills charge in full now, so an over-spent till shows up as a visible
+    // negative balance rather than a silent freeze, and a safety rail the
+    // player cannot see is exactly what made "why isn't my buyer buying"
+    // unanswerable from inside the game. At floor 0 with price + $100 in hand,
+    // the buy goes through with $100 left — to the dollar, so a hidden term
+    // creeping back in cannot hide.
     const s = retainerLot(0);
-    // The floor the buyer respects is the highest of: the player's setting, a few
-    // weeks of running costs, and the price of a couple of cars at this store —
-    // the last of these landed when thin franchise margins showed that a reserve
-    // measured in rent is not a reserve at all once one car costs $34k. Clearing
-    // the player's floor is necessary but not sufficient, so top the fixture past
-    // all three to isolate the thing under test.
-    s.cash = Math.max(
-      s.cash + weeklyExpenses(s).total * BALANCE.expenses.reserveWeeks,
-      s.cash + typicalCarPrice(getStage(s.stage)) * BALANCE.expenses.reserveCars,
-    );
     const after = advance(s, 5_000);
 
     expect(after.cars.length).toBeGreaterThan(0);
     expect(after.cash).toBeLessThan(s.cash);
+    expect(after.cash).toBeLessThanOrEqual(150);
   });
 
   /**
@@ -573,15 +568,20 @@ describe('running costs', () => {
     expect(after.events.some((e) => e.kind === 'expense')).toBe(true);
   });
 
-  it('never drives the balance negative', () => {
-    // Every buying gate in the game reads `cash >= price`; none of them expect
-    // to be handed a debt. A business that cannot make rent is a real situation
-    // and deserves a real mechanic, but a silent negative balance is not it.
+  it('drives the balance honestly negative when the bills exceed it', () => {
+    // THE INVERSE OF THE GUARD THAT USED TO LIVE HERE. Rent and wages floored
+    // at zero for a long time, and the price was the sneakiest failure state in
+    // the game: a business pinned at $0 paid nothing, so two different expense
+    // settings produced identical lifetime profit and the tell was a ledger
+    // that had quietly stopped meaning anything. Bills charge in full now. A
+    // Valmont store with $10 in the till owes three weeks of rent regardless,
+    // and the books say so.
     const s = cloneState(createInitialState(8, 0));
     s.stage = 'premiumFranchise';
     s.cash = 10;
     const after = advance(s, MS_PER_GAME_WEEK * 3);
-    expect(after.cash).toBe(0);
-    expect(after.cash).not.toBeLessThan(0);
+    expect(after.cash).toBeLessThan(0);
+    // Three weeks of a $20k/week rent, minus the tenner: the whole bill.
+    expect(after.cash).toBeLessThanOrEqual(10 - 3 * getStage('premiumFranchise').rentPerWeek);
   });
 });

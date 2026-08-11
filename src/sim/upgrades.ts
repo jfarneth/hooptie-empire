@@ -254,6 +254,12 @@ export function upgradeDisplayName(def: UpgradeDef, stage: StageId): string {
 
 /** Same idea for the one-liner under the name. */
 export function upgradeDisplayDescription(def: UpgradeDef, stage: StageId): string {
+  // Capacity is per stage now, so the static "+4 spaces" would lie at the
+  // small lot. Say what this store's paving actually buys.
+  if (def.id === 'lot' || def.id === 'driveway') {
+    const per = getStage(stage).capacityPerLevel;
+    return `+${per} ${per === 1 ? 'space' : 'spaces'} on the lot.`;
+  }
   if (def.id !== 'salesDesk') return def.description;
   const desk = getStage(stage).desk;
   const cut = Math.round(desk.commission * 100);
@@ -286,11 +292,7 @@ export function canBuyUpgrade(state: GameState, id: string): boolean {
  */
 export function carCapacity(state: GameState): number {
   const stage = getStage(state.stage);
-  const perLevel =
-    stage.capacityUpgradeId === 'driveway'
-      ? BALANCE.capacityPerDrivewayLevel
-      : BALANCE.capacityPerLotLevel;
-  return stage.baseCarCapacity + level(state, stage.capacityUpgradeId) * perLevel;
+  return stage.baseCarCapacity + level(state, stage.capacityUpgradeId) * stage.capacityPerLevel;
 }
 
 // Sourcing throughput moved to `sourcingModsFor` in skills.ts, where the scout

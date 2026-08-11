@@ -15,7 +15,7 @@ import { deskCounter, resolveCounter } from './haggle';
 import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
 import { mintId } from './ids';
 import { LISTING_SOURCES, makeName, modelsForMake, modelsForTiers } from './models';
-import { getStage, typicalCarPrice } from './stages';
+import { getStage } from './stages';
 import {
   activeNotes,
   applyDuePayment,
@@ -249,30 +249,33 @@ function stepBills(s: GameState): void {
   const bill = weeklyExpenses(s);
 
   // Rent, wages and floorplan are paid out of cash, and cash does not go
-  // negative FOR THEM. A business that cannot make rent is a real situation,
-  // but a silent negative balance is not the mechanic for it — every buying
-  // gate in the game reads `cash >= price`. The shortfall is logged so it is
-  // visible rather than swallowed.
+  // Charged IN FULL, whatever the balance says afterwards. Rent and wages used
+  // to floor at zero, which produced the game's sneakiest failure state: a
+  // business pinned at $0 paid nothing, so two different expense settings
+  // reported identical lifetime profit and the books quietly stopped meaning
+  // anything. A landlord does not floor at zero and neither do wages owed —
+  // the honest ledger goes negative, the buying gates (`cash >= price`) shut
+  // themselves off, and digging out is selling stock and collecting payments,
+  // which are both still possible at any balance. Recovery stays reachable;
+  // only the number stops lying.
   const overheads = bill.total - bill.debtService;
   if (overheads > 0) {
-    const paid = Math.min(Math.max(0, s.cash), overheads);
-    const short = overheads - paid;
-    s.cash -= paid;
-    s.stats.lifetimeProfit -= paid;
+    s.cash -= overheads;
+    s.stats.lifetimeProfit -= overheads;
     logEvent(s, {
       t: s.t,
       kind: 'expense',
-      label: short > 0 ? 'Weekly costs — could not cover them all' : 'Weekly costs',
-      amount: -paid,
+      label: s.cash < 0 ? 'Weekly costs — the account is overdrawn' : 'Weekly costs',
+      amount: -overheads,
     });
   }
 
-  // THE SHARK ALWAYS COLLECTS. His payment is the one charge in the game that
-  // drives the balance below zero — that is the price of the liquidity, and it
-  // is what makes his money different from yours. There is no missed-payment
-  // state and no compounding shortfall: the schedule simply runs, and if the
-  // business cannot carry it the hole deepens each week until the player either
-  // recovers or retires. Retirement settles him off the top of the sale.
+  // THE SHARK ALWAYS COLLECTS. Every bill drives the balance below zero now,
+  // but his is still different in kind: rent stops when you move and wages stop
+  // when staff reset, while his schedule survives everything short of
+  // retirement, which settles him off the top of the sale. There is no
+  // missed-payment state and no compounding shortfall — the schedule simply
+  // runs until the player recovers or quits.
   if (s.loan) {
     s.cash -= s.loan.paymentAmount;
     s.stats.lifetimeProfit -= s.loan.paymentAmount;
@@ -600,22 +603,16 @@ function overLotCapacity(s: GameState): boolean {
 // ------------------------------------------------------------- automation
 
 function stepAutomation(s: GameState): void {
-  // Nothing unattended spends below the working capital floor. It is one number
-  // read once here so the shop order and the buyer cannot disagree about it —
-  // an automated business that runs its own float to zero is the failure mode
-  // this setting exists to prevent.
-  // The player's floor, or enough to make rent for a few weeks, whichever is
-  // higher. An automated business that spends down to its last dollar cannot
-  // pay its overheads, and cash at zero is a state it never gets back out of —
-  // see `BALANCE.expenses.reserveWeeks`.
-  const reserve = Math.max(
-    minWorkingCapital(s),
-    weeklyExpenses(s).total * BALANCE.expenses.reserveWeeks,
-    // Always enough left to replace stock. Denominated in cars because that is
-    // the unit that matters: at a franchise a single car is more than three
-    // weeks of rent, and a lot that empties out has no way to earn its way back.
-    typicalCarPrice(getStage(s.stage)) * BALANCE.expenses.reserveCars,
-  );
+  // Nothing unattended spends below the working capital floor — the player's
+  // floor, and ONLY the player's floor. There used to be two hidden terms
+  // underneath it (weeks of expenses, the price of two cars) added when bills
+  // floored at zero and a business at $0 froze silently forever. Bills charge
+  // in full now, so the failure mode is a visible negative balance instead of
+  // a silent freeze — and a safety rail the player cannot see is exactly what
+  // made "why isn't my buyer buying" unanswerable from inside the game. The
+  // Business panel quotes the weekly bill right above the floor selector; what
+  // to keep back is the player's call, informed and theirs to get wrong.
+  const reserve = minWorkingCapital(s);
 
   if (level(s, 'autoRecon') > 0) {
     const mods = reconModsFor(s);

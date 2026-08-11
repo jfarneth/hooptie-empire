@@ -161,8 +161,8 @@ export const TUNABLES: readonly TunableDef[] = [
   ]),
 
   // ----------------------------------------------------------------- capacity
-  { path: 'balance.capacityPerDrivewayLevel', label: 'Cars per driveway level', group: 'Capacity', kind: 'int', min: 1, max: 10 },
-  { path: 'balance.capacityPerLotLevel', label: 'Cars per lot level', group: 'Capacity', kind: 'int', min: 1, max: 40 },
+  // Cars-per-paving-level moved into STAGES so a small lot can genuinely be
+  // small; the per-stage rows are generated with the rest of the ladder knobs.
 
   // --------------------------------------------------------------- promotions
   { path: 'balance.promotions.grandOpening.trafficMultiplier', label: 'Grand opening — traffic ×', group: 'Promotions', kind: 'ratio', min: 1, max: 10,
@@ -249,6 +249,14 @@ export const TUNABLES: readonly TunableDef[] = [
       kind: 'ratio',
       min: 0.2,
       max: 4,
+    });
+    rows.push({
+      path: `stages.${stage.id}.capacityPerLevel`,
+      label: `${stage.name} — spaces per paving level`,
+      group: 'Capacity',
+      kind: 'int',
+      min: 1,
+      max: 40,
     });
     rows.push({
       path: `stages.${stage.id}.desk.commission`,

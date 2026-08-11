@@ -1,6 +1,16 @@
 # The overnight problem — measurement and candidate levers
 
-**Status: OPTION E SHIPPED — the commission desk, plus the grab window.** The
+**Status: OPTION E SHIPPED, then the till was made honest.** A follow-up pass
+removed the hidden automation reserve (the player's working-capital floor is now
+the only floor, with the weekly bill quoted beside its selector), made every
+bill charge in full so cash goes genuinely negative, and shrank the small lot to
+a maximum of 13 cars (base 8, +1 per paving level — per-stage
+`capacityPerLevel` in STAGES). Re-measured after all three: overnight wake
+$516k / big-lot skip still 0%, 4h and 32h ladders inside the noise band. The
+"identical lifetime profit under different expense settings" diagnostic is
+retired — bills always charge now, so expense settings always show.
+
+**OPTION E as shipped — the commission desk, plus the grab window.** The
 grid below is the measurement record that chose it. Post-ship numbers, same
 protocol: sleep at 2h with $21.5k → wake **$526k** (was $1,089k), sleep at 3h →
 $694k (was $1,316k), `affordBig` **0%** at both bedtimes. The big-lot overnight

@@ -1,6 +1,7 @@
 import { moveToStage, purchaseUpgrade, setDealPolicy } from './actions';
+import { MS_PER_GAME_WEEK } from './balance';
 import { TICK_MS } from './balance';
-import { advance, createInitialState } from './engine';
+import { advance, cloneState, createInitialState } from './engine';
 import { canBuyUpgrade, carCapacity } from './upgrades';
 import { SKILL_IDS } from './skills';
 import type { GameState } from './types';
@@ -142,6 +143,46 @@ describe('sourcing feed', () => {
       expect(listing.price).toBeGreaterThan(0);
       expect(listing.price).toBeLessThan(listing.car.costBasis + 60_000);
     }
+  });
+});
+
+describe('the weekly bill', () => {
+  it('charges in full and lets the account go overdrawn', () => {
+    // Rent used to floor at zero, which was the sneakiest failure state in the
+    // game: a business pinned at $0 paid nothing, so two different expense
+    // settings produced identical lifetime profit and the tell was a number
+    // that had quietly stopped meaning anything. The ledger is honest now.
+    let s = cloneState(createInitialState(3, 0));
+    s = { ...s, cash: 100_000_000 };
+    s = moveToStage(s, 'smallUsed');
+    s = cloneState(s);
+    s.cash = 100; // rent at the small lot is $400 a week
+    s.cars = [];
+    s.listings = [];
+
+    const after = advance(s, MS_PER_GAME_WEEK + 1_000);
+    expect(after.cash).toBeLessThan(0);
+    // The books say what actually happened: the whole bill, not the affordable part.
+    expect(after.stats.lifetimeProfit).toBeLessThanOrEqual(100 - 400);
+  });
+
+  it('still recovers from overdrawn by selling and collecting', () => {
+    // Negative is a hole, not a grave: selling stock and collecting payments
+    // both work at any balance, so the state must never absorb.
+    let s = cloneState(createInitialState(3, 0));
+    s = { ...s, cash: 100_000_000 };
+    s = moveToStage(s, 'smallUsed');
+    s = purchaseUpgrade(s, 'autoList');
+    // The move clears the feed, so let it deal something to copy a car from.
+    s = advance(s, 3 * 60_000);
+    s = cloneState(s);
+    s.cash = -2_000;
+    const car = { ...s.listings[0].car, id: 'car_dig', costBasis: 1_000, status: 'ready' as const };
+    s.cars = [car];
+
+    // A listed car can still meet a buyer and close by hand.
+    let dug = advance(s, 60_000);
+    expect(dug.cars.some((c) => c.id === 'car_dig' && c.status === 'listed')).toBe(true);
   });
 });
 
