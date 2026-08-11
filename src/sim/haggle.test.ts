@@ -1,5 +1,6 @@
 import { BALANCE } from './balance';
 import {
+  BASE_HAGGLE_SKILL,
   acceptanceChance,
   countersRemaining,
   deskCounter,
@@ -62,7 +63,7 @@ describe('opening offers', () => {
   it('never exceeds the ask and never goes absurdly low', () => {
     const rng = createRng(99);
     for (let i = 0; i < 3_000; i++) {
-      const n = openNegotiation(rng, 3_999, 1);
+      const n = openNegotiation(rng, 3_999, 1, BASE_HAGGLE_SKILL);
       expect(n.openingOffer).toBeLessThanOrEqual(3_999);
       expect(n.openingOffer).toBeGreaterThan(3_999 * (1 - CFG.maxOpeningDiscount * 1.7));
     }
@@ -71,7 +72,7 @@ describe('opening offers', () => {
   it('produces the shape asked for: list $3,999 sometimes draws $3,500', () => {
     const rng = createRng(7);
     const offers = new Set<number>();
-    for (let i = 0; i < 2_000; i++) offers.add(openNegotiation(rng, 3_999, 1).openingOffer);
+    for (let i = 0; i < 2_000; i++) offers.add(openNegotiation(rng, 3_999, 1, BASE_HAGGLE_SKILL).openingOffer);
     expect(offers.has(3_500)).toBe(true);
     // Full-price buyers exist too.
     expect(offers.has(3_999)).toBe(true);
@@ -83,8 +84,8 @@ describe('opening offers', () => {
     let fairTotal = 0;
     let gougeTotal = 0;
     for (let i = 0; i < 2_000; i++) {
-      fairTotal += openNegotiation(fair, 10_000, 1.0).openingOffer;
-      gougeTotal += openNegotiation(gouging, 10_000, 1.4).openingOffer;
+      fairTotal += openNegotiation(fair, 10_000, 1.0, BASE_HAGGLE_SKILL).openingOffer;
+      gougeTotal += openNegotiation(gouging, 10_000, 1.4, BASE_HAGGLE_SKILL).openingOffer;
     }
     expect(gougeTotal).toBeLessThan(fairTotal);
   });
@@ -92,7 +93,7 @@ describe('opening offers', () => {
   it('puts the reservation between their offer and the ask', () => {
     const rng = createRng(31);
     for (let i = 0; i < 2_000; i++) {
-      const n = openNegotiation(rng, 12_500, 1.05);
+      const n = openNegotiation(rng, 12_500, 1.05, BASE_HAGGLE_SKILL);
       expect(n.reservation).toBeGreaterThanOrEqual(n.openingOffer - 0.001);
       expect(n.reservation).toBeLessThanOrEqual(n.anchor + 0.001);
     }
@@ -144,10 +145,10 @@ describe('resolving a counter', () => {
     const rng = createRng(2024);
     const kinds = new Set<string>();
     for (let i = 0; i < 4_000; i++) {
-      const n = openNegotiation(rng, 5_000, 1);
+      const n = openNegotiation(rng, 5_000, 1, BASE_HAGGLE_SKILL);
       if (n.currentOffer >= n.anchor) continue;
       const counter = Math.min(n.anchor, n.currentOffer + 200);
-      kinds.add(resolveCounter(rng, n, counter).kind);
+      kinds.add(resolveCounter(rng, n, counter, BASE_HAGGLE_SKILL).kind);
     }
     expect([...kinds].sort()).toEqual(['accepted', 'countered', 'walked']);
   });
@@ -155,10 +156,10 @@ describe('resolving a counter', () => {
   it('never lets a re-counter go backwards or past their walk-away number', () => {
     const rng = createRng(808);
     for (let i = 0; i < 4_000; i++) {
-      const n = openNegotiation(rng, 8_000, 1);
+      const n = openNegotiation(rng, 8_000, 1, BASE_HAGGLE_SKILL);
       if (n.currentOffer >= n.anchor) continue;
       const before = n.currentOffer;
-      const outcome = resolveCounter(rng, n, n.anchor);
+      const outcome = resolveCounter(rng, n, n.anchor, BASE_HAGGLE_SKILL);
       if (outcome.kind === 'countered') {
         expect(outcome.offer).toBeGreaterThanOrEqual(before);
         expect(outcome.offer).toBeLessThanOrEqual(Math.max(before, n.reservation) + 0.001);
@@ -169,14 +170,14 @@ describe('resolving a counter', () => {
   it('terminates: the counter budget always runs out', () => {
     const rng = createRng(55);
     for (let seed = 0; seed < 500; seed++) {
-      const n = openNegotiation(rng, 6_000, 1);
+      const n = openNegotiation(rng, 6_000, 1, BASE_HAGGLE_SKILL);
       let guard = 0;
-      while (n.status === 'open' && countersRemaining(n) > 0) {
-        resolveCounter(rng, n, Math.min(n.anchor, n.currentOffer + 100));
+      while (n.status === 'open' && countersRemaining(n, BASE_HAGGLE_SKILL) > 0) {
+        resolveCounter(rng, n, Math.min(n.anchor, n.currentOffer + 100), BASE_HAGGLE_SKILL);
         if (++guard > CFG.maxPlayerCounters + 1) break;
       }
       expect(guard).toBeLessThanOrEqual(CFG.maxPlayerCounters);
-      expect(countersRemaining(n) === 0 || n.status !== 'open').toBe(true);
+      expect(countersRemaining(n, BASE_HAGGLE_SKILL) === 0 || n.status !== 'open').toBe(true);
     }
   });
 
@@ -184,7 +185,7 @@ describe('resolving a counter', () => {
     const rng = createRng(9);
     const n = neg({ countersMade: CFG.maxPlayerCounters - 1, reservation: 3_500 });
     // Asking far above their walk-away on the last round: they cannot come back.
-    const outcome = resolveCounter(rng, n, n.anchor);
+    const outcome = resolveCounter(rng, n, n.anchor, BASE_HAGGLE_SKILL);
     expect(outcome.kind === 'accepted' || outcome.kind === 'walked').toBe(true);
     expect(n.status).not.toBe('open');
   });
@@ -193,7 +194,7 @@ describe('resolving a counter', () => {
     const rng = createRng(3);
     const n = neg({ reservation: 4_000 });
     // At their own number, acceptance is certain.
-    const outcome = resolveCounter(rng, n, n.currentOffer);
+    const outcome = resolveCounter(rng, n, n.currentOffer, BASE_HAGGLE_SKILL);
     expect(outcome).toEqual({ kind: 'accepted', price: 3_500 });
     expect(n.currentOffer).toBe(3_500);
   });
@@ -206,10 +207,10 @@ describe('pushing harder loses more buyers', () => {
       let walked = 0;
       const runs = 3_000;
       for (let i = 0; i < runs; i++) {
-        const n = openNegotiation(rng, 10_000, 1);
+        const n = openNegotiation(rng, 10_000, 1, BASE_HAGGLE_SKILL);
         if (n.currentOffer >= n.anchor) continue;
         const counter = n.currentOffer + (n.anchor - n.currentOffer) * fraction;
-        if (resolveCounter(rng, n, counter).kind === 'walked') walked += 1;
+        if (resolveCounter(rng, n, counter, BASE_HAGGLE_SKILL).kind === 'walked') walked += 1;
       }
       return walked / runs;
     };
@@ -222,8 +223,8 @@ describe('sales desk counter', () => {
   it('lands between their offer and the ask, on the rounding grid', () => {
     const rng = createRng(64);
     for (let i = 0; i < 2_000; i++) {
-      const n = openNegotiation(rng, 7_500, 1);
-      const c = deskCounter(n);
+      const n = openNegotiation(rng, 7_500, 1, BASE_HAGGLE_SKILL);
+      const c = deskCounter(n, BASE_HAGGLE_SKILL);
       expect(c).toBeGreaterThanOrEqual(n.currentOffer);
       expect(c).toBeLessThanOrEqual(n.anchor);
       expect(c % roundingIncrement(n.anchor)).toBe(0);

@@ -1,5 +1,6 @@
 import { BALANCE } from './balance';
 import { getModel } from './models';
+import { rarityValueMult } from './rarity';
 import type { Car } from './types';
 
 /**
@@ -36,11 +37,18 @@ export function conditionFactor(condition: number): number {
  * Pricing recon off the model's base value instead makes bodywork on a
  * 200k-mile beater cost as much as bodywork on a new one, which silently makes
  * reconditioning a trap on every car in the opening stage.
+ *
+ * Trim grade belongs here for exactly that reason, and it is the ONLY place the
+ * rarity multiplier is applied. Retail, wholesale, the finance window, recon
+ * cost, recon value gain and the forced-sale haircut all compose from this, so
+ * one multiply prices a spoiler correctly everywhere. It also keeps recon ROI
+ * flat across grades — cost and value gain scale together — which is right: a
+ * lift kit does not make bodywork a better or worse investment.
  */
 export function conditionFreeValue(car: Car): number {
   const model = getModel(car.modelId);
   const repoPenalty = Math.max(0.5, 1 - car.repoCount * BALANCE.repoValuePenalty);
-  return model.baseValue * mileageFactor(car.mileage) * repoPenalty;
+  return model.baseValue * mileageFactor(car.mileage) * repoPenalty * rarityValueMult(car.rarity);
 }
 
 /** What the car will actually fetch in a straight cash sale. */
@@ -59,12 +67,21 @@ export function wholesaleValue(car: Car): number {
 }
 
 /**
- * The buy-here-pay-here window sticker. Marked well above cash retail, which is
- * not a game exaggeration — it is how the business works. The customer is not
- * buying a car, they are buying approval.
+ * The buy-here-pay-here window sticker. Marked above cash retail, which is not a
+ * game exaggeration — it is how the business works. The customer is not buying a
+ * car, they are buying approval.
+ *
+ * `multiplier` is the store's, not the game's: it falls as you move upmarket,
+ * because a premium franchise is selling to someone who could have walked into a
+ * bank. Absolute dollars still climb, because the cars do.
+ *
+ * Deliberately required. It used to default to the small lot's 1.5x, and the one
+ * caller that took the default (the inventory sheet) quietly quoted subprime
+ * money on a Valmont. A wrong number shown confidently is worse than a compile
+ * error.
  */
-export function bhphPrice(car: Car): number {
-  return Math.round(retailValue(car) * BALANCE.bhphPriceMultiplier);
+export function bhphPrice(car: Car, multiplier: number): number {
+  return Math.round(retailValue(car) * multiplier);
 }
 
 /** Value of what is sitting on the lot, at cost. */

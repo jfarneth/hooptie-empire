@@ -15,6 +15,9 @@ export type CarTier = 'beater' | 'commuter' | 'family' | 'truck' | 'luxury';
 
 export interface CarModel {
   id: string;
+  /** Marque. On the franchise stages the whole feed is one of these. */
+  makeId: string;
+  /** Full display name, make included: "Renwick Comet". */
   name: string;
   tier: CarTier;
   bodyStyle: BodyStyle;
@@ -24,11 +27,23 @@ export interface CarModel {
 
 export type CarStatus = 'recon' | 'ready' | 'listed' | 'sold';
 
+/**
+ * Trim grade. Rolled once when the car is generated and never changes.
+ *
+ * Unlike condition, this is PUBLIC — you can see a spoiler and a lift kit — so
+ * it carries no appraisal noise. It multiplies what the car is worth while the
+ * seller's ask is drawn against stock trim, which is where the margin comes
+ * from. See rarity.ts.
+ */
+export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
+
 export interface Car {
   id: string;
   modelId: string;
   /** Paint colour index into BODY_COLORS, kept in state so it is stable across renders. */
   colorIndex: number;
+  /** Trim grade. Save data — see the v10 → v11 migration. */
+  rarity: Rarity;
   mileage: number;
   /** 0 = rough, 1 = showroom. */
   condition: number;
@@ -58,6 +73,15 @@ export interface Listing {
   expiresAt: Millis;
   /** Cosmetic label for the UI: where the car came from. */
   source: string;
+  /**
+   * How wrong this car looks, as a z-score drawn once at spawn.
+   *
+   * Stored rather than the estimate itself, so the displayed appraisal is a
+   * pure function of this draw and the current Buying level — levelling up
+   * sharpens the whole feed at once without re-rolling anything. See
+   * appraisal.ts.
+   */
+  appraisalNoise: number;
 }
 
 /**
@@ -90,7 +114,7 @@ export interface Note {
   paymentsTotal: number;
   paymentsRemaining: number;
   nextDueAt: Millis;
-  /** Consecutive missed payments. Repo triggers at BALANCE.repoAfterMissedPayments. */
+  /** Consecutive missed payments. Repo triggers at the player's repo threshold. */
   missedPayments: number;
   /** Cash actually collected so far, down payment excluded. */
   collected: number;
@@ -148,7 +172,60 @@ export interface Prospect {
   expiresAt: Millis;
 }
 
-export type StageId = 'curbstoner' | 'bhph';
+/**
+ * The dealership you are currently running. Ordered; see `STAGE_ORDER` and the
+ * stage table in stages.ts, which is where everything that varies by stage lives.
+ *
+ * Never test a capability by comparing stage ids — ask the stage. `financing`
+ * is true for five of the six, and a `=== 'smallUsed'` check would silently mean
+ * "no finance desk at a Valmont store".
+ */
+export type StageId =
+  | 'curbstone'
+  | 'smallUsed'
+  | 'largeUsed'
+  | 'lowCostFranchise'
+  | 'midsizeFranchise'
+  | 'premiumFranchise';
+
+/**
+ * Player proficiencies. These level from doing the thing rather than from
+ * spending money — upgrades buy capacity, skills earn quality.
+ *
+ * Kept as a `Record` rather than three named fields so the paper side of the
+ * business can get its own skill later without another save migration.
+ */
+export type SkillId = 'buy' | 'sell' | 'repair';
+
+export interface Skill {
+  /** 1..BALANCE.skills.maxLevel. */
+  level: number;
+  /** Progress toward the next level. Reset on level-up, pinned at 0 once maxed. */
+  xp: number;
+}
+
+/**
+ * Promotions: temporary boosts the business is running under.
+ *
+ * A `Record`-free union rather than a free string so an unknown id cannot get
+ * onto a save and then fail to resolve against the table. See promotions.ts.
+ */
+export type PromotionId = 'grandOpening';
+
+/**
+ * One promotion, running.
+ *
+ * `endsAt` is stamped when it starts rather than derived from a duration on
+ * every read, for the same reason `nextBillAt` is: the clock has to survive the
+ * app being closed, and a promotion whose length is recomputed from the current
+ * constants would silently lengthen or shorten itself when the admin console
+ * moved the knob under a run already in progress.
+ */
+export interface ActivePromotion {
+  id: PromotionId;
+  startedAt: Millis;
+  endsAt: Millis;
+}
 
 /**
  * Standing instruction for the sales desk once it is staffed.
@@ -156,6 +233,35 @@ export type StageId = 'curbstoner' | 'bhph';
  * which is the same calculation the deal sheet shows the player.
  */
 export type DealPolicy = 'manual' | 'cash' | 'finance' | 'auto';
+
+/**
+ * The house rules: standing constraints the player sets once and the business
+ * then runs under, whether or not anyone is watching.
+ *
+ * These live in GameState rather than in React for the same reason a negotiation
+ * does — they have to hold while the app is closed, or a policy would silently
+ * stop applying exactly when it matters most. Every default reproduces the
+ * behaviour the game had before the suite existed.
+ */
+export interface BusinessPolicy {
+  /**
+   * Cash the automation will not spend below. The retainer buyer and the
+   * standing shop order both stop here rather than running the float to zero.
+   */
+  minWorkingCapital: number;
+  /**
+   * Consecutive missed payments before the car comes back. Lower recovers the
+   * unit sooner and in better shape; higher gives a borrower rope to cure and
+   * collects more, at the cost of a rougher car whenever it does go bad.
+   */
+  repoAfterMissedPayments: number;
+  /**
+   * What the retainer buyer insists on: a discount to the worst-case wholesale
+   * it can see, as a share of that value. 0 is "anything that looks cheap at
+   * the bad end", which is what the buyer did before this existed.
+   */
+  minBuyMargin: number;
+}
 
 export interface Stats {
   carsSold: number;
@@ -184,13 +290,70 @@ export interface SimEvent {
     | 'repo'
     | 'walkaway'
     | 'recon-done'
-    | 'stage-up';
+    | 'stage-up'
+    | 'stage-down'
+    | 'skill-up'
+    | 'promotion'
+    | 'appraisal'
+    | 'expense'
+    | 'loan'
+    | 'retire'
+    | 'admin';
   label: string;
   amount?: number;
 }
 
 export interface RngState {
   s: number;
+}
+
+/**
+ * The shark's paper. One loan at a time, amortized weekly on the bills beat.
+ *
+ * The one contract in the game where the PLAYER is the mark. Its payment is the
+ * only charge allowed to push the balance below zero — see `stepBills` — which
+ * is what makes taking it a real decision rather than free liquidity.
+ */
+export interface Loan {
+  originalPrincipal: number;
+  apr: number;
+  paymentAmount: number;
+  paymentsRemaining: number;
+  nextDueAt: Millis;
+  openedAt: Millis;
+}
+
+/** One line on the retirement scoreboard. Written once, never edited. */
+export interface RetirementRecord {
+  /** Which retirement this was: 1, 2, 3... */
+  n: number;
+  /** Wall-clock ms when it happened, for the scoreboard date. */
+  at: number;
+  /** Sim hours the run lasted. */
+  hours: number;
+  /** The stage the business retired from. */
+  stage: StageId;
+  /** What the whole operation fetched, before the shark was paid. */
+  gross: number;
+  /** What the shark was owed and took off the top. */
+  debt: number;
+  /** What actually hit the scoreboard. Never negative. */
+  net: number;
+  /** Points earned from this retirement alone. */
+  points: number;
+}
+
+/**
+ * Everything that survives selling the business. Deliberately tiny: the whole
+ * design of retirement is that this block, the skills and the tuning overrides
+ * are the ONLY things a new run inherits.
+ */
+export interface PrestigeState {
+  /** Retirements completed. Increments even on a $0 bail-out. */
+  count: number;
+  /** Lifetime retirement points across every sale. What the edge derives from. */
+  points: number;
+  history: RetirementRecord[];
 }
 
 export interface GameState {
@@ -208,11 +371,35 @@ export interface GameState {
   notes: Note[];
   /** Upgrade id -> level owned. */
   upgrades: Record<string, number>;
+  /** Proficiencies earned by playing. See skills.ts. */
+  skills: Record<SkillId, Skill>;
   /** Standing order for the sales desk. Only acted on once 'salesDesk' is owned. */
   dealPolicy: DealPolicy;
+  /** House rules the whole business runs under. See BusinessPolicy. */
+  business: BusinessPolicy;
+  /** Promotions currently running. Empty most of the time. See promotions.ts. */
+  promotions: ActivePromotion[];
+  /** What carries across retirements. See PrestigeState. */
+  prestige: PrestigeState;
+  /** Outstanding shark loan, or null. One at a time, enforced in takeLoan. */
+  loan: Loan | null;
+  /**
+   * Admin console overrides on the tuning constants, keyed by dotted path.
+   * Sparse — only knobs that differ from the shipped value. Lives on the save so
+   * a run still replays identically; see tuning.ts for why this is the one place
+   * the simulation is allowed to write a global.
+   */
+  tuning: Record<string, number>;
   stats: Stats;
   /** Ring buffer of recent events; trimmed to BALANCE.eventLogSize. */
   events: SimEvent[];
+  /**
+   * When the next weekly bill falls due. Lives on the save for the same reason a
+   * note's due date does: the business runs while the app is closed, and rent
+   * that only accrued while somebody was watching would make closing the app a
+   * way to avoid it.
+   */
+  nextBillAt: Millis;
   /** Wall-clock ms at last save, used to compute offline elapsed time. */
   lastSeenAt: number;
   /** Monotonic counter for entity ids, so ids are deterministic given a seed. */

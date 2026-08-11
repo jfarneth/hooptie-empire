@@ -3,9 +3,11 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MS_PER_GAME_WEEK } from '../../sim/balance';
 import { portfolioValue } from '../../sim/economy';
 import { activeNotes, remainingScheduled } from '../../sim/notes';
+import { getStage } from '../../sim/stages';
 import { collectionsCapacity } from '../../sim/upgrades';
 import type { GameState, Note } from '../../sim/types';
 import { TIER_COLOR, duration, money, moneyShort, theme } from '../theme';
+import { HUD_HEIGHT } from '../components/Hud';
 import { Card, Chip, EmptyState, Label, Meter, Row } from '../components/ui';
 
 /**
@@ -14,7 +16,7 @@ import { Card, Chip, EmptyState, Label, Meter, Row } from '../components/ui';
  * arc of the business.
  */
 export function NotesScreen({ state }: { state: GameState }) {
-  if (state.stage !== 'bhph') {
+  if (!getStage(state.stage).financing) {
     return (
       <EmptyState
         title="No finance desk yet"
@@ -26,6 +28,8 @@ export function NotesScreen({ state }: { state: GameState }) {
   const active = activeNotes(state.notes);
   const closed = state.notes.filter((n) => n.status === 'paid' || n.status === 'defaulted');
   const capacity = collectionsCapacity(state);
+  const atLimit = active.length >= capacity;
+  const overCapacity = active.length > capacity;
   const delinquent = active.filter((n) => n.status === 'delinquent');
 
   const weeklyScheduled = active.reduce((sum, n) => sum + n.paymentAmount, 0);
@@ -52,22 +56,25 @@ export function NotesScreen({ state }: { state: GameState }) {
         <View style={{ gap: 4 }}>
           <Row style={{ justifyContent: 'space-between' }}>
             <Text style={styles.metaLabel}>Collections desk</Text>
-            <Text
-              style={[
-                styles.metaValue,
-                active.length > capacity && { color: theme.colors.danger },
-              ]}
-            >
+            <Text style={[styles.metaValue, atLimit && { color: theme.colors.danger }]}>
               {active.length} / {capacity} notes
             </Text>
           </Row>
           <Meter
             progress={active.length / Math.max(1, capacity)}
-            color={active.length > capacity ? theme.colors.danger : theme.colors.accent}
+            color={atLimit ? theme.colors.danger : theme.colors.accent}
           />
-          {active.length > capacity ? (
+          {/* Two distinct states, and they are not the same problem. Full is the
+              rule working; over is a book that predates the rule, or one whose
+              desk shrank underneath it, and that one still bleeds. */}
+          {overCapacity ? (
             <Text style={styles.warning}>
-              Over capacity. Everyone on the book is likelier to miss until you staff up.
+              Over capacity. Everyone on the book is likelier to miss, and no new contracts get
+              written, until it comes back under {capacity}.
+            </Text>
+          ) : atLimit ? (
+            <Text style={styles.warning}>
+              Full. Walk-ups get sold the car instead of the payment until something closes out.
             </Text>
           ) : null}
         </View>
@@ -172,7 +179,7 @@ function NoteRow({ note, now }: { note: Note; now: number }) {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 8, paddingBottom: 32 },
+  content: { padding: 16, paddingTop: HUD_HEIGHT + 12, gap: 8, paddingBottom: 32 },
   headline: {
     color: theme.colors.text,
     fontSize: 22,

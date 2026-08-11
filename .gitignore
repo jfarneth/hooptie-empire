@@ -39,3 +39,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Sprite pipeline intermediates. The repainted atlases and the full-size Cycles
+# renders are regenerable from models/ + config.json, and together they are
+# ~17MB. What ships is the packed output under src/ui/art/sprites/.
+tools/render-sprites/build/

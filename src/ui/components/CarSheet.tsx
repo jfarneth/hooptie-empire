@@ -1,14 +1,17 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { canRecon, reconCost, reconDurationMs, reconLift, reconValueGain } from '../../sim/cars';
-import { bhphPrice, retailValue, wholesaleValue } from '../../sim/economy';
+import { reconModsFor } from '../../sim/skills';
+import { retailValue, wholesaleValue } from '../../sim/economy';
 import { getModel } from '../../sim/models';
-import { level } from '../../sim/upgrades';
+import { RARITIES, rarityValueMult } from '../../sim/rarity';
+import { getStage } from '../../sim/stages';
+import { windowPrice } from '../../sim/engine';
 import type { Car, GameState } from '../../sim/types';
-import { duration, money, theme } from '../theme';
-import { CarSvg } from './CarSvg';
+import { RARITY_COLOR, duration, money, theme } from '../theme';
+import { CarArt } from '../art/CarArt';
 import { Sheet } from './Sheet';
-import { Button, Meter, Row } from './ui';
+import { Button, Chip, Meter, Row } from './ui';
 
 /** Inventory detail: what this car is worth, what it needs, and what to do with it. */
 export function CarSheet({
@@ -31,15 +34,17 @@ export function CarSheet({
   if (!car) return <Sheet visible={false} title="" onClose={onClose} children={null} />;
 
   const model = getModel(car.modelId);
+  const badge = RARITIES[car.rarity].badge;
   const retail = retailValue(car);
-  const reference = state.stage === 'bhph' ? bhphPrice(car) : retail;
-  const cost = reconCost(car);
-  const canWork = canRecon(car);
+  const reference = windowPrice(state, car);
+  const shop = reconModsFor(state);
+  const cost = reconCost(car, shop);
+  const canWork = canRecon(car, shop);
   const affordable = state.cash >= cost;
 
   // Quoted straight from the sim so the sheet can never promise a different
   // number than the engine delivers.
-  const gain = reconValueGain(car);
+  const gain = reconValueGain(car, shop);
   const reconProgress = car.reconTotalMs > 0 ? 1 - car.reconRemainingMs / car.reconTotalMs : 0;
 
   return (
@@ -52,19 +57,33 @@ export function CarSheet({
       onClose={onClose}
     >
       <View style={styles.hero}>
-        <CarSvg
-          bodyStyle={model.bodyStyle}
+        <CarArt
+          modelId={car.modelId}
           colorIndex={car.colorIndex}
           condition={car.condition}
+          rarity={car.rarity}
           width={220}
         />
       </View>
 
+      {badge ? (
+        <Row gap={8} style={styles.grade}>
+          <Chip text={badge.toUpperCase()} color={RARITY_COLOR[car.rarity]} filled />
+          <Text style={styles.gradeNote}>
+            Worth {Math.round((rarityValueMult(car.rarity) - 1) * 100)}% more than the same car in
+            stock trim — and nobody charged you for it.
+          </Text>
+        </Row>
+      ) : null}
+
       <View style={styles.figures}>
         <Figure label="You paid" value={money(car.costBasis)} />
-        <Figure label="Cash retail" value={money(retail)} />
-        {state.stage === 'bhph' ? (
-          <Figure label="Lot price" value={money(bhphPrice(car))} accent />
+        <Figure label="Cash retail" value={money(retail)} accent />
+        {getStage(state.stage).financing ? (
+          // What somebody who needs financing pays for the same car. The premium
+          // is the price of getting approved and it belongs on the contract, not
+          // on the windscreen — a cash buyer never sees this number.
+          <Figure label="Financed" value={money(windowPrice(state, car))} />
         ) : (
           <Figure label="Wholesale" value={money(wholesaleValue(car))} />
         )}
@@ -90,8 +109,8 @@ export function CarSheet({
             <Text style={styles.blockValue}>{money(cost)}</Text>
           </Row>
           <Text style={styles.hint}>
-            Takes {duration(reconDurationMs(car, level(state, 'mechanic')))}, lifts condition to{' '}
-            {Math.round(Math.min(1, car.condition + reconLift(car)) * 100)}% and adds roughly{' '}
+            Takes {duration(reconDurationMs(car, shop))}, lifts condition to{' '}
+            {Math.round(Math.min(1, car.condition + reconLift(car, shop)) * 100)}% and adds roughly{' '}
             {money(gain)} of value.
           </Text>
           <Button
@@ -159,6 +178,8 @@ function Figure({ label, value, accent }: { label: string; value: string; accent
 }
 
 const styles = StyleSheet.create({
+  grade: { alignItems: 'flex-start' },
+  gradeNote: { flex: 1, color: theme.colors.textDim, fontSize: 11, lineHeight: 15 },
   hero: {
     alignItems: 'center',
     paddingVertical: 8,

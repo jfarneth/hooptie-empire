@@ -1,6 +1,7 @@
 import { BALANCE } from './balance';
 import { bhphPrice, retailValue } from './economy';
-import { openNegotiation } from './haggle';
+import { openNegotiation, type HaggleSkill } from './haggle';
+import { getStage } from './stages';
 import { mintId } from './ids';
 import { customerName } from './models';
 import { buildTerms } from './notes';
@@ -34,9 +35,15 @@ export function generateProspect(
   rng: RngState,
   car: Car,
   underwritingLevel: number,
+  haggle: HaggleSkill,
   now: Millis,
 ): Prospect {
-  const weights = tierWeights(underwritingLevel);
+  const stage = getStage(state.stage);
+  // An upmarket store draws better credit through the door before anyone
+  // screens anybody, so the stage's shift stacks onto whatever underwriting
+  // buys. Expressed in equivalent underwriting levels so there is one curve
+  // rather than two that have to be kept in agreement.
+  const weights = tierWeights(underwritingLevel + stage.creditShift);
   const tier = pickWeighted(rng, TIERS, weights);
   const name = customerName(intRange(rng, 0, 999), intRange(rng, 0, 999));
 
@@ -50,9 +57,9 @@ export function generateProspect(
   // Overpricing is measured against cash retail, so asking over market makes
   // cash buyers open harder — the same pressure that thins out foot traffic.
   const overpricing = retail > 0 ? car.askPrice / retail : 1;
-  const negotiation = openNegotiation(rng, cashCeiling, overpricing);
+  const negotiation = openNegotiation(rng, cashCeiling, overpricing, haggle);
 
-  const price = bhphPrice(car);
+  const price = bhphPrice(car, stage.bhphMultiplier);
   const weeks = BALANCE.termWeeks[intRange(rng, 0, BALANCE.termWeeks.length - 1)];
   const terms = buildTerms(tier, price, weeks, range(rng, 0.85, 1.15));
   const downPayment = price - terms.amountFinanced;
@@ -73,6 +80,6 @@ export function generateProspect(
 export const TIER_BLURB: Record<CreditTier, string> = {
   A: 'Good credit. Small down, low rate, almost always pays.',
   B: 'Bruised credit. Reasonable down, pays most weeks.',
-  C: 'Subprime. Solid down payment, misses now and then.',
-  D: 'Deep subprime. Big money down, and a real chance you see the car again.',
+  C: 'Subprime. Solid down payment, misses more often than not lately.',
+  D: 'Deep subprime. Big money down, and you will probably see the car again.',
 };

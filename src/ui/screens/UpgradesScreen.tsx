@@ -1,11 +1,25 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { purchaseUpgrade, setDealPolicy } from '../../sim/actions';
-import { UPGRADES, getUpgrade, level, upgradeCost, type UpgradeDef } from '../../sim/upgrades';
-import type { DealPolicy, GameState } from '../../sim/types';
+import { purchaseUpgrade } from '../../sim/actions';
+import {
+  UPGRADES,
+  getUpgrade,
+  level,
+  upgradeCost,
+  upgradeUnlocked,
+  weeklyWage,
+  type UpgradeDef,
+} from '../../sim/upgrades';
+import { SKILLS } from '../../sim/skills';
+import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
-import { money, theme } from '../theme';
-import { Button, Card, Chip, Label, Row } from '../components/ui';
+import { money, moneyShort, theme } from '../theme';
+import { HUD_HEIGHT } from '../components/Hud';
+import { Button, Chip, Label, Row } from '../components/ui';
+import { AdminPanel } from '../components/AdminPanel';
+import { BusinessPanel } from '../components/BusinessPanel';
+import { RetirePanel } from '../components/RetirePanel';
+import { SkillCard } from '../components/SkillCard';
 
 const CATEGORY_TITLE: Record<string, string> = {
   automation: 'Take your hands off it',
@@ -14,67 +28,85 @@ const CATEGORY_TITLE: Record<string, string> = {
   finance: 'The book',
 };
 
-const POLICY_LABEL: Record<DealPolicy, string> = {
-  manual: 'Ask me',
-  cash: 'Always cash',
-  finance: 'Always finance',
-  auto: 'Whichever pays more',
+type OfficeTab = 'upgrades' | 'skills' | 'business' | 'retire' | 'admin';
+
+const TAB_LABEL: Record<OfficeTab, string> = {
+  upgrades: 'Upgrades',
+  skills: 'Skills',
+  business: 'Business',
+  retire: 'Retire',
+  admin: 'Admin',
 };
 
-const POLICY_HINT: Record<DealPolicy, string> = {
-  manual: 'Every walk-up waits for you to decide.',
-  cash: 'Take the money and move the next car in.',
-  finance: 'Write paper on everyone who will sign, whatever their credit.',
-  auto: 'Compare the cash offer against the expected value of the note, deal by deal.',
-};
-
+/**
+ * The office: the things that are true about the business rather than about any
+ * one car. What money buys, what the work has taught you, the rules the place
+ * runs under while you are not in it — and, on the last tab, the constants the
+ * whole simulation is built from.
+ *
+ * The standing order lives on the Business tab rather than next to the upgrade
+ * that unlocks it, because it is the same kind of object as the house rules —
+ * an instruction that keeps applying with the app closed — and it reads as one
+ * decision surface alongside them instead of as a footnote to a purchase.
+ */
 export function UpgradesScreen({ state }: { state: GameState }) {
   const apply = useGame((s) => s.apply);
-  const hasDesk = level(state, 'salesDesk') > 0;
+  const [tab, setTab] = useState<OfficeTab>('upgrades');
 
-  const available = UPGRADES.filter((u) => u.stage === 'curbstoner' || state.stage === 'bhph');
+  const available = UPGRADES.filter((u) => upgradeUnlocked(state, u));
   const categories = ['automation', 'capacity', 'speed', 'finance'] as const;
 
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      {hasDesk ? (
-        <Card style={{ gap: 8 }}>
-          <Label>Standing order</Label>
-          <Text style={styles.policyHint}>{POLICY_HINT[state.dealPolicy]}</Text>
-          <View style={styles.policyRow}>
-            {(Object.keys(POLICY_LABEL) as DealPolicy[]).map((policy) => {
-              const selected = state.dealPolicy === policy;
-              return (
-                <Button
-                  key={policy}
-                  label={POLICY_LABEL[policy]}
-                  tone={selected ? 'primary' : 'ghost'}
-                  onPress={() => apply((s) => setDealPolicy(s, policy))}
-                  style={styles.policyButton}
-                />
-              );
-            })}
-          </View>
-        </Card>
-      ) : null}
+      <View style={styles.tabs}>
+        {(Object.keys(TAB_LABEL) as OfficeTab[]).map((id) => (
+          <Button
+            key={id}
+            label={TAB_LABEL[id]}
+            tone={tab === id ? 'primary' : 'ghost'}
+            onPress={() => setTab(id)}
+            style={styles.tab}
+          />
+        ))}
+      </View>
 
-      {categories.map((category) => {
-        const items = available.filter((u) => u.category === category);
-        if (items.length === 0) return null;
-        return (
-          <View key={category} style={{ gap: 8 }}>
-            <Label>{CATEGORY_TITLE[category]}</Label>
-            {items.map((def) => (
-              <UpgradeCard
-                key={def.id}
-                def={def}
-                state={state}
-                onBuy={() => apply((s) => purchaseUpgrade(s, def.id))}
-              />
-            ))}
-          </View>
-        );
-      })}
+      {tab === 'skills' ? (
+        <View style={{ gap: 8 }}>
+          <Label>What the work has taught you</Label>
+          <Text style={styles.skillsHint}>
+            These level on their own, from doing the thing. Nothing here is for sale.
+          </Text>
+          {SKILLS.map((def) => (
+            <SkillCard key={def.id} def={def} state={state} />
+          ))}
+        </View>
+      ) : tab === 'business' ? (
+        <BusinessPanel state={state} />
+      ) : tab === 'retire' ? (
+        <RetirePanel state={state} />
+      ) : tab === 'admin' ? (
+        <AdminPanel state={state} />
+      ) : (
+        <>
+          {categories.map((category) => {
+            const items = available.filter((u) => u.category === category);
+            if (items.length === 0) return null;
+            return (
+              <View key={category} style={{ gap: 8 }}>
+                <Label>{CATEGORY_TITLE[category]}</Label>
+                {items.map((def) => (
+                  <UpgradeCard
+                    key={def.id}
+                    def={def}
+                    state={state}
+                    onBuy={() => apply((s) => purchaseUpgrade(s, def.id))}
+                  />
+                ))}
+              </View>
+            );
+          })}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -90,8 +122,13 @@ function UpgradeCard({
 }) {
   const lvl = level(state, def.id);
   const maxed = lvl >= def.maxLevel;
-  const cost = upgradeCost(getUpgrade(def.id), lvl);
+  const cost = upgradeCost(getUpgrade(def.id), lvl, state.stage);
   const affordable = state.cash >= cost;
+  // What this level adds to the weekly bill, for ever. A hire is a standing
+  // commitment, not a purchase, and the button has to say so before the tap —
+  // finding out afterwards, from a ledger line, is how a player ends up staffed
+  // past what the lot can carry.
+  const wage = weeklyWage(def, state.stage);
 
   return (
     <View style={[styles.card, maxed && styles.cardMaxed]}>
@@ -113,6 +150,7 @@ function UpgradeCard({
       {!maxed ? (
         <Button
           label={money(cost)}
+          sublabel={wage > 0 ? `+${moneyShort(wage)}/wk` : 'no wage'}
           tone={affordable ? 'money' : 'ghost'}
           disabled={!affordable}
           onPress={onBuy}
@@ -124,7 +162,7 @@ function UpgradeCard({
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 14, paddingBottom: 32 },
+  content: { padding: 16, paddingTop: HUD_HEIGHT + 12, gap: 14, paddingBottom: 32 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -138,8 +176,8 @@ const styles = StyleSheet.create({
   cardMaxed: { opacity: 0.6, borderColor: theme.colors.moneyDim },
   name: { color: theme.colors.text, fontSize: 14, fontWeight: '700' },
   description: { color: theme.colors.textDim, fontSize: 12, lineHeight: 16 },
-  buyButton: { minWidth: 92 },
-  policyHint: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 16 },
-  policyRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  policyButton: { flexGrow: 1, flexBasis: '45%' },
+  buyButton: { minWidth: 104 },
+  tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tab: { flexGrow: 1, flexBasis: 70, paddingHorizontal: 6 },
+  skillsHint: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 16 },
 });
