@@ -18,6 +18,7 @@ import { HUD_HEIGHT } from '../components/Hud';
 import { Button, Chip, Label, Row } from '../components/ui';
 import { AdminPanel } from '../components/AdminPanel';
 import { BusinessPanel } from '../components/BusinessPanel';
+import { RetirePanel } from '../components/RetirePanel';
 import { SkillCard } from '../components/SkillCard';
 
 const CATEGORY_TITLE: Record<string, string> = {
@@ -27,12 +28,13 @@ const CATEGORY_TITLE: Record<string, string> = {
   finance: 'The book',
 };
 
-type OfficeTab = 'upgrades' | 'skills' | 'business' | 'admin';
+type OfficeTab = 'upgrades' | 'skills' | 'business' | 'retire' | 'admin';
 
 const TAB_LABEL: Record<OfficeTab, string> = {
   upgrades: 'Upgrades',
   skills: 'Skills',
   business: 'Business',
+  retire: 'Retire',
   admin: 'Admin',
 };
 
@@ -80,6 +82,8 @@ export function UpgradesScreen({ state }: { state: GameState }) {
         </View>
       ) : tab === 'business' ? (
         <BusinessPanel state={state} />
+      ) : tab === 'retire' ? (
+        <RetirePanel state={state} />
       ) : tab === 'admin' ? (
         <AdminPanel state={state} />
       ) : (

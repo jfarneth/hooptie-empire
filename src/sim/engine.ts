@@ -24,6 +24,7 @@ import {
   openNote,
   overCapacityFactor,
 } from './notes';
+import { prestigeEdge } from './prestige';
 import { chance, createRng, normalish, pick, range } from './rng';
 import {
   blankSkills,
@@ -52,7 +53,7 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -119,6 +120,8 @@ function blankState(seed: number, wallNow: number): GameState {
       lifetimeProfit: 0,
     },
     events: [],
+    prestige: { count: 0, points: 0, history: [] },
+    loan: null,
     // The first bill lands a week in, not on the opening tick: a new game should
     // not owe rent before it has seen a car.
     nextBillAt: MS_PER_GAME_WEEK,
@@ -184,30 +187,55 @@ function stepBills(s: GameState): void {
   s.nextBillAt += MS_PER_GAME_WEEK;
 
   const bill = weeklyExpenses(s);
-  if (bill.total <= 0) return;
 
-  // Paid out of cash, and cash does not go negative. A business that cannot
-  // make rent is a real situation and deserves a real mechanic, but a silent
-  // negative balance is not it — every buying gate in the game reads `cash >=
-  // price` and none of them expect to be handed a debt. The shortfall is logged
-  // so it is visible rather than swallowed.
-  const paid = Math.min(s.cash, bill.total);
-  const short = bill.total - paid;
-  s.cash -= paid;
-  s.stats.lifetimeProfit -= paid;
+  // Rent, wages and floorplan are paid out of cash, and cash does not go
+  // negative FOR THEM. A business that cannot make rent is a real situation,
+  // but a silent negative balance is not the mechanic for it — every buying
+  // gate in the game reads `cash >= price`. The shortfall is logged so it is
+  // visible rather than swallowed.
+  const overheads = bill.total - bill.debtService;
+  if (overheads > 0) {
+    const paid = Math.min(Math.max(0, s.cash), overheads);
+    const short = overheads - paid;
+    s.cash -= paid;
+    s.stats.lifetimeProfit -= paid;
+    logEvent(s, {
+      t: s.t,
+      kind: 'expense',
+      label: short > 0 ? 'Weekly costs — could not cover them all' : 'Weekly costs',
+      amount: -paid,
+    });
+  }
 
-  logEvent(s, {
-    t: s.t,
-    kind: 'expense',
-    label: short > 0 ? 'Weekly costs — could not cover them all' : 'Weekly costs',
-    amount: -paid,
-  });
+  // THE SHARK ALWAYS COLLECTS. His payment is the one charge in the game that
+  // drives the balance below zero — that is the price of the liquidity, and it
+  // is what makes his money different from yours. There is no missed-payment
+  // state and no compounding shortfall: the schedule simply runs, and if the
+  // business cannot carry it the hole deepens each week until the player either
+  // recovers or retires. Retirement settles him off the top of the sale.
+  if (s.loan) {
+    s.cash -= s.loan.paymentAmount;
+    s.stats.lifetimeProfit -= s.loan.paymentAmount;
+    s.loan.paymentsRemaining -= 1;
+    logEvent(s, {
+      t: s.t,
+      kind: 'loan',
+      label:
+        s.loan.paymentsRemaining > 0
+          ? `The shark's cut — ${s.loan.paymentsRemaining} to go`
+          : 'The shark is paid off',
+      amount: -s.loan.paymentAmount,
+    });
+    if (s.loan.paymentsRemaining <= 0) s.loan = null;
+  }
 }
 
 export interface WeeklyExpenses {
   rent: number;
   payroll: number;
   floorplan: number;
+  /** The shark's weekly payment, when a loan is out. */
+  debtService: number;
   total: number;
 }
 
@@ -230,7 +258,12 @@ export function weeklyExpenses(s: GameState): WeeklyExpenses {
   const tiedUp = s.cars.reduce((sum, c) => (c.status === 'sold' ? sum : sum + c.costBasis), 0);
   const floorplan = Math.round(tiedUp * BALANCE.expenses.floorplanWeeklyRate);
 
-  return { rent, payroll, floorplan, total: rent + payroll + floorplan };
+  // In the total so the reserve floor and the harness hold money back for it —
+  // an automated business that budgets for rent but not for the shark walks
+  // straight into the hole the reserve exists to prevent.
+  const debtService = s.loan ? s.loan.paymentAmount : 0;
+
+  return { rent, payroll, floorplan, debtService, total: rent + payroll + floorplan + debtService };
 }
 
 // ------------------------------------------------------------------ recon
@@ -283,7 +316,11 @@ function spawnListing(s: GameState): void {
   const model = pick(s.rng, models);
 
   const car = generateCar(s, s.rng, model, s.t, stockProfile(sourcing));
-  const ask = Math.round(wholesaleValue(car) * range(s.rng, sourcing.askMin, sourcing.askMax));
+  // A retired-and-returned dealer buys cheaper everywhere — auction or invoice.
+  // Applied after the draw so the RNG stream is identical with or without an
+  // edge; the discount is deterministic from the save's prestige points.
+  const edge = 1 - prestigeEdge(s);
+  const ask = Math.round(wholesaleValue(car) * range(s.rng, sourcing.askMin, sourcing.askMax) * edge);
 
   s.listings.push({
     id: mintId(s, 'lst'),
@@ -765,6 +802,10 @@ export function cloneState(s: GameState): GameState {
     // Nested and mutable: a shared policy object would let a rule change made
     // now rewrite the rules a historical state was running under.
     business: { ...s.business },
+    // The history is an array of records and the loan is written by the tick,
+    // so both need real copies or mutations leak backwards through history.
+    prestige: { ...s.prestige, history: s.prestige.history.map((r) => ({ ...r })) },
+    loan: s.loan ? { ...s.loan } : null,
     tuning: { ...s.tuning },
     stats: { ...s.stats },
     events: s.events.map((e) => ({ ...e })),

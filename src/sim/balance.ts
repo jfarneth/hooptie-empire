@@ -322,6 +322,44 @@ export const BALANCE = {
     reopeningCars: 6,
   },
 
+  // ---------------------------------------------------------------- retirement
+  /**
+   * Selling the whole operation and starting over. `src/sim/prestige.ts` does
+   * the arithmetic; these are the dials.
+   *
+   * Points are LINEAR in the money retired — one point per `pointDollars` of
+   * net sale — on purpose. Value grows roughly 10x per rung while time grows
+   * roughly 3x, so a linear award makes the deep run the way to earn and the
+   * early retirement worth almost nothing, which is exactly the split wanted:
+   * bailing out of a dead run is an escape hatch, and the reset IS the reward.
+   */
+  prestige: {
+    /** What a note buyer pays for the book, as a share of outstanding principal. */
+    notesSaleRate: 0.7,
+    /** One retirement point per this many dollars of net sale value. */
+    pointDollars: 1_000_000,
+    /** Buy-side edge per point: every ask is this much cheaper, used or invoice. */
+    edgePerPoint: 0.002,
+    /** The edge never exceeds this, however long the career. */
+    edgeCap: 0.15,
+  },
+
+  /**
+   * The shark. One loan at a time, sized in cars — the unit that matters — but
+   * never presented that way: the UI shows a dollar figure, take it or leave it.
+   *
+   * The APR is predatory because the lender knows exactly how stuck you are,
+   * and its weekly payment is the one charge in the game allowed to drive the
+   * balance negative. That is the whole trade: real liquidity now, a hole that
+   * digs itself if the recovery does not come, and retirement as the only
+   * guaranteed way out.
+   */
+  loan: {
+    carsOffered: 4,
+    apr: 0.32,
+    termWeeks: 24,
+  },
+
   // -------------------------------------------------------------- progression
   // Entry costs, staff cost multipliers, per-stage capacities and per-stage
   // sourcing all live in the STAGES table in stages.ts, following the precedent

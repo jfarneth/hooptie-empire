@@ -28,6 +28,9 @@ function fingerprint(s: GameState) {
     nextId: s.nextId,
     cars: s.cars.map((c) => `${c.id}:${c.status}:${c.condition.toFixed(4)}:${c.costBasis}`),
     notes: s.notes.map((n) => `${n.id}:${n.status}:${n.principal.toFixed(4)}:${n.paymentsRemaining}`),
+    // The tick amortizes the shark's loan, so the schedule is part of the
+    // fingerprint — a slice-size bug here would double- or skip-charge it.
+    loan: s.loan ? `${s.loan.paymentAmount}:${s.loan.paymentsRemaining}` : 'none',
     listings: s.listings.map((l) => `${l.id}:${l.price}`),
     // Negotiation fields are included deliberately: a prospect's haggle is
     // nested mutable state, so this is what catches a missed clone in

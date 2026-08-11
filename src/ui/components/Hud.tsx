@@ -27,7 +27,9 @@ export function Hud({ state }: { state: GameState }) {
   return (
     <View style={styles.hud}>
       <View style={styles.left}>
-        <Text style={styles.cash}>{money(state.cash)}</Text>
+        <Text style={[styles.cash, state.cash < 0 && { color: theme.colors.danger }]}>
+          {money(state.cash)}
+        </Text>
         <Text style={styles.stage}>{stage.shortName}</Text>
       </View>
 

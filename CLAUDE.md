@@ -279,6 +279,42 @@ The HUD floats over the screens rather than sitting above them, so every scroll
 view pads its content by `HUD_HEIGHT`. A new screen that forgets starts under the
 cash readout.
 
+## Retirement, the shark, and the one bill that goes below zero
+
+**Retirement is the prestige layer and the ultimate escape hatch, and it is one
+mechanic serving both jobs on purpose.** `retire()` in `actions.ts` sells the
+whole operation — cash, the lot at `forcedSaleRate`, the book to a note buyer at
+`notesSaleRate` of principal — settles the shark off the top, logs the net on
+the scoreboard, and starts a genuinely new game via `createInitialState`. What
+the next run inherits is deliberately short: skills, house rules, tuning
+overrides, and the prestige block. `retirementPreview` in `src/sim/prestige.ts`
+is the one place the sale is priced; the confirmation renders it and the action
+pays it, same rule as `stageMovePreview`.
+
+**Points are linear in the money retired — one per `pointDollars` of net — and
+that linearity is the anti-farm design.** Value grows ~10x per rung while time
+grows ~3x, so deep runs earn and an early bail earns ~nothing: the reset IS the
+reward for a dead run, which is why retirement needs no gate and has none. The
+counter still increments on a $0 bail — the board remembers everything,
+including the failures. Points buy a capped buy-side edge (`prestigeEdge`),
+applied where listings are priced so it hits auction and invoice alike, AFTER
+the RNG draw so the stream is identical with or without it.
+
+**The shark is the other half of the system.** One loan at a time, sized in
+cars (`BALANCE.loan.carsOffered`) but never presented that way — the UI shows
+his dollar figure, take it or leave it. His weekly payment rides `stepBills`,
+and it is **the one charge in the game allowed to drive cash below zero.** Rent
+and wages still floor at zero; his cut does not. That asymmetry is the entire
+design: a business with no loan can never go negative, so the old invariant
+holds for everyone who has not signed with him, and the trapdoor only opens by
+choice. There is no missed-payment state — the schedule simply runs, the hole
+deepens, and the way out is recovery or retirement, where he is settled from
+the proceeds even if that leaves a zero on the board.
+
+**The harness never retires and never borrows**, so both mechanics are
+unmeasured by `npm run sim` — the same caveat the house rules carry. A fresh
+run's edge is zero, so every baseline number is untouched by construction.
+
 ## Running costs, and the spiral they nearly caused
 
 **The business pays rent, wages and floorplan interest every game week**
@@ -385,7 +421,7 @@ business is dead, not taxed.
 ## Verify
 
 ```bash
-npm test        # 259 tests
+npm test        # 270 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2min
@@ -613,7 +649,7 @@ Most have a guarding test; check before "simplifying" the code around them.
   written for skills passed on a run that accrued zero XP. Mutation-test any
   test guarding a regression: break the code, watch it go red, put it back.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v7**. Saves are long-lived and local to the device; "we wiped
+  Currently **v9**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4

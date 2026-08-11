@@ -50,6 +50,7 @@ export const TUNABLE_GROUPS = [
   'Skills',
   'The ladder',
   'Running costs',
+  'Retirement',
 ] as const;
 
 export const TUNABLES: readonly TunableDef[] = [
@@ -70,6 +71,18 @@ export const TUNABLES: readonly TunableDef[] = [
     help: 'A hire’s weekly wage as a share of what that level cost to buy, so an expensive hire is expensive to keep. Staff only.' },
   { path: 'balance.expenses.floorplanWeeklyRate', label: 'Floorplan interest per week', group: 'Running costs', kind: 'percent', min: 0, max: 0.2,
     help: 'Charged on the cost basis of everything unsold on the lot. This is what makes dead stock cost money.' },
+
+  // --------------------------------------------------------------- retirement
+  { path: 'balance.prestige.pointDollars', label: 'Dollars per retirement point', group: 'Retirement', kind: 'money', min: 10_000, max: 100_000_000,
+    help: 'One point per this much net sale value. Linear on purpose: deep runs earn, early bails just reset.' },
+  { path: 'balance.prestige.edgePerPoint', label: 'Buy-side edge per point', group: 'Retirement', kind: 'percent', min: 0, max: 0.05,
+    help: 'Every ask — auction or invoice — is this much cheaper per point.' },
+  { path: 'balance.prestige.edgeCap', label: 'Edge cap', group: 'Retirement', kind: 'percent', min: 0, max: 0.5 },
+  { path: 'balance.prestige.notesSaleRate', label: 'Note buyer pays, share of principal', group: 'Retirement', kind: 'ratio', min: 0, max: 1 },
+  { path: 'balance.loan.carsOffered', label: 'Shark offer, in cars', group: 'Retirement', kind: 'int', min: 1, max: 20,
+    help: 'The UI never says this — it shows his dollar figure, take it or leave it.' },
+  { path: 'balance.loan.apr', label: 'Shark APR', group: 'Retirement', kind: 'percent', min: 0.05, max: 2 },
+  { path: 'balance.loan.termWeeks', label: 'Shark term, weeks', group: 'Retirement', kind: 'int', min: 4, max: 104 },
 
   // ----------------------------------------------------------------- the feed
   { path: 'balance.baseListingSlots', label: 'Feed slots', group: 'The feed', kind: 'int', min: 1, max: 30 },

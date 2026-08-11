@@ -260,6 +260,8 @@ export interface SimEvent {
     | 'skill-up'
     | 'appraisal'
     | 'expense'
+    | 'loan'
+    | 'retire'
     | 'admin';
   label: string;
   amount?: number;
@@ -267,6 +269,55 @@ export interface SimEvent {
 
 export interface RngState {
   s: number;
+}
+
+/**
+ * The shark's paper. One loan at a time, amortized weekly on the bills beat.
+ *
+ * The one contract in the game where the PLAYER is the mark. Its payment is the
+ * only charge allowed to push the balance below zero — see `stepBills` — which
+ * is what makes taking it a real decision rather than free liquidity.
+ */
+export interface Loan {
+  originalPrincipal: number;
+  apr: number;
+  paymentAmount: number;
+  paymentsRemaining: number;
+  nextDueAt: Millis;
+  openedAt: Millis;
+}
+
+/** One line on the retirement scoreboard. Written once, never edited. */
+export interface RetirementRecord {
+  /** Which retirement this was: 1, 2, 3... */
+  n: number;
+  /** Wall-clock ms when it happened, for the scoreboard date. */
+  at: number;
+  /** Sim hours the run lasted. */
+  hours: number;
+  /** The stage the business retired from. */
+  stage: StageId;
+  /** What the whole operation fetched, before the shark was paid. */
+  gross: number;
+  /** What the shark was owed and took off the top. */
+  debt: number;
+  /** What actually hit the scoreboard. Never negative. */
+  net: number;
+  /** Points earned from this retirement alone. */
+  points: number;
+}
+
+/**
+ * Everything that survives selling the business. Deliberately tiny: the whole
+ * design of retirement is that this block, the skills and the tuning overrides
+ * are the ONLY things a new run inherits.
+ */
+export interface PrestigeState {
+  /** Retirements completed. Increments even on a $0 bail-out. */
+  count: number;
+  /** Lifetime retirement points across every sale. What the edge derives from. */
+  points: number;
+  history: RetirementRecord[];
 }
 
 export interface GameState {
@@ -290,6 +341,10 @@ export interface GameState {
   dealPolicy: DealPolicy;
   /** House rules the whole business runs under. See BusinessPolicy. */
   business: BusinessPolicy;
+  /** What carries across retirements. See PrestigeState. */
+  prestige: PrestigeState;
+  /** Outstanding shark loan, or null. One at a time, enforced in takeLoan. */
+  loan: Loan | null;
   /**
    * Admin console overrides on the tuning constants, keyed by dotted path.
    * Sparse — only knobs that differ from the shipped value. Lives on the save so

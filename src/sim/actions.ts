@@ -1,6 +1,7 @@
 import { BALANCE } from './balance';
 import { businessPolicy, clampBusinessPolicy } from './business';
 import { beginRecon, canRecon, reconCost } from './cars';
+import { createInitialState } from './engine';
 import {
   acceptCash,
   acceptFinance,
@@ -14,9 +15,11 @@ import {
 import { wholesaleValue } from './economy';
 import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
+import { loanBalance, retirementPreview, sharkOffer } from './prestige';
 import { getStage, nextStage, stageRank, typicalCarPrice, type StageDef } from './stages';
 import { applyTuning, coerceTunable, defaultValue, getTunable, pruneTuning } from './tuning';
-import { haggleSkillFor, reconModsFor } from './skills';
+import { range } from './rng';
+import { cloneSkills, haggleSkillFor, reconModsFor } from './skills';
 import {
   UPGRADES,
   carCapacity,
@@ -516,6 +519,118 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
 export function advanceStage(state: GameState): GameState {
   const next = nextStage(state.stage);
   return next ? moveToStage(state, next.id) : state;
+}
+
+// ------------------------------------------------------------ the shark
+
+/**
+ * Take the shark's money. One loan at a time — he does not refinance, and he
+ * does not do seconds. The terms are whatever `sharkOffer` says for this store;
+ * there is no negotiation, which is the point of borrowing from a man like this.
+ */
+export function takeLoan(state: GameState): GameState {
+  return act(state, (s) => {
+    if (s.loan) return false;
+    const offer = sharkOffer(s);
+
+    s.cash += offer.principal;
+    s.loan = {
+      originalPrincipal: offer.principal,
+      apr: offer.apr,
+      paymentAmount: offer.weeklyPayment,
+      paymentsRemaining: offer.termWeeks,
+      nextDueAt: s.nextBillAt,
+      openedAt: s.t,
+    };
+    logEvent(s, {
+      t: s.t,
+      kind: 'loan',
+      label: `Borrowed from the shark — ${offer.termWeeks} weeks at ${Math.round(offer.apr * 100)}%`,
+      amount: offer.principal,
+    });
+    return true;
+  });
+}
+
+/**
+ * Clear the loan early. The payoff is every remaining payment, vig included —
+ * the shark keeps his interest whether the money runs long or short. Allowed
+ * only when the balance actually covers it; a payoff that dug the hole deeper
+ * would just be the weekly schedule with a button on it.
+ */
+export function payOffLoan(state: GameState): GameState {
+  return act(state, (s) => {
+    if (!s.loan) return false;
+    const owed = loanBalance(s.loan);
+    if (s.cash < owed) return false;
+
+    s.cash -= owed;
+    s.stats.lifetimeProfit -= owed;
+    s.loan = null;
+    logEvent(s, { t: s.t, kind: 'loan', label: 'Paid the shark off early', amount: -owed });
+    return true;
+  });
+}
+
+// ------------------------------------------------------------- retirement
+
+/**
+ * Sell the whole operation and start over.
+ *
+ * Allowed from any store, at any moment, in any financial condition — this is
+ * the game's ultimate escape hatch, and a hatch with preconditions is not one.
+ * The buyers pay cash for the business (`retirementPreview` is the contract),
+ * the shark is settled off the top, and whatever is left is logged on the
+ * scoreboard and converted to points.
+ *
+ * What the next run inherits is deliberately short: skills (the work taught
+ * you), tuning overrides (the admin console is meta), house rules (settings,
+ * not progress), and the prestige block itself. Everything else — stage, cash,
+ * cars, notes, upgrades, feed — is a genuinely new game via
+ * `createInitialState`, so there is never a second definition of what a new
+ * game is.
+ */
+export function retire(state: GameState): GameState {
+  const sale = retirementPreview(state);
+
+  // The new run's seed is drawn from the old run's stream: deterministic from
+  // the save, so a retirement replays identically, but different every career.
+  const seedSource = { s: state.rng.s };
+  const seed = Math.floor(range(seedSource, 1, 2 ** 31));
+
+  const fresh = createInitialState(seed, state.lastSeenAt);
+  fresh.skills = cloneSkills(state.skills);
+  fresh.business = { ...state.business };
+  fresh.tuning = { ...state.tuning };
+  fresh.prestige = {
+    count: state.prestige.count + 1,
+    points: state.prestige.points + sale.points,
+    history: [
+      ...state.prestige.history.map((r) => ({ ...r })),
+      {
+        n: state.prestige.count + 1,
+        at: state.lastSeenAt,
+        hours: state.t / 3_600_000,
+        stage: state.stage,
+        gross: sale.gross,
+        debt: sale.debt,
+        net: sale.net,
+        points: sale.points,
+      },
+    ],
+  };
+
+  logEvent(fresh, {
+    t: fresh.t,
+    kind: 'retire',
+    label:
+      sale.net > 0
+        ? `Retired — sold the empire for ${'$' + sale.net.toLocaleString()}${sale.points > 0 ? `, +${sale.points} point${sale.points > 1 ? 's' : ''}` : ''}`
+        : 'Retired with nothing — but clear of the shark',
+    amount: sale.net,
+  });
+
+  return fresh;
 }
 
 /** Expected value of the paper on this prospect, for the deal sheet. */

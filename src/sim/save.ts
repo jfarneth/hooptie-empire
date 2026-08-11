@@ -157,6 +157,14 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
    * every level they bought until they choose to move.
    */
   7: (s) => ({ ...s, nextBillAt: (s.t ?? 0) + MS_PER_GAME_WEEK }),
+
+  /**
+   * v8 → v9: retirement and the shark.
+   *
+   * An existing career simply has not retired yet and has not borrowed. Nothing
+   * about the run itself changes.
+   */
+  8: (s) => ({ ...s, prestige: { count: 0, points: 0, history: [] }, loan: null }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {
