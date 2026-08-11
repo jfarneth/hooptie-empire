@@ -239,15 +239,18 @@ export function setBusinessPolicy(state: GameState, patch: Partial<BusinessPolic
   return act(state, (s) => {
     const current = businessPolicy(s);
     const next = clampBusinessPolicy(patch, current);
-    if (
+    // No-op: returning false keeps state identity, so the UI does not re-render
+    // the whole lot every time a control re-reports the value it already had —
+    // which a slider does on every frame of a drag. Compared field by field
+    // rather than by JSON so a new rule shows up here as a type error rather
+    // than as a control that has quietly stopped working.
+    const unchanged =
       next.minWorkingCapital === current.minWorkingCapital &&
       next.repoAfterMissedPayments === current.repoAfterMissedPayments &&
-      next.minBuyMargin === current.minBuyMargin
-    ) {
-      // No-op: returning false keeps state identity, so the UI does not re-render
-      // the whole lot every time a control re-reports the value it already had.
-      return false;
-    }
+      next.minBuyMargin === current.minBuyMargin &&
+      next.minCashMarginZ === current.minCashMarginZ &&
+      next.minFinanceMarginZ === current.minFinanceMarginZ;
+    if (unchanged) return false;
     s.business = next;
     return true;
   });

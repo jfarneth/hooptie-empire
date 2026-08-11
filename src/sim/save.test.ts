@@ -157,6 +157,12 @@ describe('migration chain', () => {
       minWorkingCapital: 500,
       repoAfterMissedPayments: BALANCE.repoAfterMissedPayments,
       minBuyMargin: 0,
+      // Both sales floors land on the "any deal" stop, which is what a v4 desk
+      // did: it signed whatever was in front of it. Stated in the literal
+      // number rather than read off BALANCE, because the requirement is "the
+      // rule is off", not "the rule matches today's default".
+      minCashMarginZ: -4,
+      minFinanceMarginZ: -4,
     });
     expect(migrated.cash).toBe(412_000);
     expect(migrated.upgrades).toEqual({ lot: 3, collections: 2 });

@@ -15,9 +15,21 @@ is the design doc and carries the balance measurements behind every number.
 
 The **lot is a hard cap on inventory** and the **collections desk is a hard cap
 on the book**. A **business management suite** (Office → Business) lets the
-player set three house rules the business then runs under offline: a working
-capital floor, the repo trigger, and the retainer buyer's minimum margin.
-`src/sim/business.ts` resolves them.
+player set five house rules the business then runs under offline: a working
+capital floor, the repo trigger, the retainer buyer's minimum margin, and the
+least margin the sales desk will sign for **in cash and on paper**.
+`src/sim/business.ts` resolves them, and every one of them is a slider now.
+
+**The three margin rules are set in STANDARD DEVIATIONS off the average deal at
+the store you are standing in**, and `src/sim/margins.ts` is the yardstick — a
+per-store margin distribution derived from the ask band and the trim capture, not
+tabulated. That is what stops the same rule meaning "an ordinary car" at a
+curbstone and "nothing that exists" at a Valmont store. Read that file's header
+before touching anything on this panel; the two things easiest to get wrong are
+that **paper needs its own scale** (a contract grosses the window price and
+collects part of it, so an average note sits +1.2σ to +3.3σ up the cash scale
+depending on the store) and that
+**"take any deal" has to be its own stop** rather than the bottom of the range.
 
 **Every car carries a trim grade** — common, rare, epic, legendary at
 90/9/0.9/0.1 — and it is worth 10% more of the car at each step. `src/sim/rarity.ts`
@@ -636,7 +648,7 @@ upgrades, which is the bot's brain rather than the game's rule. The third guard
 ## Verify
 
 ```bash
-npm test        # 347 tests
+npm test        # 376 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~4min
@@ -665,6 +677,12 @@ The reach column is a true A/B — `balance.market.supplyScale=0` leaves only
 local stock and reproduces the middle column on an identical RNG stream, because
 the feature consumes no draw until it is bought.
 
+**That shipped column was re-run unchanged after the sales floors landed**, to
+the minute on every rung and to the dollar on end cash, which is the property to
+preserve: the two new rules default to "any deal" and cost the sim nothing until
+somebody moves one. A 16-seed 4h run diffs byte-identically against the build
+before them.
+
 Every rung is 5-15% later and the top one is a different game: it used to arrive
 at 264h and flatline at −$45.2M, and it now arrives at 315h with +$7.4M, a $1.9M
 portfolio and a full 43/43 book. Later and alive is the trade.
@@ -683,6 +701,29 @@ rather than a dealership. Shipped:
 | Big lot | 3.7d | 6.9d |
 | Halvorsen / Okabe / Valmont | 3.5-4.2d | 6.5-7.2d |
 | sold inside one game day | 10-15% | 7-8% |
+
+**`npm run sim` prints the feed's margin distribution against the model that
+predicts it**, per store, and that column is the guard on the whole business
+panel: the sales floors are denominated in these standard deviations, so a
+derivation that has drifted from the game is quoting the player a "+1σ deal"
+that is nothing of the sort. Measured at 8 seeds over 350h the two agree to
+within a tenth of a point at every rung:
+
+| store | measured | predicted |
+|---|---|---|
+| Curbstone | 18.6% ±13.2 | 18.7% ±13.4 |
+| Small lot | 18.8% ±11.8 | 18.7% ±11.7 |
+| Big lot | 15.3% ±9.9 | 15.5% ±9.3 |
+| Halvorsen | 9.3% ±2.6 | 9.4% ±2.5 |
+| Okabe | 7.4% ±2.1 | 7.4% ±2.0 |
+| Valmont | 6.4% ±1.6 | 6.4% ±1.6 |
+
+Freight is in both columns and it has to be, because it is drawn per listing:
+`margins.ts` carries a spread on the haul as well as a mean, and without that
+the big lot predicts ±8.8 against a measured ±9.9 — the kind of miss that reads
+as noise and is not. The big lot is the loosest row for the same reason; it is
+the store where reach is bought partway through, so the freight the model
+averages over is not the freight in force for the whole time spent there.
 
 **A LOT IS ONLY AS BIG AS ITS FEED, and this is the table to read before
 touching capacity, the feed, or anything that sounds like "why is the lot
@@ -916,11 +957,57 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   nothing is running, because this is a state the game is briefly in rather than
   a permanent fixture, and it is deliberately not pressable — there is nothing
   to open yet, and a control that no-ops teaches players to stop tapping.
-- **House rules are limits, not dials.** The business suite deliberately offers
-  discrete choices rather than sliders: these are settings a player picks once
-  and then reasons about after eight hours away, and a limit survives that
-  absence in a way a fine-grained dial does not. Every default reproduces the
+- **House rules are sliders whose ENDS are derived per store.** This panel
+  shipped as rows of discrete chips, on the argument that a limit survives an
+  eight-hour absence in a way a fine-grained dial does not. That argument was
+  half right and it was overturned deliberately: the limits are not the same
+  size at every store, and a fixed set of stops on a ladder that moves a
+  thousandfold is either uselessly coarse at one end or absurd at the other —
+  `$50k` was the top working-capital chip, which is a fortune on a driveway and
+  under three weeks of rent at a Valmont store. What survives of the original
+  argument is the part that mattered: a setting still has to mean something you
+  can reason about while away, which is why the margin rules are denominated in
+  σ and every stop is quoted back in dollars. Every default still reproduces the
   pre-suite build exactly, which is what makes the migration safe.
+- **A rule the business runs on is measured in σ; a price it pays is measured in
+  dollars.** The two sales floors are stage-RELATIVE (stored as a σ position, so
+  "better than average here" keeps meaning that when you move store) and the
+  buyer's minimum margin is ABSOLUTE (stored as a plain margin, because "do not
+  pay more than it is worth" is a price). That split is not tidiness — it was
+  forced. There is no single σ position that reproduces the buyer's existing
+  default: break-even is z = -1.4 at a curbstone and z = -4.6 at a premium
+  franchise, so converting it would either starve a franchise lot (requiring 5%
+  where it used to require 0) or hand a curbstone buyer a 42% overpay allowance.
+  The σ scale still sets the ENDS of the buy slider, which is what makes its
+  range mean something at every rung.
+- **"Take any deal" is a stop, not a small number.** Both sales floors default to
+  one position BELOW the σ scale, and everything under `marginZMin` means no
+  floor at all. It has to be its own position because σ shrinks by an order of
+  magnitude up the ladder: -3σ is -21% at a curbstone and **+2.4%** at a premium
+  franchise, so a save backfilled to the bottom of the scale would arrive at a
+  franchise with a real floor it never agreed to and stop selling its ordinary
+  bad days. The v13 → v14 migration writes the off value longhand for exactly
+  this reason.
+- **Paper is judged on what it collects, and on its own scale.** The finance
+  floor compares the contract's expected value against the metal, not the
+  sticker — so raising it makes the desk write SAFER paper rather than simply
+  less of it, which is the underwriting lever the credit note below has always
+  wanted. It also gets its own margin distribution: a financed car leaves at the
+  window price and only part of it is collected, so an average contract at a
+  small lot grosses 1.21x cash retail and sits +1.2σ up the CASH scale — and
+  **+3.3σ at a Halvorsen store**, off the top of the range entirely. Sharing one
+  scale would have left the bottom half of the finance slider doing nothing and
+  had the panel describe routine subprime as "a steal". The multiple is not
+  always above 1: at a premium franchise it is 0.997, because the window markup
+  is 1.15 there and collections eat more than that. Paper stops being a premium
+  at the top of the ladder, which is what `bhphMultiplier` has always said.
+- **A refusal is not a walk-away.** A deal under the floor is simply not closed:
+  the buyer stands there, nothing is logged, and they leave when their own
+  patience runs out. And the desk will not COUNTER on a deal it could never
+  sign — countering costs walk-aways and buys nothing if even the asking price
+  falls short. Both have tests named for them; without the second, a strict
+  floor would read as a broken negotiator and would quietly poison the
+  walk-away rate the harness reports.
 - **A repo trigger has to cost something.** Left flat, a longer leash is strictly
   better — more chances to cure, higher expected collections, fewer defaults, and
   a financed car occupies no lot space while it is out. Repo condition damage
@@ -1088,6 +1175,27 @@ Most have a guarding test; check before "simplifying" the code around them.
   entry above this records, and invisible until cars started sitting long enough
   to show "42 days on the lot" and "it will move fast" one line apart. Found by
   opening the game, not by a test.
+- **A scale-free derivation is not scale-free if anything inside it rounds to
+  dollars.** `financeGrossMultiple` prices a notional contract per dollar of
+  window price, which is legitimate — every term is proportional to the price.
+  But `expectedCollections` rounds its answer to whole dollars, so a one-dollar
+  contract collects either $0 or $1 and the entire credit ladder collapses into
+  two values: it read A-tier at 1.14 and D-tier at 0.31 when the truth is 1.00
+  and 0.58. The model claimed 1.33 against a measured 1.21. It is priced on a
+  notional million now. The only reason this was caught is that the test
+  measures the model against contracts the engine actually writes, rather than
+  against the derivation restated.
+- **The reference distribution must not be measured through the opening hand.**
+  `createInitialState` deals its listings at the CURBSTONE — including the
+  guaranteed-affordable starter, which is dealt rather than rolled — so a
+  fixture that sets `stage` afterwards and then samples the feed is measuring a
+  handful of cheap beaters as if a Valmont store had sourced them. It moved the
+  measured premium-franchise mean by 0.8 points, which is half a standard
+  deviation there, and it looked exactly like a wrong derivation. The harness
+  has the same shape of error available to it: predicting a store's feed with
+  the reach level the business ENDS the run holding read a curbstone at 6.0%
+  against a measured 18.6%, because the bot had no transporter at the curbstone.
+  Freight is recorded per stage as it stood at the time now.
 - **A test that asserts `sum >= count` cannot fail.** The first automation test
   written for skills passed on a run that accrued zero XP. Mutation-test any
   test guarding a regression: break the code, watch it go red, put it back.
@@ -1103,7 +1211,7 @@ Most have a guarding test; check before "simplifying" the code around them.
   the live constants would silently re-grade every old save after the next
   balance pass.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v13**. Saves are long-lived and local to the device; "we wiped
+  Currently **v14**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4
@@ -1236,12 +1344,21 @@ need a branch preview, build it somewhere that is not the live site.
   and whether the shallower per-level step still feels like a reward. Needs a
   human playing it. `maxLevel` and `xpGrowth` are both in Office → Admin, which
   is the fastest way to try a different length.
-- **The three house rules are unmeasured by design.** The harness bot runs them
+- **The five house rules are unmeasured by design.** The harness bot runs them
   all at their defaults, which is what makes the cap's measurement clean — but it
   means nothing here bounds what a player gets from setting them. The repo
   trigger in particular trades collections against recovered condition, and
   CLAUDE.md's own warning applies: the harness separates the mild band from the
   strong band and nothing finer.
+  The two sales floors are doubly invisible: they govern what the DESK signs, and
+  the harness bot closes everything itself inside the grace window, so a
+  continuous run never touches them at all. `--cadence=15:240` is the only mode
+  that would see them. What nobody has felt yet is whether a floor is a good
+  trade in practice — a strict desk banks a better margin per car but sells
+  fewer of them, and in an economy that compounds throughput this hard, "fewer
+  and better" is exactly the shape of a setting that reads as an upgrade and
+  costs you money. Somebody has to leave one running overnight at +1σ and
+  compare.
 - **A fourth skill for the paper side** — collections, levelled by payments taken
   and repos worked — is the obvious next one. `skills` is a `Record` so it needs
   no reshaping, and skill levels are the natural carry-over currency if a

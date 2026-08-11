@@ -193,12 +193,22 @@ back half of the game turns on.
 
 **House rules** (Office → Business) are the standing constraints the place runs
 under while you are not watching: a floor under the till that no automation will
-spend past, how many missed payments you allow before the car comes back, and how
-far under the worst case your buyer on retainer insists on being before it spends
+spend past, how many missed payments you allow before the car comes back, the
+least margin your sales manager will sign for in cash and on paper, and how far
+under the worst case your buyer on retainer insists on being before it spends
 your money. None of them is a free win. Pull the repo trigger sooner and you
 recover a better car from a customer who might have caught up; give them rope and
 you collect more from the ones who do, and get back a rougher car from the ones
 who never had it.
+
+The three margin rules are set in **standard deviations off the average deal at
+the store you are standing in**, not in flat percent, because 20% of the gross is
+an ordinary car at a curbstone lot and more than a Valmont franchise can produce
+on anything it will ever sell. At the bottom the desk takes whatever walks up. At
+the top it is holding out for something that essentially has to be a mispriced
+unicorn — and the panel tells you, in dollars, what each stop is asking for. The
+buyer's rule reaches below zero, which is a real strategy at a store that spends
+its life short of stock: overpay a little and keep the stalls full.
 
 ## Not built yet
 

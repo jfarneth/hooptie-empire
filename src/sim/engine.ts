@@ -9,7 +9,15 @@ import {
   reconCost,
 } from './cars';
 import { appraisalError, estimatedRetail, pessimisticRetail } from './appraisal';
-import { businessDefaults, minBuyMargin, minWorkingCapital, repoThreshold } from './business';
+import {
+  businessDefaults,
+  minBuyMargin,
+  minCashMarginZ,
+  minFinanceMarginZ,
+  minWorkingCapital,
+  repoThreshold,
+} from './business';
+import { dealFloorIsOff, dealMarginFloor, stateFinanceScale, stateMarginScale } from './margins';
 import { generateProspect } from './customers';
 import { deskCounter, resolveCounter } from './haggle';
 import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
@@ -21,6 +29,7 @@ import {
   activeNotes,
   applyDuePayment,
   canWriteNote,
+  expectedCollections,
   missChance,
   openNote,
   overCapacityFactor,
@@ -62,7 +71,7 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 13;
+export const SAVE_VERSION = 14;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -683,6 +692,7 @@ function stepAutomation(s: GameState): void {
   }
 
   if (level(s, 'salesDesk') > 0 && s.dealPolicy !== 'manual' && s.prospects.length > 0) {
+    const floors = dealFloors(s);
     for (const prospect of [...s.prospects]) {
       // The player's window. Staff leave a walk-up alone until it has aged the
       // grace period — that is the standing chance to close the deal yourself
@@ -693,14 +703,59 @@ function stepAutomation(s: GameState): void {
       // knowledge of whether anyone is watching.
       if (prospect.claimed) continue;
       if (s.t - prospect.arrivedAt < BALANCE.desk.graceMs) continue;
-      const choice = chooseDeal(s, prospect.id);
+      const choice = chooseDeal(s, prospect.id, floors);
       if (choice === 'finance') {
         acceptFinance(s, prospect.id, 'desk');
       } else if (choice === 'cash') {
-        runDeskNegotiation(s, prospect.id);
+        runDeskNegotiation(s, prospect.id, floors.cash);
       }
     }
   }
+}
+
+/**
+ * WHAT THE DESK WILL AND WILL NOT SIGN, in margin points.
+ *
+ * The player's two house rules, resolved against the store they are standing in.
+ * `-Infinity` is the "any deal" stop and is the default on both, which is what
+ * makes this whole feature inert until somebody moves a slider.
+ *
+ * Resolved once per step rather than per prospect, and skipped entirely when
+ * both rules are off: `stateMarginScale` walks the store's model list, and this
+ * runs on every tick of a 350-hour catch-up.
+ */
+interface DealFloors {
+  cash: number;
+  finance: number;
+}
+
+function dealFloors(s: GameState): DealFloors {
+  const cashZ = minCashMarginZ(s);
+  const financeZ = minFinanceMarginZ(s);
+  if (dealFloorIsOff(cashZ) && dealFloorIsOff(financeZ)) {
+    return { cash: -Infinity, finance: -Infinity };
+  }
+  const stage = getStage(s.stage);
+  const cash = stateMarginScale(s, stage);
+  return {
+    cash: dealMarginFloor(cash, cashZ),
+    // Paper is measured on its own scale. A contract grosses the window price
+    // rather than cash retail and then collects only part of it, so the same σ
+    // position is a different margin on the two sides of the desk — see
+    // `financeMarginScale`.
+    finance: dealFloorIsOff(financeZ)
+      ? -Infinity
+      : dealMarginFloor(stateFinanceScale(s, stage, cash), financeZ),
+  };
+}
+
+/**
+ * Margin on a deal, as a share of the gross — the same unit `marginScale`
+ * quotes and the same one a dealer says out loud. Zero-priced deals read as a
+ * total loss rather than dividing by zero.
+ */
+function dealMargin(gross: number, costBasis: number): number {
+  return gross > 0 ? (gross - costBasis) / gross : -Infinity;
 }
 
 /**
@@ -710,23 +765,36 @@ function stepAutomation(s: GameState): void {
  *
  * It uses the same pure functions the player's taps go through, so an automated
  * lot and a hand-played one are running identical rules.
+ *
+ * `floor` is the house minimum, and it is checked at the moment of signing
+ * rather than up front, because the counter is the desk's one chance to lift a
+ * thin deal over the line. A deal that still falls short is simply not closed:
+ * the buyer stands there, the offer does not improve, and they leave when their
+ * patience runs out. That is what "the manager ignored them" looks like from
+ * the tarmac, and it is deliberately not a walk-away — nobody stormed off, the
+ * business just would not take the money.
  */
-function runDeskNegotiation(s: GameState, prospectId: string): void {
+function runDeskNegotiation(s: GameState, prospectId: string, floor: number): void {
   const prospect = s.prospects.find((p) => p.id === prospectId);
   if (!prospect) return;
 
+  const car = s.cars.find((c) => c.id === prospect.carId);
+  if (!car) return;
+  const clears = (price: number) => dealMargin(price, car.costBasis) >= floor;
+
   const neg = prospect.negotiation;
 
-  // Already at the asking price, or the desk has had its turn: just close.
+  // Already at the asking price, or the desk has had its turn: close it if the
+  // house rules allow, and otherwise leave it alone.
   if (neg.countersMade > 0 || neg.currentOffer >= neg.anchor) {
-    acceptCash(s, prospectId, 'desk');
+    if (clears(neg.currentOffer)) acceptCash(s, prospectId, 'desk');
     return;
   }
 
   const haggle = haggleSkillFor(s);
   const counter = deskCounter(neg, haggle);
   if (counter <= neg.currentOffer) {
-    acceptCash(s, prospectId, 'desk');
+    if (clears(neg.currentOffer)) acceptCash(s, prospectId, 'desk');
     return;
   }
 
@@ -736,29 +804,58 @@ function runDeskNegotiation(s: GameState, prospectId: string): void {
     return; // stepProspects sweeps them out.
   }
 
-  // Accepted, or they came back with a better number — either way, take it.
-  acceptCash(s, prospectId, 'desk');
+  // Accepted, or they came back with a better number — either way, take it if
+  // it clears.
+  if (clears(prospect.negotiation.currentOffer)) acceptCash(s, prospectId, 'desk');
 }
 
-/** Which side of the deal the standing policy takes. */
-function chooseDeal(s: GameState, prospectId: string): 'cash' | 'finance' | 'none' {
+/**
+ * Which side of the deal the standing policy takes — and whether there is a
+ * deal here at all.
+ *
+ * The house floors are applied to the BEST each side could realistically do:
+ * the asking price for cash (nobody pays over it, and the desk's counter climbs
+ * towards it), and the expected value of the contract for paper. Judging cash
+ * on the opening lowball instead would have the desk refuse to even counter on
+ * deals it could have talked up over the line, and judging paper on the sticker
+ * would make the finance floor a second cash floor rather than the underwriting
+ * rule it is.
+ */
+function chooseDeal(
+  s: GameState,
+  prospectId: string,
+  floors: DealFloors,
+): 'cash' | 'finance' | 'none' {
   const prospect = s.prospects.find((p) => p.id === prospectId);
   if (!prospect) return 'none';
-  if (!getStage(s.stage).financing) return 'cash';
+  const car = s.cars.find((c) => c.id === prospect.carId);
+  if (!car) return 'none';
+
+  // The most this walk-up could ever pay in cash: their ceiling is the ask, and
+  // the desk's counter only ever moves towards it.
+  const cashOk = dealMargin(prospect.negotiation.anchor, car.costBasis) >= floors.cash;
+
+  if (!getStage(s.stage).financing) return cashOk ? 'cash' : 'none';
   // A full book is not a reason to send a buyer away — it is a reason to sell
   // them the car instead of the payment. Without this the desk would keep
   // choosing paper it cannot write and then close nothing at all.
-  if (!canWriteNote(s)) return 'cash';
+  if (!canWriteNote(s)) return cashOk ? 'cash' : 'none';
+
+  const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
+  const ev = expectedFinanceValue(s, prospect.id, capFactor);
+  const financeOk = dealMargin(ev, car.costBasis) >= floors.finance;
 
   switch (s.dealPolicy) {
     case 'cash':
-      return 'cash';
+      return cashOk ? 'cash' : 'none';
     case 'finance':
-      return 'finance';
+      // Paper is what was asked for, but a deal the underwriting rule refuses is
+      // not a reason to lose the customer if the cash side still stands up.
+      if (financeOk) return 'finance';
+      return cashOk ? 'cash' : 'none';
     case 'auto': {
-      const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
-      const ev = expectedFinanceValue(s, prospect.id, capFactor);
-      return ev > prospect.negotiation.currentOffer ? 'finance' : 'cash';
+      if (financeOk && (!cashOk || ev > prospect.negotiation.currentOffer)) return 'finance';
+      return cashOk ? 'cash' : 'none';
     }
     default:
       return 'none';
@@ -1150,49 +1247,14 @@ function expectedFinanceValue(s: GameState, prospectId: string, capacityFactor: 
 }
 
 /**
- * `repoAfter` widens the chain rather than being a constant, because the player
- * sets it. The deal sheet quotes this number as exact, so it has to be the
- * player's rule and not the house default the moment those differ.
+ * Re-exported from notes.ts, where the note lifecycle lives.
+ *
+ * It sat here for as long as the engine was its only caller. `margins.ts`
+ * needs it to price the average contract a store writes, and the engine
+ * imports margins — so leaving it here would have closed a cycle to save a
+ * line. Every existing caller still reaches it through this module.
  */
-export function expectedCollections(
-  weeks: number,
-  paymentAmount: number,
-  baseMissChance: number,
-  repoAfter: number = BALANCE.repoAfterMissedPayments,
-): { expectedCollected: number; defaultProbability: number } {
-  const threshold = Math.max(1, Math.round(repoAfter));
-  const pFresh = Math.min(0.95, baseMissChance);
-  const pBehind = Math.min(0.95, baseMissChance * BALANCE.delinquencyMissMultiplier);
-
-  // states[k] = probability of being alive with k consecutive missed payments.
-  // The chain is `threshold` wide: the miss that takes k to `threshold` is the
-  // one that takes the car back, so there is no live state at that index.
-  let states = new Array<number>(threshold).fill(0);
-  states[0] = 1;
-  let dead = 0;
-  let expectedPayments = 0;
-
-  for (let week = 0; week < weeks; week++) {
-    const next = new Array<number>(threshold).fill(0);
-    for (let k = 0; k < threshold; k++) {
-      const mass = states[k];
-      if (mass === 0) continue;
-      const p = k === 0 ? pFresh : pBehind;
-      // Paid: collect and reset to zero consecutive misses.
-      next[0] += mass * (1 - p);
-      expectedPayments += mass * (1 - p);
-      // Missed: advance, or die at the repo threshold.
-      if (k + 1 >= threshold) dead += mass * p;
-      else next[k + 1] += mass * p;
-    }
-    states = next;
-  }
-
-  return {
-    expectedCollected: Math.round(expectedPayments * paymentAmount),
-    defaultProbability: dead,
-  };
-}
+export { expectedCollections };
 
 export { step as __stepForTests };
 export type { Millis };

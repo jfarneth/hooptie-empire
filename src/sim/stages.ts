@@ -418,6 +418,22 @@ const BY_ID = new Map(STAGES.map((s) => [s.id, s]));
  * bought happily all the way up a ladder the retainer buyer could not move on.
  */
 export function typicalCarPrice(stage: StageDef): number {
+  const askMid = (stage.sourcing.askMin + stage.sourcing.askMax) / 2;
+  return Math.round(typicalRetailPrice(stage) * BALANCE.wholesaleOfRetail * askMid);
+}
+
+/**
+ * What the median car this store sources is WORTH at retail, before anybody
+ * haggles over what it costs.
+ *
+ * The other half of `typicalCarPrice`, split out because two callers ask
+ * genuinely different questions of the same median: a spending gate wants the
+ * cheque, and anything denominating a cost as a share of the deal — freight
+ * against margin, a house rule quoted in dollars — wants the gross. Sharing the
+ * median rather than re-deriving it is the point: this number has been wrong
+ * once already (see above), and once is enough for it to be wrong in one place.
+ */
+export function typicalRetailPrice(stage: StageDef): number {
   const models = stage.sourcing.makeId
     ? modelsForMake(stage.sourcing.makeId)
     : modelsForTiers(stage.sourcing.tiers ?? []);
@@ -441,8 +457,7 @@ export function typicalCarPrice(stage: StageDef): number {
     })
     .sort((a, b) => a - b);
 
-  const askMid = (stage.sourcing.askMin + stage.sourcing.askMax) / 2;
-  return Math.round(median(values) * BALANCE.wholesaleOfRetail * askMid);
+  return median(values);
 }
 
 /**

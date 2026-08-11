@@ -294,11 +294,33 @@ export interface BusinessPolicy {
    */
   repoAfterMissedPayments: number;
   /**
-   * What the retainer buyer insists on: a discount to the worst-case wholesale
-   * it can see, as a share of that value. 0 is "anything that looks cheap at
-   * the bad end", which is what the buyer did before this existed.
+   * What the retainer buyer insists on: a discount to the worst-case retail it
+   * can see, as a share of that value. 0 is "anything that is not a loss at the
+   * bad end", which is what the buyer did before this existed, and negative is
+   * a deliberate overpay allowance for a store that would rather have the stall
+   * full than the margin.
+   *
+   * A PLAIN MARGIN, unlike the two below, and `buyMarginRange` in margins.ts
+   * carries the argument for why.
    */
   minBuyMargin: number;
+  /**
+   * The margin the sales desk insists on before it closes a CASH deal, in
+   * standard deviations off the average deal at the store you are standing in.
+   * Anything below `marginZMin` means no floor at all.
+   *
+   * In σ rather than percent because the same manager has to keep meaning the
+   * same thing at a curbstone and at a Valmont store, where an identical
+   * percentage is respectively a bad day and an impossibility. See margins.ts.
+   */
+  minCashMarginZ: number;
+  /**
+   * The same rule for PAPER, and it is a genuinely different question: a
+   * financed deal is judged on the expected value of the contract, not on the
+   * sticker, so raising this makes the desk write safer paper rather than
+   * simply less of it.
+   */
+  minFinanceMarginZ: number;
 }
 
 export interface Stats {

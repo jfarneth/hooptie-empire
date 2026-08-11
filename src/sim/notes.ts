@@ -171,3 +171,48 @@ export function buildTerms(
     weeks,
   };
 }
+
+/**
+ * `repoAfter` widens the chain rather than being a constant, because the player
+ * sets it. The deal sheet quotes this number as exact, so it has to be the
+ * player's rule and not the house default the moment those differ.
+ */
+export function expectedCollections(
+  weeks: number,
+  paymentAmount: number,
+  baseMissChance: number,
+  repoAfter: number = BALANCE.repoAfterMissedPayments,
+): { expectedCollected: number; defaultProbability: number } {
+  const threshold = Math.max(1, Math.round(repoAfter));
+  const pFresh = Math.min(0.95, baseMissChance);
+  const pBehind = Math.min(0.95, baseMissChance * BALANCE.delinquencyMissMultiplier);
+
+  // states[k] = probability of being alive with k consecutive missed payments.
+  // The chain is `threshold` wide: the miss that takes k to `threshold` is the
+  // one that takes the car back, so there is no live state at that index.
+  let states = new Array<number>(threshold).fill(0);
+  states[0] = 1;
+  let dead = 0;
+  let expectedPayments = 0;
+
+  for (let week = 0; week < weeks; week++) {
+    const next = new Array<number>(threshold).fill(0);
+    for (let k = 0; k < threshold; k++) {
+      const mass = states[k];
+      if (mass === 0) continue;
+      const p = k === 0 ? pFresh : pBehind;
+      // Paid: collect and reset to zero consecutive misses.
+      next[0] += mass * (1 - p);
+      expectedPayments += mass * (1 - p);
+      // Missed: advance, or die at the repo threshold.
+      if (k + 1 >= threshold) dead += mass * p;
+      else next[k + 1] += mass * p;
+    }
+    states = next;
+  }
+
+  return {
+    expectedCollected: Math.round(expectedPayments * paymentAmount),
+    defaultProbability: dead,
+  };
+}

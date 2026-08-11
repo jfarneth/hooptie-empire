@@ -19,6 +19,7 @@ import {
   listCar,
   weeklyExpenses,
 } from './engine';
+import { dealFloorIsOff } from './margins';
 import { getModel } from './models';
 import { activeNotes, applyDuePayment, bookRoom, canWriteNote, openNote } from './notes';
 import { appraisalSigma, haggleSkillFor } from './skills';
@@ -370,7 +371,7 @@ describe("the retainer buyer's minimum margin", () => {
 
   it('only ever narrows what the buyer will take', () => {
     const s = advance(createInitialState(5150, 0), 30 * 60 * 1000);
-    const counts = BALANCE.business.buyMarginChoices.map((m) => wouldBuy(s, m));
+    const counts = [-0.1, 0, 0.05, 0.1, 0.2].map((m) => wouldBuy(s, m));
     for (let i = 1; i < counts.length; i++) {
       expect(counts[i]).toBeLessThanOrEqual(counts[i - 1]);
     }
@@ -523,8 +524,15 @@ describe('setting the house rules', () => {
       minWorkingCapital: 500,
       repoAfterMissedPayments: BALANCE.repoAfterMissedPayments,
       minBuyMargin: 0,
+      minCashMarginZ: -4,
+      minFinanceMarginZ: -4,
     });
     expect(repoThreshold(s)).toBe(BALANCE.repoAfterMissedPayments);
+    // Stated as a property rather than as a number: what the two sales floors
+    // have to be is OFF, and a later retune of the scale must not be able to
+    // turn them on by moving a constant this assertion happens to quote.
+    expect(dealFloorIsOff(s.business.minCashMarginZ)).toBe(true);
+    expect(dealFloorIsOff(s.business.minFinanceMarginZ)).toBe(true);
   });
 
   it('changes one rule without disturbing the others', () => {

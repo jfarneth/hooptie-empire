@@ -296,6 +296,34 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
     ...s,
     listings: (s.listings ?? []).map((l: any) => ({ ...l, origin: 'local', freight: 0 })),
   }),
+
+  /**
+   * v13 -> v14: the sales desk gets house minimums.
+   *
+   * Both floors are backfilled to the "any deal" stop, which is what the desk
+   * did before they existed: it closed whatever was in front of it, at whatever
+   * margin, and a save that has been running under that rule must go on running
+   * under it until somebody moves a slider.
+   *
+   * -4 rather than -3 matters and is not a spare digit. The scale bottoms at
+   * -3σ, and σ shrinks as the ladder climbs — at a premium franchise -3σ is
+   * still a 2.4% margin, so backfilling to the bottom of the scale would hand
+   * every existing franchise save a real floor overnight and stop it selling
+   * its ordinary bad days. Anything under the scale means no floor at all; see
+   * `dealFloorIsOff`.
+   *
+   * Written out longhand for the usual reason: a migration has to keep meaning
+   * what it meant the day it shipped, and reading `BALANCE.business.defaults`
+   * here would silently re-stamp every old save after the next balance pass.
+   */
+  13: (s) => ({
+    ...s,
+    business: {
+      ...(s.business ?? {}),
+      minCashMarginZ: -4,
+      minFinanceMarginZ: -4,
+    },
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

@@ -33,6 +33,7 @@ import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level, upgra
 import { STAGES, getStage, nextStage, stageRank, typicalCarPrice } from '../sim/stages';
 import { RARITIES, RARITY_ORDER } from '../sim/rarity';
 import { landedCost } from '../sim/market';
+import { freightMoments, marginScale } from '../sim/margins';
 import { applyTuning, getTunable } from '../sim/tuning';
 import type { GameState, Rarity } from '../sim/types';
 
@@ -94,6 +95,33 @@ interface AppraisalTally {
    * demand-for-capital one (there is stock, we cannot pay for it).
    */
   byStage: Record<string, { turns: number; held: number; capacity: number; feedDry: number; cantAfford: number }>;
+  /**
+   * THE MARGIN DISTRIBUTION OF THE FEED ITSELF, per store.
+   *
+   * Every listing that appears, whether or not the bot buys it, priced the way
+   * `marginScale` defines a reference deal: what the car retails for against
+   * what it would cost to land. That makes it the direct check on the analytic
+   * scale the sales floors are denominated in — the harness measures the
+   * population and margins.ts predicts it, and the report prints both.
+   *
+   * Deliberately NOT the margin on cars bought, which the rarity table above
+   * already reports. The bot buys the best deals on the feed first, so that
+   * sample is selected upward by several points and would flatter the model
+   * into agreeing with a scale that is wrong.
+   */
+  feedMargin: Record<string, number[]>;
+  /**
+   * The freight the business was exposed to WHILE AT each store, summed per
+   * sampled listing.
+   *
+   * Recorded rather than reconstructed from the end state, because reach is
+   * bought partway up: predicting a curbstone's feed with the national freight
+   * the business ends the run holding read 6.0% against a measured 18.6%, which
+   * looks exactly like a broken model and is a broken measurement.
+   */
+  freight: Record<string, { n: number; mean: number; sd: number }>;
+  /** Listing ids already counted, so a listing sitting on the feed is sampled once. */
+  seenListings: Set<string>;
 }
 
 /**
@@ -132,6 +160,24 @@ function blankRarityTally(): AppraisalTally['byRarity'] {
 
 function botTurn(state: GameState, appraisal: AppraisalTally, stay = false): GameState {
   let s = state;
+
+  // The feed as it arrives, before the bot has a chance to skim the best of it.
+  // Sampled at the top of the turn and deduped by listing id, so this is the
+  // population `marginScale` claims to describe.
+  {
+    const carriage = freightMoments(s, getStage(s.stage));
+    for (const l of s.listings) {
+      if (appraisal.seenListings.has(l.id)) continue;
+      appraisal.seenListings.add(l.id);
+      const retail = retailValue(l.car);
+      if (retail <= 0) continue;
+      appraisal.feedMargin[s.stage].push((retail - landedCost(l)) / retail);
+      const row = appraisal.freight[s.stage];
+      row.n += 1;
+      row.mean += carriage.mean;
+      row.sd += carriage.sd;
+    }
+  }
 
   {
     const held = s.cars.filter((c) => c.status !== 'sold').length;
@@ -331,6 +377,9 @@ function runOne(
     turns: 0,
     lotFull: 0,
     brokeNotFull: 0,
+    feedMargin: Object.fromEntries(STAGES.map((st) => [st.id, [] as number[]])),
+    freight: Object.fromEntries(STAGES.map((st) => [st.id, { n: 0, mean: 0, sd: 0 }])),
+    seenListings: new Set<string>(),
   };
   const milestones: Milestones = {};
   const dwell: DwellTally = blankDwell();
@@ -653,6 +702,58 @@ function main() {
           `      ${((dry / turns) * 100).toFixed(0).padStart(4)}%` +
           `      ${((poor / turns) * 100).toFixed(0).padStart(4)}%`,
       );
+    }
+  }
+
+  {
+    /**
+     * THE YARDSTICK THE SALES FLOORS ARE SET AGAINST, measured against the model
+     * that predicts it.
+     *
+     * `margins.ts` derives each store's deal-margin distribution from its ask
+     * band and its trim capture rather than tabulating it, so this is the check
+     * that the derivation is describing the game and not an idealisation of it.
+     * The two columns should agree to a fraction of a point; a drift means the
+     * scale is quoting the player a "+1σ deal" that is nothing of the sort.
+     *
+     * Freight and the prestige edge are in the measurement, so they are in the
+     * prediction too — see `stateMarginScale`. The harness never retires, so the
+     * edge is always 1 here; reach is bought as soon as it is affordable, so the
+     * freight term is live from the large lot up.
+     */
+    const rows = STAGES.map((def) => {
+      const xs: number[] = [];
+      for (const t of tallies) for (const m of t.feedMargin[def.id]) xs.push(m);
+      return { def, xs };
+    }).filter((r) => r.xs.length > 0);
+
+    if (rows.length > 0) {
+      console.log(`\nFeed margin, by store (all seeds pooled) — measured vs. the σ scale`);
+      console.log('-'.repeat(64));
+      console.log(`  store        listings     measured           predicted`);
+      for (const { def, xs } of rows) {
+        const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+        const variance = xs.reduce((a, b) => a + (b - mean) ** 2, 0) / xs.length;
+        // Freight as it stood while the business was actually standing here,
+        // averaged over the listings sampled — see `AppraisalTally.freight`.
+        let n = 0;
+        let fMean = 0;
+        let fSd = 0;
+        for (const t of tallies) {
+          n += t.freight[def.id].n;
+          fMean += t.freight[def.id].mean;
+          fSd += t.freight[def.id].sd;
+        }
+        const model = marginScale(def, {
+          edge: 1,
+          freight: n > 0 ? { mean: fMean / n, sd: fSd / n } : { mean: 0, sd: 0 },
+        });
+        console.log(
+          `  ${def.shortName.padEnd(11)} ${String(xs.length).padStart(7)}` +
+            `    ${(mean * 100).toFixed(1).padStart(5)}% ±${(Math.sqrt(variance) * 100).toFixed(1)}` +
+            `      ${(model.mean * 100).toFixed(1).padStart(5)}% ±${(model.sd * 100).toFixed(1)}`,
+        );
+      }
     }
   }
 

@@ -32,6 +32,8 @@ export function businessPolicy(state: Pick<GameState, 'business'>): BusinessPoli
     minWorkingCapital: set?.minWorkingCapital ?? defaults.minWorkingCapital,
     repoAfterMissedPayments: set?.repoAfterMissedPayments ?? defaults.repoAfterMissedPayments,
     minBuyMargin: set?.minBuyMargin ?? defaults.minBuyMargin,
+    minCashMarginZ: set?.minCashMarginZ ?? defaults.minCashMarginZ,
+    minFinanceMarginZ: set?.minFinanceMarginZ ?? defaults.minFinanceMarginZ,
   };
 }
 
@@ -45,9 +47,22 @@ export function repoThreshold(state: Pick<GameState, 'business'>): number {
   return businessPolicy(state).repoAfterMissedPayments;
 }
 
-/** Discount to worst-case wholesale the retainer buyer insists on. */
+/** Discount to worst-case retail the retainer buyer insists on. */
 export function minBuyMargin(state: Pick<GameState, 'business'>): number {
   return businessPolicy(state).minBuyMargin;
+}
+
+/**
+ * The desk's floors, in σ off the store's average deal. Resolved to dollars by
+ * `dealMarginFloor` in margins.ts, which is the only place that knows what a
+ * standard deviation is worth here.
+ */
+export function minCashMarginZ(state: Pick<GameState, 'business'>): number {
+  return businessPolicy(state).minCashMarginZ;
+}
+
+export function minFinanceMarginZ(state: Pick<GameState, 'business'>): number {
+  return businessPolicy(state).minFinanceMarginZ;
 }
 
 /**
@@ -74,7 +89,12 @@ export function repoDamageMultiplier(trigger: number): number {
  * its first miss) or a negative cash floor.
  */
 export function clampBusinessPolicy(patch: Partial<BusinessPolicy>, base: BusinessPolicy): BusinessPolicy {
-  const { repoTriggerMin, repoTriggerMax } = BALANCE.business;
+  const {
+    repoTriggerMin,
+    repoTriggerMax,
+    buyMarginMin,
+    buyMarginMax,
+  } = BALANCE.business;
   const merged = { ...base, ...patch };
   return {
     minWorkingCapital: Math.max(0, Math.round(finite(merged.minWorkingCapital, base.minWorkingCapital))),
@@ -83,8 +103,24 @@ export function clampBusinessPolicy(patch: Partial<BusinessPolicy>, base: Busine
       repoTriggerMin,
       repoTriggerMax,
     ),
-    minBuyMargin: clamp(finite(merged.minBuyMargin, base.minBuyMargin), 0, 0.9),
+    minBuyMargin: clamp(finite(merged.minBuyMargin, base.minBuyMargin), buyMarginMin, buyMarginMax),
+    minCashMarginZ: clampMarginZ(merged.minCashMarginZ, base.minCashMarginZ),
+    minFinanceMarginZ: clampMarginZ(merged.minFinanceMarginZ, base.minFinanceMarginZ),
   };
+}
+
+/**
+ * A σ floor, or the "any deal" stop.
+ *
+ * Everything under the bottom of the scale collapses onto one stored value
+ * rather than being clamped up onto it, because those are different rules and a
+ * clamp would silently turn "take anything" into "take anything above -3σ" — a
+ * real floor, at the store where σ is smallest and it bites hardest.
+ */
+function clampMarginZ(value: number, fallback: number): number {
+  const { marginZMin, marginZMax, marginZOff } = BALANCE.business;
+  const v = finite(value, fallback);
+  return v < marginZMin ? marginZOff : clamp(v, marginZMin, marginZMax);
 }
 
 function finite(value: number, fallback: number): number {
