@@ -532,8 +532,15 @@ what to keep back is the player's call, informed and theirs to get wrong.
 property of moving stores, not of automation, and it kept the bug the old
 reserve caused out of the move path.
 
-**The premium franchise still kills the economy, and it is the top open bug —
-but there is now a measured lever on it.** Setting the three franchise stages'
+**The premium franchise still kills the economy, and honest bills just put a
+price on it: the 350h end state is now cash −$40.3M** where it used to read a
+frozen $0 — same dead store, real ledger. Milestones are untouched (271h23m vs
+271h06m pre-change), so this is accounting, not pacing; but a player who stalls
+at Valmont now watches debt mount instead of a quiet zero, which makes the
+late-game retune urgent rather than cosmetic. The escape hatches are unchanged
+and both stop the bleeding: walking down the ladder is free and ends the rent,
+and retirement settles everything. **There is also a measured lever on the
+flatline itself.** Setting the three franchise stages'
 `raritySellerCapture` to 0 (one slider in Office → Admin) takes the 350h end
 state from cash $0 / book 0/8 to **$62.3M cash and a full 43/43 book**. It is not
 shipped that way because rarity should not be a stealth economy patch, and
