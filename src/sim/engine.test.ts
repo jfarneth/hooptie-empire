@@ -1,6 +1,9 @@
-import { moveToStage, purchaseUpgrade, setDealPolicy } from './actions';
-import { MS_PER_GAME_WEEK } from './balance';
+import { moveToStage, purchaseUpgrade, sellToWholesaler, setDealPolicy } from './actions';
+import { BALANCE, MS_PER_GAME_WEEK } from './balance';
 import { TICK_MS } from './balance';
+import { generateCar } from './cars';
+import { wholesaleValue } from './economy';
+import { getModel } from './models';
 import { advance, cloneState, createInitialState } from './engine';
 import { canBuyUpgrade, carCapacity } from './upgrades';
 import { SKILL_IDS } from './skills';
@@ -266,5 +269,66 @@ describe('lot capacity is strict', () => {
     expect(s.stats.reposCompleted).toBeGreaterThan(0);
     expect(reposOntoFullLot).toBeGreaterThan(0);
     expect(auctioned).toBeGreaterThan(0);
+  });
+});
+
+// -------------------------------------------------- the wholesaler
+
+/**
+ * The release valve for stock that will not move.
+ *
+ * Cars sit for weeks by design now — that is what `trafficPerCar` bought — so a
+ * lot needs a way to turn a dead stall back into cash that is not "wait". The
+ * two things it must not do are lose the player money invisibly and strand a
+ * contract: a financed car is out with the customer, and selling it out from
+ * under its own note would leave paper with nothing to repossess.
+ */
+describe('sending a car to the wholesaler', () => {
+  function lotWithCar(): GameState {
+    const s = cloneState(createInitialState(31337, 0));
+    const car = generateCar(s, s.rng, getModel('civet'), s.t);
+    car.costBasis = 4_000;
+    s.cars.push(car);
+    return s;
+  }
+
+  it('pays the forced-sale price, and takes the car off the lot', () => {
+    const s = lotWithCar();
+    const car = s.cars[0];
+    const expected = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
+
+    const after = sellToWholesaler(s, car.id);
+
+    expect(after.cash - s.cash).toBe(expected);
+    expect(after.cars).toHaveLength(0);
+    // Under what the car is worth, always — otherwise a full lot costs nothing
+    // and this becomes a way to cash out at book value.
+    expect(expected).toBeLessThan(wholesaleValue(car));
+  });
+
+  it('books the difference against what the car cost, not as a sale', () => {
+    const s = lotWithCar();
+    const car = s.cars[0];
+    const proceeds = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
+
+    const after = sellToWholesaler(s, car.id);
+
+    expect(after.stats.lifetimeProfit - s.stats.lifetimeProfit).toBe(proceeds - car.costBasis);
+    // Nobody closed anybody. Counting this would inflate the sales figures and
+    // train Closing by ringing a wholesaler.
+    expect(after.stats.carsSold).toBe(s.stats.carsSold);
+    expect(after.skills.sell.xp).toBe(s.skills.sell.xp);
+  });
+
+  /**
+   * The same rule the stage-move sweep follows, and it has a test there too: a
+   * financed car is still in `state.cars` marked sold so a repossession can
+   * bring it back. Selling one would strand its note.
+   */
+  it('refuses a car that is already out with a customer', () => {
+    const s = lotWithCar();
+    s.cars[0].status = 'sold';
+    expect(sellToWholesaler(s, s.cars[0].id)).toBe(s);
+    expect(sellToWholesaler(s, 'no_such_car')).toBe(s);
   });
 });

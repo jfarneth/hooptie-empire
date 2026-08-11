@@ -1,6 +1,6 @@
 import { BALANCE } from './balance';
 import { businessPolicy, clampBusinessPolicy } from './business';
-import { beginRecon, canRecon, reconCost } from './cars';
+import { beginRecon, canRecon, carLabel, reconCost } from './cars';
 import { createInitialState } from './engine';
 import {
   acceptCash,
@@ -79,6 +79,46 @@ export function unlist(state: GameState, carId: string): GameState {
     car.askPrice = 0;
     car.listedAt = null;
     s.prospects = s.prospects.filter((p) => p.carId !== carId);
+    return true;
+  });
+}
+
+/**
+ * Send a car to the wholesaler and take what he offers.
+ *
+ * The release valve for a car that will not move. Cars sit for weeks now by
+ * design — that is what `trafficPerCar` bought — so a lot needs a way to convert
+ * a stall back into cash that is not "wait". Without one, dead stock is not a
+ * decision, it is a stuck stall paying floorplan interest forever.
+ *
+ * Priced at `forcedSaleRate` off true wholesale, through the same helper the
+ * stage move and the nowhere-to-park repo already use, because it is the same
+ * trade: a buyer who knows you have run out of other options. The player loses
+ * the retail spread they were holding for and any recon already sunk, which is
+ * what stops this being a free undo on a bad buy.
+ *
+ * Counted as profit but NOT as a sale, and it earns no Closing XP — same rule as
+ * the lot liquidation. Nobody closed anybody; you rang a wholesaler.
+ */
+export function sellToWholesaler(state: GameState, carId: string): GameState {
+  return act(state, (s) => {
+    const car = s.cars.find((c) => c.id === carId);
+    // Anything still on the lot, in any state. A financed car is out with the
+    // customer and is the book's problem, not the wholesaler's.
+    if (!car || car.status === 'sold') return false;
+
+    const proceeds = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
+    s.cash += proceeds;
+    s.stats.lifetimeProfit += proceeds - car.costBasis;
+    s.prospects = s.prospects.filter((p) => p.carId !== carId);
+    s.cars = s.cars.filter((c) => c.id !== carId);
+
+    logEvent(s, {
+      t: s.t,
+      kind: 'sale-cash',
+      label: `Wholesaled ${carLabel(car)} — gone at the auction price`,
+      amount: proceeds,
+    });
     return true;
   });
 }
@@ -308,16 +348,24 @@ export function stageMovePreview(state: GameState, targetId?: StageId): StageMov
   const float = direction === 'up' ? reopeningFloat(state, target!) : 0;
   const affordable = state.cash >= cost + float;
 
-  // Everything owned, because everything goes.
-  const staffLost = UPGRADES.filter((u) => level(state, u.id) > 0).map((u) => ({
+  // Everything owned goes, except the one line that follows the paper. The
+  // preview must name exactly what `moveToStage` releases and nothing else —
+  // there is a test that compares the two lists, because a confirmation that
+  // over-warns is as wrong as one that under-warns.
+  const staffLost = UPGRADES.filter((u) => !u.carriesOnMove && level(state, u.id) > 0).map((u) => ({
     name: u.name,
     level: level(state, u.id),
   }));
 
-  // The collections desk is staff, so it resets too — and the book does not.
-  // A player carrying 40 contracts into a new store lands there with capacity
-  // for 8 until they rehire, which is the single sharpest edge in the move.
-  const withoutStaff = { upgrades: {} as Record<string, number> };
+  // The book comes with you AND so does the desk that services it, so the
+  // capacity quoted here is the one that survives. This used to model the desk
+  // resetting to eight, which was accurate and was the single sharpest edge in
+  // the move: a full book landed 2.9x over the line and defaulted entirely.
+  const afterMove = {
+    upgrades: Object.fromEntries(
+      UPGRADES.filter((u) => u.carriesOnMove).map((u) => [u.id, level(state, u.id)]),
+    ) as Record<string, number>,
+  };
 
   return {
     from,
@@ -332,7 +380,7 @@ export function stageMovePreview(state: GameState, targetId?: StageId): StageMov
     staffLost,
     bookAfter: {
       active: activeNotes(state.notes).length,
-      capacity: collectionsCapacity(withoutStaff),
+      capacity: collectionsCapacity(afterMove),
     },
     liquidation: lotLiquidation(state),
     lotAfter: {
@@ -394,9 +442,21 @@ export function reopeningFloat(_state: GameState, target: StageDef): number {
   // identical lifetime profit under every expense setting, because expenses were
   // never the binding constraint — the receding gate was. A requirement that
   // grows when you invest is a trap, not a gate.
+  // Sized against the STALLS you are about to stand in front of, not against a
+  // flat car count. A flat six is three driveways at a curbstone and a seventh
+  // of a lot at a Valmont store, which is how the top of the ladder came to be
+  // reachable while insolvent — see `reopeningLotShare` in balance.ts.
+  const cars = Math.max(
+    BALANCE.expenses.reopeningCars,
+    Math.ceil(target.baseCarCapacity * BALANCE.expenses.reopeningLotShare),
+  );
   return Math.round(
-    typicalCarPrice(target) * BALANCE.expenses.reopeningCars +
-      target.rentPerWeek * BALANCE.expenses.reserveWeeks,
+    typicalCarPrice(target) * cars +
+      target.rentPerWeek * BALANCE.expenses.reserveWeeks +
+      // Enough left to start rebuilding the office as well as filling the lot.
+      // Whatever this asks for is what the business opens its doors with, because
+      // nothing waits once a move is affordable.
+      target.entryCost * BALANCE.expenses.reopeningCapitalShare,
   );
 }
 
@@ -470,8 +530,13 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
     // made a move a payroll event; this makes it the decision the whole ladder
     // turns on, because the rebuild is now the dominant cost of a rung and it is
     // paid in the currency the store charges for it.
+    // The collections desk is the exception, and the loan book is the reason:
+    // the paper comes with you, so the people servicing it do too. Releasing
+    // them landed a full book 2.9x over a reset desk's capacity and defaulted
+    // the lot of it inside a game month. See `carriesOnMove` in upgrades.ts.
     const released: string[] = [];
     for (const def of UPGRADES) {
+      if (def.carriesOnMove) continue;
       if (level(s, def.id) === 0) continue;
       released.push(def.name);
       delete s.upgrades[def.id];

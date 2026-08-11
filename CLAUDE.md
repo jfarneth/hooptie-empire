@@ -45,6 +45,17 @@ taps while the app is closed, so overnight sales all pay the cut, and the
 measured wake-up at a curbstone fell from $1.09M to $526k — the "sleep past two
 stores" bug, dead. `docs/offline-plan.md` is the full measurement record.
 
+**How long a car sits is a property of the STORE, not of the game.**
+`STAGES[].trafficPerCar` is walk-up traffic per listed car, 1.0 at the curbstone
+falling to 0.5 at the franchises, and it is what stops a forty-car lot running
+forty arrival processes side by side and turning its whole stock over in three
+days. A car is listed for about a week now at every rung. Dwell is bought with
+throughput and paid for nowhere else — see the Verify section before touching it,
+because the obvious alternatives were measured and do not work. The player's half
+of it is the car sheet: **days on the lot**, and a wholesaler who will take
+anything today at `forcedSaleRate` (`sellToWholesaler`), which is the release
+valve that stops dead stock being a stuck stall.
+
 **Promotions** are temporary boosts the business runs under, and there is
 currently one: every new business opens on a **grand opening** that doubles
 walk-up traffic for its first twenty minutes. `src/sim/promotions.ts` is the
@@ -532,29 +543,51 @@ what to keep back is the player's call, informed and theirs to get wrong.
 property of moving stores, not of automation, and it kept the bug the old
 reserve caused out of the move path.
 
-**The premium franchise still kills the economy, and honest bills just put a
-price on it: the 350h end state is cash −$45.2M** where it used to read a
-frozen $0 — same dead store, real ledger. (It measured −$40.3M when honest
-bills landed; the buyer-gate fix then pulled the premium store in to ~264h,
-so the same flatline now bleeds for a few more weeks of rent by the 350h
-snapshot.) A player who stalls at Valmont watches debt mount instead of a
-quiet zero, which makes the late-game retune urgent rather than cosmetic. The escape hatches are unchanged
-and both stop the bleeding: walking down the ladder is free and ends the rent,
-and retirement settles everything. **There is also a measured lever on the
-flatline itself.** Setting the three franchise stages'
-`raritySellerCapture` to 0 (one slider in Office → Admin) took the 350h end
-state from a dead store to **$62.3M cash and a full 43/43 book** when it was
-measured during the rarity work. It is not
-shipped that way because rarity should not be a stealth economy patch, and
-because the honest fix is probably still the upgrade multiplier — but it is the
-cheapest known thing that makes the top of the ladder trade at all.
+**The premium flatline is FIXED, and the diagnosis was not the one this file
+spent months assuming.** The 350h end state reads **+$7.4M cash, a $1.9M
+portfolio and a full 43/43 book**, against −$45.2M, $0 and an empty book before.
+It was never the margin. Three things were killing it, and all three were
+capitalisation rather than economics:
 
-The ladder is completable — 8/8 seeds buy the premium store at ~264h — but the
-business then flatlines and never trades again: the 350h snapshot reads
-`broke, lot empty` 96% of the run, a $0 portfolio and an empty book. It dies
-rebuilding an 18x-priced office on 4.5-9% margins. Raising `reopeningCars` to 12 was measured and made it worse —
-it gated every earlier rung harder without saving the last one. The likely fix
-is the upgrade multiplier at the top, not the float.
+- **The store opened insolvent.** `reopeningFloat` demanded a flat six cars at
+  every rung — three driveways' worth at a curbstone and one seventh of a lot at
+  a Valmont store. Nothing waits once a move is affordable, so that figure IS the
+  balance a store opens with: the premium franchise was reached with $70M spent
+  on the keys and **$21,233** left, against $86,000 cars and $20,000 a week of
+  rent. Six cars gross about $21.6k a week there and the bill is about $22.4k, so
+  it opened under water by a margin too thin to see. It is now sized against the
+  stalls and the entry cost (`reopeningLotShare`, `reopeningCapitalShare`).
+- **The move destroyed the loan book.** The collections desk was staff, so it
+  reset — and a full 43-note book landed 2.9x over a fresh desk's capacity, where
+  `overCapacityFactor` pinned the miss chance at its 2.2x ceiling and defaulted
+  the entire portfolio inside a game month. Measured: $71.5M and 43/43 at 293h,
+  zero notes and zero portfolio at 295h. "The book moves intact" was a sentence
+  the game did not honour. `collections` now carries on a move — see
+  `carriesOnMove` in upgrades.ts, which is the only exception on the table.
+- **The bot rebuilt the office before it stocked the lot.** A harness-brain bug,
+  but the same trap a player walks into: it kept back four cars' worth, which is
+  a lot at a curbstone and a rounding error at a franchise, then ran five cars on
+  a thirty-two stall lot against the payroll it had just hired.
+
+This is why widening the franchise ask band read as a CLIFF rather than a dial
+during the retune: anything under about eight points of extra margin left the
+store dead and anything over it left the store compounding without limit ($658M
+to $1.4B at 350h). A knife-edge like that is the signature of a fixed cost that
+is not being covered, not of a margin that needs tuning. **The shipped franchise
+ask bands are unchanged.**
+
+The escape hatches are unchanged and both still work: walking down the ladder is
+free and ends the rent, and retirement settles everything. The
+`raritySellerCapture` lever noted during the rarity work is still there and still
+not shipped, and it is no longer needed for this.
+
+The ladder is completable — 8/8 seeds buy the premium store, now at ~315h
+against ~264h before, and the business **keeps trading** rather than bleeding to
+−$45M. Later and alive is the trade, and it is the right one. Note that
+`broke, lot empty` still reads ~98% of the run: at the top a car costs $86k, so
+"cannot afford the cheapest listing on the feed" is the normal state of a
+healthy business up there and is no longer a distress signal on its own — read
+cash, the book and the portfolio instead.
 
 **The upgrade table is badly out of scale with the ladder, and it is the next
 thing to fix.** A sales manager costs 1:18 of the store at a small lot and
@@ -593,7 +626,7 @@ upgrades, which is the bot's brain rather than the game's rule. The third guard
 ## Verify
 
 ```bash
-npm test        # 331 tests
+npm test        # 339 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~4min
@@ -604,26 +637,48 @@ npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~4min
 npm run sim -- --seeds=64 --set=balance.rarity.valueStep=0
 ```
 
-The ladder at `--seeds=8 --hours=350`, reached by 8/8 — **re-measured after
-the retainer buyer's ceiling moved from wholesale to retail margin**. The
-`wholesale gate` column is the previous build's table; the gate has no
-constant to zero, so unlike the trim A/B these two columns do NOT share an
-RNG stream and the deltas are cross-build:
+The ladder at `--seeds=8 --hours=350`, reached by 8/8 — **re-measured after the
+dwell retune** (per-store traffic, the reopening float, and the collections desk
+carrying across a move). `trafficPerCar` has a constant to zero, so setting every
+stage back to 1 reproduces the previous build on an identical stream; the float
+and the desk do not, so treat the deltas as cross-build:
 
-| | wholesale gate | shipped |
+| | before dwell | shipped |
 |---|---|---|
-| Small used dealership | 2h31m | ~2h28m |
-| Large used dealership | 7h04m | ~5h43m |
-| Low-cost franchise | 16h37m | ~10h30m |
-| Midsize franchise | 50h34m | ~44h13m |
-| Premium franchise | 271h06m | ~264h29m |
+| Small used dealership | 2h28m | ~2h32m |
+| Large used dealership | 5h43m | ~6h34m |
+| Low-cost franchise | 10h30m | ~11h38m |
+| Midsize franchise | 44h13m | ~48h30m |
+| Premium franchise | 264h29m, then dead | ~315h11m, **still trading** |
 
-The shape of the delta is the diagnosis restated: the middle rungs move hugely
-because that is where the old gate skipped ~90% of a profitable feed; stage 2
-barely moves because a curbstone feed sits mostly under wholesale anyway; the
-franchises barely move because their branch of the ceiling was always right.
-**Every pacing number older than this table was measured through the throttled
-buyer** — treat pre-fix baselines as historical record, not as targets.
+Every rung is 5-15% later and the top one is a different game: it used to arrive
+at 264h and flatline at −$45.2M, and it now arrives at 315h with +$7.4M, a $1.9M
+portfolio and a full 43/43 book. Later and alive is the trade.
+
+**Days on the lot is now a harness metric, and it is the one to watch for
+anything touching demand.** `npm run sim` prints p50/p90 per store and the share
+of cars gone inside a single game day. Before the retune a car was listed 4.5
+days at a small lot and **3.5 at a franchise** — the conveyor got FASTER as you
+climbed, and one car in seven was gone inside a day, which is a vending machine
+rather than a dealership. Shipped:
+
+| store | before | shipped |
+|---|---|---|
+| Curbstone | 6.3d | 6.5d (untouched) |
+| Small lot | 4.5d | 7.3d |
+| Big lot | 3.7d | 6.9d |
+| Halvorsen / Okabe / Valmont | 3.5-4.2d | 6.5-7.2d |
+| sold inside one game day | 10-15% | 7-8% |
+
+**Dwell is bought with throughput and there is no way around it.** Inventory on
+the lot is the sale rate times the dwell time, the lot is capacity-bound or
+cash-bound at all times, so halving traffic halves sales — measured, a flat 0.75x
+traffic cut took stage 2 from 2h30m to 3h06m. Holding more cars instead does NOT
+work and was measured too: doubling capacity at the first two stages took
+`broke, lot empty` from 18% of turns to 40% and dwell went DOWN, because the
+constraint is the till and not the tarmac. The curbstone keeps `trafficPerCar: 1`
+for exactly this reason — stage 1 is already the longest-dwelling store in the
+game and the slowest rung, so it had nothing to give.
 
 The trim-grade A/B (same build with `valueStep=0`, so both columns shared one
 RNG stream) put the trim premium at ~10% on the used rungs and less up top,
@@ -649,21 +704,27 @@ compare against for everything below the franchise:
 
 | | |
 |---|---|
-| stage 2 reached | ~2h21m (64/64) |
-| first note written | ~2h23m |
-| first repossession | ~2h53m |
-| first note paid off | ~3h15m |
+| stage 2 reached | ~2h26m (64/64) |
+| first note written | ~2h28m |
+| first repossession | ~2h59m |
+| first note paid off | ~3h20m |
 | $100k cash | ~2h19m |
-| $50k portfolio | ~2h30m |
-| walk-away rate | ~60% |
-| bad-buy rate (true loss: `price > retailValue`) | ~1.4% |
-| appraisal error | ~6.6% |
+| $50k portfolio | ~2h35m |
+| walk-away rate | ~60.5% |
+| bad-buy rate (true loss: `price > retailValue`) | ~1.1% |
+| appraisal error | ~7.0% |
 | Buying / Closing / Wrenching to level 5 | 38m / 31m / 33m |
-| end cash at 4h | ~$39k |
-| end portfolio at 4h | ~$300k |
-| lifetime profit at 4h | ~$800k |
-| cars sold at 4h | ~419 |
-| lot at capacity | ~78% of the run |
+| end cash at 4h | ~$40k |
+| end portfolio at 4h | ~$260k |
+| lifetime profit at 4h | ~$548k |
+| cars sold at 4h | ~301 |
+| days on the lot (curbstone / small lot) | 6.1d / 7.3d |
+| lot at capacity | ~79% of the run |
+
+Cars sold and lifetime profit are DOWN by about a quarter and a third against
+the pre-dwell build (419 → 301, $800k → $548k) and that is the feature, not a
+regression: fewer cars, held longer. The milestone barely moved (2h21m → 2h26m)
+because the curbstone stage is untouched.
 
 **This table has been badly stale twice** — once when it outlived the
 running-costs and margin work (claiming stage 2 at ~1h11m against a build
@@ -950,6 +1011,32 @@ Most have a guarding test; check before "simplifying" the code around them.
   one compares the claim against listings the real engine spawns, the other says
   in dollars that $20,000 buys a beater at a curbstone lot. Same disease as the
   entry below; a different flavour of it.
+- **A gate that is a flat count is wrong at both ends of a 1000x ladder.** The
+  reopening float asked for six cars at every rung — three driveways' worth at a
+  curbstone, one seventh of a lot at a Valmont store. Nothing waits once a move
+  is affordable, so that number is not a gate, it is the balance the new store
+  OPENS WITH: the premium franchise was reached with $70M spent and $21,233 left
+  against $86,000 cars. It is sized against the stalls and the entry cost now.
+  The tell was a knife-edge — franchise margin had no setting between "dead" and
+  "compounding to $1.4B" — and a cliff like that is always a fixed cost that is
+  not being covered, never a margin that needs tuning.
+- **A reset that destroys what the player was promised keeps is a trap.** Moving
+  stores released the collections desk, and a full book landed 2.9x over a fresh
+  desk's capacity where `overCapacityFactor` pinned miss chance at its ceiling
+  and defaulted the entire portfolio inside a game month. "The book moves intact"
+  was false in practice for three hundred hours of paper. `collections` carries
+  now (`carriesOnMove`), and the move preview had to learn it too — a
+  confirmation that over-warns is as wrong as one that under-warns, and there is
+  a test comparing the two lists.
+- **The sheet must judge price against the same number traffic does.** `CarSheet`
+  measured the ask against `windowPrice` — retail x the store's subprime markup —
+  long after the sticker moved to cash retail, so a car priced at exactly what it
+  is worth read "priced under market, it will move fast", and the button labelled
+  "Match market" repriced it to 1.5x retail, a whisker under `maxViablePriceRatio`
+  and close to zero traffic. Identical in kind to the traffic-reference bug the
+  entry above this records, and invisible until cars started sitting long enough
+  to show "42 days on the lot" and "it will move fast" one line apart. Found by
+  opening the game, not by a test.
 - **A test that asserts `sum >= count` cannot fail.** The first automation test
   written for skills passed on a run that accrued zero XP. Mutation-test any
   test guarding a regression: break the code, watch it go red, put it back.
@@ -1073,6 +1160,12 @@ need a branch preview, build it somewhere that is not the live site.
   the back half of the game. If that reads badly in play, the honest fix is to
   give Buying a franchise-side effect (allocation throughput, say) rather than to
   put fake uncertainty back on a new car.
+- **The premium franchise is alive but the top two rungs are not re-gated.** The
+  store trades now instead of dying, but nothing has re-argued where it should
+  ARRIVE: 48h and 315h for the last two rungs is a 6.5x step where the rest of
+  the ladder is roughly 3x. That was true before this work too. `entryCost` and
+  `upgradeCostMultiplier` are the honest levers and the note below on the upgrade
+  table still stands.
 - **The late game is no longer hot; stage 1 may now be too slow.** The
   stage-2 gate has drifted from 48m through 1h11m to ~2h21m across the running
   costs, the ladder stretch and the honest-till passes, and a 140-minute

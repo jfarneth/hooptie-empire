@@ -6,6 +6,7 @@ import {
   declineProspect,
   listForSale,
   repriceCar,
+  sellToWholesaler,
   releaseDeal,
   startRecon,
   takeCashDeal,
@@ -120,6 +121,12 @@ export function LotScreen({ state }: { state: GameState }) {
         }}
         onUnlist={() => car && apply((s) => unlist(s, car.id))}
         onReprice={(price) => car && apply((s) => repriceCar(s, car.id, price))}
+        onWholesale={() => {
+          if (!car) return;
+          apply((s) => sellToWholesaler(s, car.id));
+          // The car no longer exists, so the sheet has nothing left to show.
+          setCarId(null);
+        }}
       />
 
       <DealSheet

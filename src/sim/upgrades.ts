@@ -31,6 +31,31 @@ export interface UpgradeDef {
    * spend, not a hire. `autoList` is you agreeing to do the listings.
    */
   staff?: boolean;
+  /**
+   * Does this survive a change of store?
+   *
+   * Almost nothing does — moving clears the entire upgrade table, and that
+   * rebuild is the dominant cost of a rung. The one exception is the collections
+   * desk, and it is an exception the loan book forces rather than a discount.
+   *
+   * THE BOOK MOVES INTACT. That is the oldest rule in the design: the lot is
+   * sold, the payroll is released, and the paper comes with you because the
+   * paper is the business. But a book that arrives at a store whose desk has
+   * reset to eight contracts is not intact — a full 43-note book lands 2.9x over
+   * capacity, `overCapacityFactor` pins the miss chance at its 2.2x ceiling, and
+   * the entire portfolio defaults inside a game month. Measured on the ladder:
+   * a business reached the premium franchise with $71.5M and a full 43/43 book,
+   * and two game hours later held zero notes, zero portfolio and was falling
+   * $1.7M a week. It never traded again.
+   *
+   * So this is not "the desk is cheap now". It is that the alternative makes
+   * "the book moves intact" false, and quietly converts the last rung of the
+   * ladder into a trap that destroys three hundred hours of paper. The
+   * over-capacity penalty keeps every job it was built for — a save written
+   * before the cap, or a desk the admin console shrank — it simply stops being
+   * triggered by the one event that is supposed to preserve the book.
+   */
+  carriesOnMove?: boolean;
 }
 
 /**
@@ -144,6 +169,10 @@ export const UPGRADES: readonly UpgradeDef[] = [
     baseCost: 6_500,
     costGrowth: 2.2,
     staff: true,
+    // The one line on the table that follows the paper rather than the premises.
+    // See `carriesOnMove` — without it, "the book moves intact" is a sentence
+    // the game does not honour.
+    carriesOnMove: true,
   },
   {
     id: 'underwriting',

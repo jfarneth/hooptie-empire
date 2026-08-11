@@ -2,12 +2,14 @@ import {
   advanceStage,
   moveToStage,
   purchaseUpgrade,
+  reopeningFloat,
   setDealPolicy,
   stageMovePreview,
 } from './actions';
 import { appraisalBand } from './appraisal';
+import { applyTuning } from './tuning';
 import { BALANCE } from './balance';
-import { wholesaleValue } from './economy';
+import { retailValue, wholesaleValue } from './economy';
 import { advance, cloneState, createInitialState } from './engine';
 import { getModel, modelsForMake, modelsForTiers } from './models';
 import { overCapacityFactor } from './notes';
@@ -235,7 +237,28 @@ describe('taking on the next dealership', () => {
     expect(UPGRADES.some((d) => level(before, d.id) > 0)).toBe(true);
 
     const after = advanceStage(before);
-    for (const def of UPGRADES) expect(level(after, def.id)).toBe(0);
+    for (const def of UPGRADES) {
+      if (def.carriesOnMove) continue;
+      expect(level(after, def.id)).toBe(0);
+    }
+  });
+
+  /**
+   * The one exception, and the reason it exists: the paper moves intact, so the
+   * desk that services it moves too. Releasing it landed a full book far over a
+   * reset desk's capacity, where `overCapacityFactor` pinned the miss chance at
+   * its ceiling and defaulted the entire portfolio inside a game month — which
+   * made "the book comes with you" a sentence the game did not honour.
+   */
+  it('keeps the collections desk, because the book it services comes too', () => {
+    const before = goingConcern();
+    before.upgrades.collections = 3;
+    const capacityBefore = collectionsCapacity(before);
+
+    const after = advanceStage(before);
+
+    expect(level(after, 'collections')).toBe(3);
+    expect(collectionsCapacity(after)).toBe(capacityBefore);
   });
 
   /**
@@ -386,7 +409,10 @@ describe('jumping rungs and walking back down', () => {
 
   it('clears the upgrade table on a jump exactly as it does on a step', () => {
     const after = moveToStage(goingConcern('smallUsed', 400_000_000), 'premiumFranchise');
-    for (const def of UPGRADES) expect(level(after, def.id)).toBe(0);
+    for (const def of UPGRADES) {
+      if (def.carriesOnMove) continue;
+      expect(level(after, def.id)).toBe(0);
+    }
     expect(after.dealPolicy).toBe('manual');
     expect(after.listings).toEqual([]);
   });
@@ -460,6 +486,45 @@ describe('jumping rungs and walking back down', () => {
     expect(preview.rungsSkipped).toBe(4);
     expect(preview.allowed).toBe(false);
     expect(moveToStage(s, 'premiumFranchise')).toBe(s);
+  });
+
+  /**
+   * THE FLOAT IS THE STORE'S OPENING BALANCE, not a formality, because nothing
+   * waits once a move is affordable — automation and the harness bot both take a
+   * rung the instant they can pay for it, so whatever this asks for is exactly
+   * what the business opens its doors with.
+   *
+   * A flat six cars was three driveways' worth at a curbstone and a seventh of a
+   * lot at a Valmont store: the premium franchise was reached with $70M spent on
+   * the keys and $21,233 left against $86,000 cars and $20,000 a week of rent.
+   * It opened insolvent and never traded again. Sized against the lot and the
+   * entry cost, the top of the ladder demands a real opening balance while the
+   * early rungs — where the flat floor still binds — are left exactly as they
+   * were.
+   */
+  it('demands a real opening balance at a big store, and no more than it used to at a small one', () => {
+    const smallLot = getStage('smallUsed');
+    const premium = getStage('premiumFranchise');
+
+    // The early rungs are unchanged: the flat floor still binds, because half of
+    // an eight-car lot is less than six cars.
+    expect(Math.ceil(smallLot.baseCarCapacity * BALANCE.expenses.reopeningLotShare)).toBeLessThan(
+      BALANCE.expenses.reopeningCars,
+    );
+    expect(reopeningFloat(stateAt('curbstone'), smallLot)).toBe(
+      Math.round(
+        typicalCarPrice(smallLot) * BALANCE.expenses.reopeningCars +
+          smallLot.rentPerWeek * BALANCE.expenses.reserveWeeks +
+          smallLot.entryCost * BALANCE.expenses.reopeningCapitalShare,
+      ),
+    );
+
+    // At the top it is a real number: enough to half-fill forty-two stalls and
+    // start rebuilding the office, rather than the price of six cars.
+    const float = reopeningFloat(stateAt('midsizeFranchise'), premium);
+    const oldRule = typicalCarPrice(premium) * BALANCE.expenses.reopeningCars;
+    expect(float).toBeGreaterThan(oldRule * 10);
+    expect(float).toBeGreaterThan(typicalCarPrice(premium) * (premium.baseCarCapacity / 2));
   });
 
   it('does nothing when asked to move to the store you are already in', () => {
@@ -614,5 +679,97 @@ describe('typicalCarPrice', () => {
     const beaters = models.filter((m) => m.tier === 'beater').length;
     expect(beaters).toBeGreaterThan(0);
     expect(beaters).toBeLessThan(models.length);
+  });
+});
+
+// ------------------------------------------------- how long a car sits
+
+/**
+ * Walk-up traffic per listed car, and the dwell time it buys.
+ *
+ * DWELL IS THE CHARACTER OF A STORE. Traffic used to be a flat per-car rate, so
+ * a forty-car franchise ran forty arrival processes side by side and turned its
+ * whole stock over in three and a half game days — one car in seven gone inside
+ * a single day, which is a vending machine rather than a dealership.
+ *
+ * The property that matters is that the number arrives in `stepProspects`.
+ * Asserting on the table alone would pass just as happily if the engine never
+ * read it, which is the same trap `promotions.test.ts` documents.
+ */
+describe('how busy a store is', () => {
+  /** A lot of identical cars, all listed at retail, at `stage`. */
+  function stockedLot(seed: number, stage: StageId, cars: number): GameState {
+    const s = cloneState(createInitialState(seed, 0));
+    s.stage = stage;
+    s.cash = 10_000_000;
+    s.listings = [];
+    // No grand opening: it doubles traffic and would swamp the comparison.
+    s.promotions = [];
+    for (let i = 0; i < cars; i++) {
+      const car = { ...createInitialState(seed + i * 31 + 1, 0).listings[0].car };
+      car.id = `car_${i}`;
+      car.status = 'listed';
+      car.askPrice = retailValue(car);
+      s.cars.push(car);
+    }
+    return s;
+  }
+
+  /** Every distinct buyer who turned up over `ms`, counted by id. */
+  function arrivals(start: GameState, ms: number): number {
+    let s = start;
+    const seen = new Set<string>();
+    for (let elapsed = 0; elapsed < ms; elapsed += 5_000) {
+      s = advance(s, 5_000);
+      for (const p of s.prospects) seen.add(p.id);
+    }
+    return seen.size;
+  }
+
+  it('falls as you move upmarket, so bigger stores hold stock longer', () => {
+    const rates = STAGES.map((def) => def.trafficPerCar);
+    expect(rates[0]).toBe(1);
+    for (let i = 1; i < rates.length; i++) {
+      expect(rates[i]).toBeGreaterThan(0);
+      expect(rates[i]).toBeLessThanOrEqual(rates[i - 1]);
+    }
+  });
+
+  /**
+   * Summed across seeds because one run's walk-ups are a Poisson draw. Compared
+   * at the same stage with the table overridden, so the ONLY difference between
+   * the two runs is this number — a comparison across two real stages would move
+   * the cars, the ask band and the credit mix at the same time.
+   */
+  it('is what the engine actually counts walk-ups against', () => {
+    const busy = getStage('smallUsed').trafficPerCar;
+    let quiet = 0;
+    let loud = 0;
+    try {
+      for (let seed = 0; seed < 6; seed++) {
+        applyTuning({ 'stages.smallUsed.trafficPerCar': 1 });
+        loud += arrivals(stockedLot(700 + seed, 'smallUsed', 5), 10 * 60 * 1000);
+        applyTuning({ 'stages.smallUsed.trafficPerCar': 0.25 });
+        quiet += arrivals(stockedLot(700 + seed, 'smallUsed', 5), 10 * 60 * 1000);
+      }
+    } finally {
+      applyTuning({ 'stages.smallUsed.trafficPerCar': busy });
+    }
+
+    expect(quiet).toBeGreaterThan(0);
+    expect(loud).toBeGreaterThan(quiet);
+    // A quarter of the rate, throttled a little by one shopper at a time per car.
+    expect(loud / quiet).toBeGreaterThan(1.8);
+  });
+
+  /**
+   * The same rule a promotion follows from the other direction: this multiplies
+   * a rate and does not overrule the pricing model. A busy store cannot sell a
+   * car priced out of the market, because the rate is already zero up there.
+   */
+  it('cannot bring anybody to a car priced out of the market', () => {
+    const s = stockedLot(88, 'curbstone', 5);
+    for (const car of s.cars) car.askPrice = retailValue(car) * 100;
+    expect(arrivals(s, 15 * 60 * 1000)).toBe(0);
   });
 });

@@ -134,6 +134,14 @@ describe('the book limit is a limit', () => {
     let s = lotWithProspect(99);
     s.upgrades = { salesDesk: 1, autoList: 1, advertising: 3 };
     s.dealPolicy = 'finance';
+    // A lot rather than a single car, so the "it sold something instead" half of
+    // this does not hang on one negotiation going the right way. Traffic is per
+    // listed car, and a rejected counter loses the buyer nine times in ten.
+    for (let i = 0; i < 6; i++) {
+      const extra = generateCar(s, s.rng, getModel('civet'), s.t);
+      s.cars.push(extra);
+      listCar(s, extra);
+    }
     fillBook(s, collectionsCapacity(s));
 
     // Long enough for many walk-ups, and short of a game week so no filler note

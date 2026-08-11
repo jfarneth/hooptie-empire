@@ -80,6 +80,12 @@ export const TUNABLES: readonly TunableDef[] = [
   // ---------------------------------------------------------- running costs
   { path: 'balance.expenses.wageOfCost', label: 'Weekly wage, share of hire cost', group: 'Running costs', kind: 'percent', min: 0, max: 0.5,
     help: 'A hire’s weekly wage as a share of what that level cost to buy, so an expensive hire is expensive to keep. Staff only.' },
+  { path: 'balance.expenses.reopeningCars', label: 'Cars you must be able to stock', group: 'Running costs', kind: 'int', min: 0, max: 60,
+    help: 'Floor on what a move demands. The real gate is the share of the new lot below, whichever is larger.' },
+  { path: 'balance.expenses.reopeningLotShare', label: 'Share of the new lot you must fill', group: 'Running costs', kind: 'percent', min: 0, max: 2,
+    help: 'You may not take on a dealership you cannot put cars on. Sized against the stalls, so a franchise demands more than a driveway does.' },
+  { path: 'balance.expenses.reopeningCapitalShare', label: 'Opening capital, share of entry cost', group: 'Running costs', kind: 'percent', min: 0, max: 2,
+    help: 'What a move must leave in the till. Automation moves the instant it can afford to, so this is the balance a new store opens with.' },
   { path: 'balance.expenses.floorplanWeeklyRate', label: 'Floorplan interest per week', group: 'Running costs', kind: 'percent', min: 0, max: 0.2,
     help: 'Charged on the cost basis of everything unsold on the lot. This is what makes dead stock cost money.' },
 
@@ -202,6 +208,15 @@ export const TUNABLES: readonly TunableDef[] = [
       kind: 'int',
       min: 1,
       max: 300,
+    });
+    rows.push({
+      path: `stages.${stage.id}.trafficPerCar`,
+      label: `${stage.name} — walk-ups per car`,
+      group: 'Traffic & pricing',
+      kind: 'ratio',
+      min: 0.05,
+      max: 3,
+      help: 'How busy this store is, per car on the lot. Lower means inventory sits longer — and sells slower, so the ask band has to pay for it.',
     });
     rows.push({
       path: `stages.${stage.id}.rentPerWeek`,
