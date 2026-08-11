@@ -138,6 +138,51 @@ merits someday; too big to be the overnight fix.
 
 **D. Expenses.** See above: keep for the late-game retune, not for this.
 
+**E. The commission desk (owner's proposal, sharpened — now the leading
+candidate).** Retitle the curbstone `salesDesk` to **Business partner**: no
+salary, and he takes a cut of every deal *he* closes. At the dealership stages
+he becomes the salaried **Sales manager** on a smaller cut — your terms improve
+as you move upmarket, which is a progression story told in the pay structure.
+
+Three sharpenings that make it work mechanically:
+
+- **Cut of PROFIT, not of price.** Curbstone margin runs ~17–30% of the sale
+  price, so a cut of price is wildly sharper than it reads: 25% of price is
+  roughly all of the profit. "We split the profit on cars he moves" is the
+  honest knob and the honest fiction.
+- **Apply it to desk-closed deals, not to "offline."** The engine already
+  distinguishes the player's tap (`takeCashDeal`) from the desk's close
+  (`runDeskNegotiation`). Hang the commission on the closer, and the offline
+  brake falls out for free — while the app is closed, every sale is a desk
+  sale — with no attended/unattended flag, no amendment to the "offline is
+  real" pillar, and no leave-the-app-open exploit: keeping the screen on earns
+  nothing unless you actually tap deals, which is real attendance. As a bonus
+  it creates the decision idle games usually fumble: automation costs margin,
+  hand play keeps it, so Closing and the third counter get *more* valuable
+  rather than less.
+- **Per-stage rate in `STAGES` (tunable), falling as you climb.** Partner ~50%
+  at curbstone; managers ~15–25% at the used lots; single digits at the
+  franchises, where margins are already thin and the desk is the whole
+  business. The upgrade's display name follows the stage.
+
+Estimated brake (capacity-bound night, so compounding is weak — measure
+properly before shipping): a 50% profit split lands the 8h overnight near the
+**cap-4h row** (~$550k wake, big-lot skip dead), and 60–70% lands in the
+$350–450k band. No cap change and no traffic change needed, though a gentler
+cap composes fine with it.
+
+Costs worth naming: existing saves' desks start charging commission — terms
+change on an upgrade already bought (nothing is destroyed, but say it in the
+ledger); the desk's EV comparison is unaffected (its cut applies to either
+deal shape at the same rate); commission is a real expense so it flows through
+`lifetimeProfit`; and the whole ladder needs a re-measure because every stage
+with a desk earns less. No new save state at all — the rate is a per-stage
+constant and the cut is a ledger line, so `SAVE_VERSION` stays put.
+
+The away summary gets its line for free: "Your partner moved 12 cars. His
+cut: $9,400." That is the morning story this mechanic was always about.
+
 A and B compose cleanly (B is what A's cap "feels like" from inside) but
 either alone closes the reported bug. A is one evening of work; B is a
-weekend.
+weekend; **E is a weekend and is the one that adds a decision rather than a
+limit.**
