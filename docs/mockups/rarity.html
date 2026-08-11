@@ -186,6 +186,16 @@
     border-top: 1px solid var(--line);
     padding-top: 9px;
     margin-top: 2px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .rank-value em {
+    font-style: normal;
+    font-family: var(--sans);
+    font-size: 12px;
+    color: var(--faint);
   }
 
   /* --- car mockup panels ------------------------------------------------ */
@@ -262,6 +272,101 @@
   }
 
   .actualsize .cell-label { font-size: 9.5px; }
+
+  /* --- away-summary carousel -------------------------------------------- */
+  .sheet { max-width: 480px; }
+
+  .sheet-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--line); }
+  .sheet-title { font-size: 19px; font-weight: 750; letter-spacing: -0.01em; }
+  .sheet-sub { font-size: 13px; color: var(--faint); margin-top: 2px; }
+
+  .sheet-body { padding: 16px 0 18px; display: flex; flex-direction: column; gap: 14px; }
+
+  .carousel-label {
+    padding: 0 20px;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .carousel {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding: 2px 20px 8px;
+    scrollbar-width: thin;
+  }
+
+  .dealcard {
+    position: relative;
+    flex: 0 0 236px;
+    scroll-snap-align: start;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 13px 14px 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: hidden;
+  }
+
+  .dealcard::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: var(--rc);
+  }
+
+  .dealcard .grade {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--rc);
+  }
+
+  .dealcard .art { display: flex; justify-content: center; padding: 2px 0; }
+  .dealcard .art svg { display: block; }
+
+  .dealcard .cname { font-size: 14px; font-weight: 700; line-height: 1.25; }
+  .dealcard .cmeta { font-size: 11.5px; color: var(--faint); margin-top: -4px; }
+
+  .deal {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    border-top: 1px solid var(--line);
+    padding-top: 9px;
+  }
+
+  .deal div { display: flex; flex-direction: column; gap: 1px; }
+  .deal span { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+  .deal b {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .deal .pos { color: var(--money); }
+
+  .fakegrid { display: flex; gap: 8px; padding: 0 20px; }
+  .faketile {
+    flex: 1;
+    background: var(--panel-2);
+    border-radius: 6px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .faketile span { font-size: 11px; color: var(--dim); }
+  .faketile b { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .faketile .pos { color: var(--money); }
 
   /* --- table ------------------------------------------------------------ */
   .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
@@ -437,6 +542,38 @@
   <div class="paintrule"></div>
 
   <section>
+    <h2>When you come back</h2>
+
+    <div class="panel sheet">
+      <div class="sheet-head">
+        <div class="sheet-title">While you were gone</div>
+        <div class="sheet-sub">The lot ran for 8 hours</div>
+      </div>
+
+      <div class="sheet-body">
+        <div class="carousel-label">The buyer found these</div>
+        <div class="carousel" id="carousel"></div>
+
+        <div class="fakegrid">
+          <div class="faketile"><span>Cash collected</span><b class="pos">+$41,280</b></div>
+          <div class="faketile"><span>Cars sold</span><b>17</b></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="note">
+      Epic and legendary cars the retainer buyer picked up while the app was closed, with the deal
+      it got. Every figure is real: the ask was drawn against base trim, so the spread is the
+      rarity premium landing on your side. The carousel renders <strong>nothing at all</strong> when
+      nothing special turned up — same rule the promotion tray follows. This needs no new save data
+      and no new event type: <code>store.ts</code> already holds the state from before catch-up and
+      after it, so the cars are the ones whose <code>acquiredAt</code> falls inside the window.
+    </p>
+  </section>
+
+  <div class="paintrule"></div>
+
+  <section>
     <h2>What it is worth</h2>
     <div class="tablewrap">
       <table>
@@ -513,12 +650,11 @@
         </p>
       </div>
       <div class="note-card">
-        <h4>The open question</h4>
+        <h4>Coming back to it</h4>
         <p>
-          A legendary lives 150&nbsp;s on the feed, and the feed churns while the app is closed.
-          <strong>There is a 0.33% chance one is on screen when you open the game.</strong> Longer
-          shelf life for the top two grades helps — but the feed is slot-capped, so it has to come
-          with a slot of its own or it taxes throughput.
+          The feed churns while the app is closed, so a legendary on it is one you will rarely be
+          there to see. The retainer buyer already prices rarity correctly with no change at all —
+          so the answer is the <strong>carousel above</strong>, not a change to the feed.
         </p>
       </div>
     </div>
@@ -530,13 +666,17 @@
   // ---------------------------------------------------------------- palette
   const RARITIES = [
     { id: 'common',    name: 'Common',    p: 0.9,   mult: 1.0, color: '#7e8695',
-      odds: '90%',   freq: 'the feed',              tell: 'Stock trim. Nothing bolted on.' },
+      badge: 'no badge', odds: '90%',
+      freq: 'the feed',               tell: 'Stock trim. Nothing bolted on.' },
     { id: 'rare',      name: 'Rare',      p: 0.09,  mult: 1.1, color: '#4fb3d9',
-      odds: '9%',    freq: 'about every 8 minutes', tell: 'One bolt-on: spoiler on a car, lift and a light bar on a truck, rails on a van.' },
+      badge: 'Sport', odds: '9%',
+      freq: 'about every 8 minutes',  tell: 'One bolt-on: spoiler on a car, lift and a light bar on a truck, rails on a van.' },
     { id: 'epic',      name: 'Epic',      p: 0.009, mult: 1.2, color: '#9b74e6',
-      odds: '0.9%',  freq: 'about every 85 minutes', tell: 'The bolt-on, plus twin racing stripes over the hood, roof and decklid.' },
+      badge: 'Special Edition', odds: '0.9%',
+      freq: 'about every 85 minutes', tell: 'The bolt-on, plus twin racing stripes over the hood, roof and decklid.' },
     { id: 'legendary', name: 'Legendary', p: 0.001, mult: 1.3, color: '#ff3ea5',
-      odds: '0.1%',  freq: 'about every 13 hours',  tell: 'All of it, and neon underglow. Visible across a full lot.' },
+      badge: 'Unicorn', odds: '0.1%',
+      freq: 'about every 13 hours',   tell: 'All of it, and neon underglow. Visible across a full lot.' },
   ];
 
   const NEON = '#ff3ea5';
@@ -823,7 +963,8 @@
     + '<span class="rank-odds">' + r.odds + '</span>'
     + '<span class="rank-freq">' + r.freq + '</span>'
     + '<span class="rank-tell">' + r.tell + '</span>'
-    + '<span class="rank-value">retail × ' + r.mult.toFixed(2) + '</span>'
+    + '<span class="rank-value">retail × ' + r.mult.toFixed(2)
+    + '<em>on the sticker: ' + r.badge + '</em></span>'
     + '</div>').join('');
 
   const strips = [
@@ -851,6 +992,33 @@
     cell(carSide('sedan', BODY_COLORS.fleetBlue, 0.36, 'epic', 200), 'epic · 36%', '#9b74e6'),
     cell(carSide('sedan', BODY_COLORS.fleetBlue, 0.2, 'legendary', 200), 'legendary · 20%', '#ff3ea5'),
   ].join('');
+
+  // --------------------------------------------------- away-summary carousel
+  // Every figure computed from the real economy for these exact cars: the ask
+  // is drawn against base trim, so the spread IS the rarity premium.
+  const DEALS = [
+    { grade: 'legendary', display: 'Unicorn', style: 'truck', hex: BODY_COLORS.oxideRed,
+      cond: 0.71, name: 'Ironmark 1500', meta: '74,000 mi · 71%',
+      paid: 13507, worth: 24978 },
+    { grade: 'epic', display: 'Special Edition', style: 'sedan', hex: BODY_COLORS.fleetBlue,
+      cond: 0.66, name: 'Nakato Civet', meta: '96,000 mi · 66%',
+      paid: 5726, worth: 9774 },
+  ];
+
+  const usd = (n) => '$' + n.toLocaleString('en-US');
+
+  document.getElementById('carousel').innerHTML = DEALS.map((d) => {
+    const color = RARITIES.find((r) => r.id === d.grade).color;
+    return '<div class="dealcard" style="--rc:' + color + '">'
+      + '<span class="grade">' + d.display + '</span>'
+      + '<div class="art">' + carSide(d.style, d.hex, d.cond, d.grade, 196) + '</div>'
+      + '<div><div class="cname">' + d.name + '</div><div class="cmeta">' + d.meta + '</div></div>'
+      + '<div class="deal">'
+      + '<div><span>Paid</span><b>' + usd(d.paid) + '</b></div>'
+      + '<div><span>Worth</span><b>' + usd(d.worth) + '</b></div>'
+      + '<div><span>Spread</span><b class="pos">+' + usd(d.worth - d.paid) + '</b></div>'
+      + '</div></div>';
+  }).join('');
 
   // ------------------------------------------------------------ margin table
   const W = 0.74;

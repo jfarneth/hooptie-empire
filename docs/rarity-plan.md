@@ -142,62 +142,71 @@ interval-limited is what makes slot-time the expensive currency below.
 
 ---
 
-## The open design problem: the good stuff happens while nobody is watching
+## Coming back to it: the special-car carousel
 
-`advance()` runs the same `step()` whether or not anybody is watching, so
-`stepListings` spawns and expires cars the whole time the app is closed. Close
-it for eight hours and about 630 cars come and go on a feed nobody is looking
-at. Every legendary among them is simply gone.
+`advance()` runs the same `step()` whether or not anybody is watching, so the
+feed churns the whole time the app is closed. Close it for eight hours and about
+630 cars come and go on a feed nobody is looking at. **A legendary on the feed
+is one you will rarely be there to see** — at scout 0 the chance one is on
+screen when you open the app is `rate × lifetime` = `0.078/h × 150 s` = 0.33%.
 
-**The size of the problem.** For a Poisson arrival with a fixed shelf life, the
-chance one is on the feed at the moment you open the app is `rate × lifetime`.
-At scout 0 that is `0.078/h × 150 s` = **0.33%**, or about one session in three
-hundred.
+**The answer is not to change the feed.** An earlier draft proposed a per-grade
+listing shelf life, and it was a bad idea for two reasons. The feed is
+slot-capped and already blocking 52% of arrivals, so a car that lingers is a car
+that stops another being dealt — epic at 3× and legendary at 8× would hold ~2.9%
+of all slot-time, which against the measured throughput→cash elasticity is
+1–1.5% of end cash, permanently, bought for an event that happens twice a day.
+And it does not even solve the problem: 0.33% → 2.6% is still a coin you flip
+forty times.
 
-### What a lifetime multiplier is
+**The retainer buyer already solves it with no changes at all.** `autoBuy` gates
+on `acquisitionCeiling` → `pessimisticWholesale` → `conditionFreeValue`, so it
+already values a rare car correctly and will buy an offline legendary at exactly
+the bargain the feature intends. The thing that is missing is not the
+acquisition. It is that **nobody tells you it happened.**
 
-`spawnListing` currently stamps a flat shelf life on everything:
+### The carousel
+
+The away summary gains a carousel of the epic and legendary cars bought while
+the app was closed, each with the deal that was struck. Rendered in
+`docs/mockups/rarity.html`.
+
+One card per car: the side profile at its trim, the badge in its rarity colour,
+name and odometer, and three figures — **paid / worth / spread**. The spread is
+the honest headline, because the ask was drawn against base trim, so it *is* the
+rarity premium landing on the player's side of the deal.
+
+**It needs no new save data and no new event type.** `store.ts` already holds
+the state from before offline catch-up and the state after it, so the cars are
+simply:
 
 ```ts
-expiresAt: s.t + BALANCE.listingLifetimeMs                        // 150 s, always
-expiresAt: s.t + BALANCE.listingLifetimeMs * rarityLifetimeMult(rarity)   // proposed
+next.cars.filter((c) => c.acquiredAt >= saved.t && rank(c.rarity) >= 2)
 ```
 
-At epic 3× and legendary 8× the top two grades sit for 7.5 and 20 minutes. The
-fiction is right — somebody selling a special car holds out for their number —
-and the shipped effect is that the odds of opening the app to a legendary go
-0.33% → **2.6%** at scout 0, and 0.88% → **7.0%** at scout 3. That is a change
-in kind, not a fix: at one in a thousand it *should* stay rare.
+`Car.costBasis` is what was paid and `retailValue(car)` is what it is worth. Two
+new fields on `AwaySummary`, one component, nothing in `src/sim`.
 
-### What it costs, which is the part to weigh
+**It renders nothing when nothing turned up** — the same rule the promotion tray
+follows. This is a state the game is occasionally in, not a fixture, and an
+empty "no special cars" panel every morning would teach players to skip the
+whole modal.
 
-**Slot-time is the most expensive currency in the game.** The feed is already
-slot-limited — 52% of arrivals are blocked at scout 0 — so a car that stays
-longer is a car that stops another one being dealt. Epic at 3× and legendary at
-8× hold about **2.9% of all slot-time**. Against the measured throughput→cash
-elasticity (scout 1 is +52% listings for CLAUDE.md's +21% end cash), that is
-roughly **1–1.5% of end cash, permanently**, bought for an event that happens
-twice a day.
+### Three things to settle
 
-**So do not buy it with shared slots.** Give the top two grades their own:
-`StageSourcing.slots` plus a `specialSlots: 1` that only epic and legendary may
-occupy. Then the long shelf life costs ordinary throughput nothing, and the
-fiction is better again — the good stuff gets its own line on the board.
-
-### The thing that may make most of this moot
-
-**The retainer buyer already handles it correctly with zero changes.** `autoBuy`
-gates on `acquisitionCeiling` → `pessimisticWholesale` → `conditionFreeValue`,
-so it already pays more for a rare car and will happily buy an offline legendary
-at a bargain. Add a `SimEvent` when an epic or legendary is *bought* — not when
-one spawns, which at scout 3 would be two lines an hour of noise — and coming
-back to "the buyer picked up a legendary Ironmark 1500, $4,200 under book"
-is a **good** offline moment rather than a miss.
-
-Which reframes the whole thing: the lifetime multiplier is an **early-game**
-fix, covering the window before `autoBuy` is bought. That argues for a gentler
-2×/3× rather than 3×/8×, and it makes the special slot optional rather than
-required.
+- **Cars bought *and sold* while away** are gone from `state.cars` by the time
+  anyone looks, so they cannot be found this way. A `SimEvent` on the *sale* of
+  an epic or legendary covers them as a line rather than a card, which is the
+  right weight — a car you never saw and no longer own is news, not a trophy.
+- **Before `autoBuy` exists, the carousel is always empty.** That is honest and
+  probably fine: stage 1 is ~2.5 h with short check-in cycles, so the early game
+  is hands-on anyway and the player is usually there. Worth knowing rather than
+  fixing.
+- **"The one that got away"** — showing a legendary that spawned and expired
+  unseen — is tempting and probably a mistake. It creates desire for the
+  retainer buyer, but it is a notification whose entire content is that you
+  missed something, arriving at the moment a player opens the app. If it is
+  tried at all, gate it to legendary only, so it is a story rather than a nag.
 
 ---
 
@@ -217,7 +226,20 @@ rarity colour so the ramp still reads.
 | common | *(nothing shown)* | a car |
 | rare | SPORT | a trim level |
 | epic | SPECIAL EDITION | a trim level somebody wanted |
-| legendary | ONE OF ONE | a car with a story |
+| legendary | UNICORN | a car that should not exist in this spec |
+
+**Why the top one steps out of the badge vocabulary.** SPORT and SPECIAL EDITION
+are things a factory puts on a bootlid. A legendary is a spoiler *and* stripes
+*and* neon underglow — the factory did not build that, somebody in a lock-up
+did. So the top grade being lot slang rather than a badge is not an
+inconsistency, it is the correct register: **UNICORN** is what the trade
+actually calls a car in a spec you never see, it is dry rather than heroic, and
+it works equally on a neon Ironmark and a Valmont.
+
+Alternates if it reads wrong: **GRAIL** (collector vernacular, slightly more
+reverent), or the original **ONE OF ONE** (cleanest, but claims a fact about
+production numbers the game does not model). Avoid BARN FIND — right register,
+wrong car, since nothing about the trim says "uncovered after thirty years".
 
 One table in `rarity.ts`, zero mechanical difference, and it is trivially
 reversible if it reads worse in play. **Cheap to try, so try it.**
@@ -334,20 +356,23 @@ divergent draw shows up there rather than as a mystery months later.
 | file | change |
 |---|---|
 | `src/sim/types.ts` | `export type Rarity = 'common' \| 'rare' \| 'epic' \| 'legendary'`; `Car.rarity: Rarity` |
-| `src/sim/rarity.ts` *(new)* | the table: probabilities, value multipliers, listing-lifetime multipliers, display names; `rollRarity(rng)`, `rarityValueMult(r)`, `baseTrim(car)` |
+| `src/sim/rarity.ts` *(new)* | the table: probabilities, value multipliers, display names; `rollRarity(rng)`, `rarityValueMult(r)`, `rarityRank(r)`, `baseTrim(car)` |
 | `src/sim/balance.ts` | `BALANCE.rarity` block |
 | `src/sim/economy.ts` | one multiply in `conditionFreeValue` |
 | `src/sim/cars.ts` | `generateCar` rolls rarity |
-| `src/sim/engine.ts` | `spawnListing` prices against `baseTrim`; listing lifetime multiplier; `SAVE_VERSION` 11 |
+| `src/sim/engine.ts` | `spawnListing` prices against `baseTrim`; `SAVE_VERSION` 11 |
 | `src/sim/save.ts` | migration 10 → 11 |
 | `src/sim/tuning.ts` | four `TUNABLES` entries |
 | `src/tools/simulate.ts` | rarity counts and margin-by-rarity in the harness output |
 | `src/ui/art/RarityTrim.tsx` *(new)* | the overlay, both angles, all twelve archetypes |
 | `src/ui/art/CarArt.tsx` | compose the overlay; `rarity` prop |
 | `src/ui/screens/BuyScreen.tsx`, `components/CarSheet.tsx`, `lot/LotScene.tsx` | chip, line, pip |
+| `src/state/store.ts` | `AwaySummary.specialFinds` — cars acquired inside the catch-up window at epic or above |
+| `src/ui/components/AwaySummaryModal.tsx` | the carousel, above the tiles; renders nothing when the list is empty |
 
-`STAGES[].sourcing.raritySellerCapture` is deliberately *not* in that list — add
-it only if the harness says the franchise stages came in too fast.
+Two things deliberately *not* in that list. `STAGES[].sourcing.raritySellerCapture`
+— add it only if the harness says the franchise stages came in too fast. And any
+per-grade listing shelf life, for the reasons under "Coming back to it".
 
 ---
 
@@ -376,6 +401,11 @@ Two of these are the ones that matter; the rest are ordinary.
   throwing, and renders nothing for common. This is the guard on the fallback
   contract — the three archetypes with no sprite (`coupeEconomy`,
   `hatchPremium`, `vanPremium`) must still get trim.
+- **The carousel picks the right cars.** Run real offline catch-up over a state
+  seeded with a held epic acquired *before* the window and a legendary acquired
+  *inside* it, and assert only the second one comes back. An `acquiredAt >=
+  saved.t` filter that is accidentally `>` or reads the wrong clock would look
+  perfectly plausible and silently show yesterday's cars every morning.
 
 ---
 
@@ -387,13 +417,18 @@ Two of these are the ones that matter; the rest are ordinary.
    `--hours=350 --seeds=8` for the franchises. Compare against a re-run of the
    current build on the same invocation, **not** against CLAUDE.md's table.
 3. **Decide on `raritySellerCapture`** from that measurement, not from taste.
-4. **Art.** `RarityTrim`, then the three UI surfaces.
-5. **Look at it in the browser.** `npx tsx src/tools/dumpsave.ts smallUsed
+4. **Art.** `RarityTrim`, then the three in-game surfaces (feed chip, sheet
+   line, lot pip).
+5. **The carousel.** `AwaySummary.specialFinds` and the away-summary component.
+   It comes last on purpose: it is the only piece that depends on the art
+   existing, and it is worth nothing until there is something to put in it.
+6. **Look at it in the browser.** `npx tsx src/tools/dumpsave.ts smallUsed
    save.json`, inject, and look at a full lot — plus a premium franchise, which
    is the case where cars are smallest and the scene pans. The dead feed-slot
    bonus and the stale-franchise-feed bug were both invisible to a green suite
-   and obvious in one screenshot.
-6. **Update CLAUDE.md** with the re-measured tables and a section on the two
+   and obvious in one screenshot. For the carousel, back-date `lastSeenAt` on
+   the injected save so catch-up actually runs.
+7. **Update CLAUDE.md** with the re-measured tables and a section on the two
    seams.
 
 ---
