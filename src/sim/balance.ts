@@ -69,6 +69,21 @@ export const BALANCE = {
   listingIntervalPerScoutLevel: 0.78,
   listingLifetimeMs: 150_000,
 
+  /**
+   * How far the business buys from. See market.ts for the tier table and the
+   * argument; these are the two dials that scale the whole feature.
+   *
+   * Both exist so the feature can be A/B'd against itself on an identical RNG
+   * stream — `--set=balance.market.supplyScale=0` leaves only the local tier
+   * contributing and reproduces the build before this landed.
+   */
+  market: {
+    /** Scales every tier's contribution to feed throughput. */
+    supplyScale: 1,
+    /** Scales every tier's freight bill. At 0, distance is free. */
+    freightScale: 1,
+  },
+
   // ------------------------------------------------------------------ the desk
   desk: {
     /**

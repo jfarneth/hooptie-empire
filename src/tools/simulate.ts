@@ -32,6 +32,7 @@ import { activeNotes, canWriteNote, overCapacityFactor } from '../sim/notes';
 import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level, upgradeCost } from '../sim/upgrades';
 import { STAGES, getStage, nextStage, stageRank, typicalCarPrice } from '../sim/stages';
 import { RARITIES, RARITY_ORDER } from '../sim/rarity';
+import { landedCost } from '../sim/market';
 import { applyTuning, getTunable } from '../sim/tuning';
 import type { GameState, Rarity } from '../sim/types';
 
@@ -49,6 +50,7 @@ const UPGRADE_PRIORITY = [
   'driveway',
   'autoBuy',
   'lot',
+  'reach',
   'collections',
   'repoMan',
   'underwriting',
@@ -83,6 +85,15 @@ interface AppraisalTally {
   turns: number;
   lotFull: number;
   brokeNotFull: number;
+  /**
+   * Per store: how full the lot actually ran, and WHY it was not fuller.
+   *
+   * `held/capacity` is the number the playtester sees. The three reasons are
+   * mutually exclusive and sampled on the same turn, so they say whether an
+   * empty stall is a supply problem (nothing on the feed worth buying) or a
+   * demand-for-capital one (there is stock, we cannot pay for it).
+   */
+  byStage: Record<string, { turns: number; held: number; capacity: number; feedDry: number; cantAfford: number }>;
 }
 
 /**
@@ -104,6 +115,12 @@ function blankDwell(): DwellTally {
   return { listedMs: Object.fromEntries(STAGES.map((s) => [s.id, [] as number[]])), ownedMs: [] };
 }
 
+function blankStageTally(): AppraisalTally['byStage'] {
+  return Object.fromEntries(
+    STAGES.map((s) => [s.id, { turns: 0, held: 0, capacity: 0, feedDry: 0, cantAfford: 0 }]),
+  );
+}
+
 function blankRarityTally(): AppraisalTally['byRarity'] {
   return {
     common: { bought: 0, margin: 0 },
@@ -119,10 +136,24 @@ function botTurn(state: GameState, appraisal: AppraisalTally, stay = false): Gam
   {
     const held = s.cars.filter((c) => c.status !== 'sold').length;
     const full = held >= carCapacity(s);
-    const cheapest = s.listings.reduce((min, l) => Math.min(min, l.price), Infinity);
+    const cheapest = s.listings.reduce((min, l) => Math.min(min, landedCost(l)), Infinity);
     appraisal.turns += 1;
     if (full) appraisal.lotFull += 1;
     else if (s.cash < cheapest) appraisal.brokeNotFull += 1;
+
+    const row = appraisal.byStage[s.stage];
+    row.turns += 1;
+    row.held += held;
+    row.capacity += carCapacity(s);
+    if (!full) {
+      // Anything on the feed this store would actually take, ignoring money.
+      const sigma = appraisalSigma(s);
+      const worth = s.listings.filter(
+        (l) => landedCost(l) <= acquisitionCeiling(s, l, 'estimate') * 1.02,
+      );
+      if (worth.length === 0) row.feedDry += 1;
+      else if (s.cash < worth.reduce((m, l) => Math.min(m, landedCost(l)), Infinity)) row.cantAfford += 1;
+    }
   }
 
   // Float the bot keeps back at all times: enough to make rent for a few weeks.
@@ -184,14 +215,17 @@ function botTurn(state: GameState, appraisal: AppraisalTally, stay = false): Gam
     // always priced over wholesale, and gating on wholesale there meant the bot
     // bought literally nothing for the rest of the run.
     const ceiling = (l: (typeof s.listings)[number]) => acquisitionCeiling(s, l, 'estimate');
+    // Margin and the ceiling are both judged on LANDED cost — the ask plus the
+    // transporter. A bot that shops on the sticker and pays the sticker plus
+    // freight is measuring a game nobody is playing.
     const deals = s.listings
-      .map((l) => ({ l, margin: estimatedRetail(l, sigma) - l.price }))
-      .filter((d) => d.l.price <= ceiling(d.l) * 1.02)
+      .map((l) => ({ l, margin: estimatedRetail(l, sigma) - landedCost(l) }))
+      .filter((d) => landedCost(d.l) <= ceiling(d.l) * 1.02)
       .sort((a, b) => b.margin - a.margin);
     const judging = !getStage(s.stage).sourcing.makeId;
     for (const { l } of deals) {
       if (s.cars.filter((c) => c.status !== 'sold').length >= carCapacity(s)) break;
-      if (s.cash - l.price < 400 + float) continue;
+      if (s.cash - landedCost(l) < 400 + float) continue;
       // Recorded before the buy, while the listing still exists to compare
       // against — and only on the open market, where there is something to
       // misjudge. A BAD BUY IS A CAR WHOSE TRUE RETAIL IS UNDER THE PRICE — a
@@ -202,13 +236,13 @@ function botTurn(state: GameState, appraisal: AppraisalTally, stay = false): Gam
       if (judging) {
         appraisal.judged += 1;
         appraisal.absError += Math.abs(estimatedRetail(l, sigma) - retailValue(l.car)) / Math.max(1, retailValue(l.car));
-        if (l.price > retailValue(l.car)) appraisal.overpaid += 1;
+        if (landedCost(l) > retailValue(l.car)) appraisal.overpaid += 1;
       }
       // Both halves of the rarity deal, while they still exist together.
       const grade = appraisal.byRarity[l.car.rarity];
       if (grade) {
         grade.bought += 1;
-        grade.margin += (retailValue(l.car) - l.price) / Math.max(1, retailValue(l.car));
+        grade.margin += (retailValue(l.car) - landedCost(l)) / Math.max(1, retailValue(l.car));
       }
       s = buyListing(s, l.id);
     }
@@ -293,6 +327,7 @@ function runOne(
     absError: 0,
     overpaid: 0,
     byRarity: blankRarityTally(),
+    byStage: blankStageTally(),
     turns: 0,
     lotFull: 0,
     brokeNotFull: 0,
@@ -596,6 +631,27 @@ function main() {
           `   p50 ${days(q(xs, 0.5)).toFixed(1).padStart(5)}d` +
           `   p90 ${days(q(xs, 0.9)).toFixed(1).padStart(5)}d` +
           `   <1d ${(quick * 100).toFixed(0).padStart(3)}%`,
+      );
+    }
+  }
+
+  {
+    console.log(`\nLot fill, by store (all seeds pooled)`);
+    console.log('-'.repeat(64));
+    console.log(`  store          held / stalls    empty because:  feed dry   no cash`);
+    for (const def of STAGES) {
+      let turns = 0, held = 0, capacity = 0, dry = 0, poor = 0;
+      for (const t of tallies) {
+        const r = t.byStage[def.id];
+        turns += r.turns; held += r.held; capacity += r.capacity; dry += r.feedDry; poor += r.cantAfford;
+      }
+      if (turns === 0) continue;
+      const fill = capacity > 0 ? (held / capacity) * 100 : 0;
+      console.log(
+        `  ${def.shortName.padEnd(11)} ${(held / turns).toFixed(1).padStart(6)} /${(capacity / turns).toFixed(1).padStart(6)}` +
+          `   ${fill.toFixed(0).padStart(3)}% full` +
+          `      ${((dry / turns) * 100).toFixed(0).padStart(4)}%` +
+          `      ${((poor / turns) * 100).toFixed(0).padStart(4)}%`,
       );
     }
   }

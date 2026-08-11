@@ -56,6 +56,16 @@ of it is the car sheet: **days on the lot**, and a wholesaler who will take
 anything today at `forcedSaleRate` (`sellToWholesaler`), which is the release
 valve that stops dead stock being a stuck stall.
 
+**How far you buy from is an upgrade, and it is what makes a big lot fillable.**
+`src/sim/market.ts` has three tiers — local, regional, national — sold as the
+`reach` upgrade from the large lot up. Each one ADDS supply on top of local (it
+never replaces it, so buying it can never hurt) and each shipped car carries a
+flat freight bill into its cost basis. This exists because the feed is a fixed
+number of listings per minute and the lot is not: measured, every store above
+the small lot plateaued at ~23 cars whatever its capacity, and a midsize
+franchise ran **43% full with nothing worth buying on the feed 100% of the
+time** — paving another row bought literally nothing. See the Verify section.
+
 **Promotions** are temporary boosts the business runs under, and there is
 currently one: every new business opens on a **grand opening** that doubles
 walk-up traffic for its first twenty minutes. `src/sim/promotions.ts` is the
@@ -626,7 +636,7 @@ upgrades, which is the bot's brain rather than the game's rule. The third guard
 ## Verify
 
 ```bash
-npm test        # 339 tests
+npm test        # 347 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~4min
@@ -643,13 +653,17 @@ carrying across a move). `trafficPerCar` has a constant to zero, so setting ever
 stage back to 1 reproduces the previous build on an identical stream; the float
 and the desk do not, so treat the deltas as cross-build:
 
-| | before dwell | shipped |
-|---|---|---|
-| Small used dealership | 2h28m | ~2h32m |
-| Large used dealership | 5h43m | ~6h34m |
-| Low-cost franchise | 10h30m | ~11h38m |
-| Midsize franchise | 44h13m | ~48h30m |
-| Premium franchise | 264h29m, then dead | ~315h11m, **still trading** |
+| | before dwell | dwell only | shipped (with reach) |
+|---|---|---|---|
+| Small used dealership | 2h28m | 2h32m | ~2h32m |
+| Large used dealership | 5h43m | 6h34m | ~6h34m |
+| Low-cost franchise | 10h30m | 11h52m | ~10h27m |
+| Midsize franchise | 44h13m | 49h46m | ~39h18m |
+| Premium franchise | 264h29m, then dead | 320h34m | ~212h18m, **still trading** |
+
+The reach column is a true A/B — `balance.market.supplyScale=0` leaves only
+local stock and reproduces the middle column on an identical RNG stream, because
+the feature consumes no draw until it is bought.
 
 Every rung is 5-15% later and the top one is a different game: it used to arrive
 at 264h and flatline at −$45.2M, and it now arrives at 315h with +$7.4M, a $1.9M
@@ -669,6 +683,25 @@ rather than a dealership. Shipped:
 | Big lot | 3.7d | 6.9d |
 | Halvorsen / Okabe / Valmont | 3.5-4.2d | 6.5-7.2d |
 | sold inside one game day | 10-15% | 7-8% |
+
+**A LOT IS ONLY AS BIG AS ITS FEED, and this is the table to read before
+touching capacity, the feed, or anything that sounds like "why is the lot
+empty".** `npm run sim` prints held/stalls per store and, when a stall is empty,
+whether it was because there was nothing worth buying or nothing to buy it with.
+The plateau at ~23 cars is the feed rate, and it is why `reach` exists:
+
+| store | local only | with reach | empty because feed dry (local only) |
+|---|---|---|---|
+| Curbstone | 97% full | 97% | 1% |
+| Small lot | 93% | 93% | 1% |
+| Big lot | 76% | **99%** | 76% |
+| Halvorsen | 55% | **100%** | 98% |
+| Okabe | **43%** | **100%** | 100% |
+| Valmont | 40% | **98%** | 92% |
+
+Cash was never the constraint up there — 0-6% of turns — which is the whole
+diagnosis in one column. Note the first two rows do not move: reach is not sold
+below the large lot, and those stores fill from their own town already.
 
 **Dwell is bought with throughput and there is no way around it.** Inventory on
 the lot is the sale rate times the dwell time, the lot is capacity-bound or
@@ -1011,6 +1044,24 @@ Most have a guarding test; check before "simplifying" the code around them.
   one compares the claim against listings the real engine spawns, the other says
   in dollars that $20,000 buys a beater at a curbstone lot. Same disease as the
   entry below; a different flavour of it.
+- **The buyer must judge a purchase against the number the car SELLS at, and
+  that has now been paid for three times.** The franchise branch of
+  `acquisitionCeiling` had its own line reading `windowPrice` — retail x the
+  store's subprime markup — which let the retainer buyer pay up to 22% ABOVE
+  what a car sells for. It never bit while an invoice asked ~0.9x retail and
+  there was nothing else to add, so it sat as a latent copy of the wholesale-gate
+  bug above it. Freight made it bite: landed cost could clear retail while still
+  passing a ceiling set 22% over it, and the buyer filled a franchise lot with
+  cars carrying two points of margin — $56M of profit became a $145M loss with
+  the lot 100% full the whole way down. There is one basis now, cash retail, at
+  every stage.
+- **A cost that is a percentage is wrong when the real thing is flat.** Freight
+  shipped first as a share of the ask, which put national haulage at 7.5% against
+  a franchise margin of 9%. Flat dollars invert it the way the real cost does —
+  the same $1,000 transporter is a third of the margin on a $10,000 big-lot car
+  and a seventh of it on an $86,000 Valmont — so reach gets better as you climb,
+  which is exactly where the empty lot hurts. Capped at half the car so a $900
+  beater is never worth less than its own truck.
 - **A gate that is a flat count is wrong at both ends of a 1000x ladder.** The
   reopening float asked for six cars at every rung — three driveways' worth at a
   curbstone, one seventh of a lot at a Valmont store. Nothing waits once a move
@@ -1052,7 +1103,7 @@ Most have a guarding test; check before "simplifying" the code around them.
   the live constants would silently re-grade every old save after the next
   balance pass.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v12**. Saves are long-lived and local to the device; "we wiped
+  Currently **v13**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4
@@ -1160,12 +1211,17 @@ need a branch preview, build it somewhere that is not the live site.
   the back half of the game. If that reads badly in play, the honest fix is to
   give Buying a franchise-side effect (allocation throughput, say) rather than to
   put fake uncertainty back on a new car.
-- **The premium franchise is alive but the top two rungs are not re-gated.** The
-  store trades now instead of dying, but nothing has re-argued where it should
-  ARRIVE: 48h and 315h for the last two rungs is a 6.5x step where the rest of
-  the ladder is roughly 3x. That was true before this work too. `entryCost` and
-  `upgradeCostMultiplier` are the honest levers and the note below on the upgrade
-  table still stands.
+- **The top two rungs are not re-gated.** 39h and 212h is a 5.4x step where the
+  rest of the ladder is roughly 3x — flatter than it was (6.5x) because reach
+  lets the top stores actually trade, but still the steepest part of the game.
+  `entryCost` and `upgradeCostMultiplier` are the honest levers and the note
+  below on the upgrade table still stands.
+- **Nothing measures a player who declines market reach.** The harness bot buys
+  it as soon as it can afford it, so every number in the shipped column assumes
+  it. A player who stays local keeps the full margin on every car and runs a
+  half-empty lot, which is a real strategy the harness has never played. Whether
+  that reads as a live choice or as an obviously-wrong one is a playtest
+  question.
 - **The late game is no longer hot; stage 1 may now be too slow.** The
   stage-2 gate has drifted from 48m through 1h11m to ~2h21m across the running
   costs, the ladder stretch and the honest-till passes, and a 140-minute

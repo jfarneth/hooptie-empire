@@ -107,6 +107,10 @@ export const TUNABLES: readonly TunableDef[] = [
   { path: 'balance.listingIntervalMs', label: 'Gap between listings', group: 'The feed', kind: 'ms', min: 1_000, max: 300_000,
     help: 'Throughput compounds harder than anything else in the game. Small changes here are large.' },
   { path: 'balance.listingIntervalPerScoutLevel', label: 'Interval multiplier per scout level', group: 'The feed', kind: 'ratio', min: 0.2, max: 1 },
+  { path: 'balance.market.supplyScale', label: 'Reach — extra supply', group: 'The feed', kind: 'ratio', min: 0, max: 5,
+    help: 'Scales what the regional and national markets add to the feed. At 0 only local stock turns up, which is the game before market reach existed.' },
+  { path: 'balance.market.freightScale', label: 'Reach — freight cost', group: 'The feed', kind: 'ratio', min: 0, max: 5,
+    help: 'Scales the transporter bill on cars from out of town. At 0 distance is free and reach is pure upside.' },
   { path: 'balance.listingLifetimeMs', label: 'How long a listing lasts', group: 'The feed', kind: 'ms', min: 10_000, max: 900_000 },
 
   // ------------------------------------------------------------------- recon

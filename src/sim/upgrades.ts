@@ -1,6 +1,7 @@
 import { BALANCE } from './balance';
 import { repoDamageMultiplier, repoThreshold } from './business';
 import { getStage, hasReached } from './stages';
+import { MARKET_TIERS } from './market';
 import type { GameState, StageId } from './types';
 
 export type UpgradeCategory = 'capacity' | 'speed' | 'automation' | 'finance';
@@ -160,6 +161,21 @@ export const UPGRADES: readonly UpgradeDef[] = [
     costGrowth: 2.1,
   },
   {
+    id: 'reach',
+    name: 'Market reach',
+    description:
+      'Buy further afield. More cars than one town can supply, on a transporter you pay for.',
+    category: 'capacity',
+    // The large lot is where the feed first stops being able to fill the stalls:
+    // a driveway and a small lot run 93-97% full on local stock alone, and a big
+    // lot runs 75% with the feed dry three quarters of the time. Below here this
+    // would be an answer to a question nobody has.
+    stage: 'largeUsed',
+    maxLevel: 2,
+    baseCost: 40_000,
+    costGrowth: 3.4,
+  },
+  {
     id: 'collections',
     name: 'Collections desk',
     description: 'Raises the hard limit on how many contracts you can carry at once.',
@@ -282,7 +298,18 @@ export function upgradeDisplayName(def: UpgradeDef, stage: StageId): string {
 }
 
 /** Same idea for the one-liner under the name. */
-export function upgradeDisplayDescription(def: UpgradeDef, stage: StageId): string {
+export function upgradeDisplayDescription(def: UpgradeDef, stage: StageId, lvl = 0): string {
+  // Market reach is a named ladder rather than a repeated bonus, so the card
+  // should say which market the next cheque actually opens, and what the truck
+  // costs once it is open. "Level 2 of 2" tells a player nothing.
+  if (def.id === 'reach') {
+    const next = MARKET_TIERS[Math.min(MARKET_TIERS.length - 1, lvl + 1)];
+    const now = MARKET_TIERS[Math.min(MARKET_TIERS.length - 1, lvl)];
+    if (lvl >= def.maxLevel) {
+      return `Buying nationally. Freight runs about ${moneyish(now.freight)} a car on anything shipped in.`;
+    }
+    return `Open the ${next.name.toLowerCase()} market: more cars on the feed than one town can supply, at about ${moneyish(next.freight)} a car in freight.`;
+  }
   // Capacity is per stage now, so the static "+4 spaces" would lie at the
   // small lot. Say what this store's paving actually buys.
   if (def.id === 'lot' || def.id === 'driveway') {
@@ -295,6 +322,11 @@ export function upgradeDisplayDescription(def: UpgradeDef, stage: StageId): stri
   return desk.salaried
     ? `Closes walk-ups you don't grab in time. Salaried, plus ${cut}% of the profit on deals they close.`
     : `Closes walk-ups you don't grab in time. No salary — he takes ${cut}% of the profit on every deal he closes.`;
+}
+
+/** Whole dollars with a thousands separator. The upgrade card has no room for cents. */
+function moneyish(n: number): string {
+  return `$${Math.round(n).toLocaleString('en-US')}`;
 }
 
 export function upgradeUnlocked(state: Pick<GameState, 'stage'>, def: UpgradeDef): boolean {
