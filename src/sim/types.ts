@@ -63,12 +63,30 @@ export interface Car {
   repoCount: number;
 }
 
+/**
+ * Which market a listing came out of. PUBLIC and obvious — you know perfectly
+ * well whether the car is across town or across the country, which is why it
+ * carries a freight bill and not an appraisal band. See market.ts.
+ */
+export type ListingOrigin = 'local' | 'regional' | 'national';
+
 /** A car offered to the player on the sourcing feed. */
 export interface Listing {
   id: string;
   car: Car;
   /** What the seller wants. May be under or over wholesale. */
   price: number;
+  /** Where it is. Save data — see the v12 -> v13 migration. */
+  origin: ListingOrigin;
+  /**
+   * What it costs to get it here, in dollars, stamped at spawn.
+   *
+   * Stamped rather than derived on read for the same reason a promotion's
+   * `endsAt` is: the admin console can move the freight constants under a feed
+   * that already exists, and a bill that silently re-prices between looking at
+   * a car and buying it is a lie. Zero on a local car, always.
+   */
+  freight: number;
   /** Sim time at which this listing disappears. */
   expiresAt: Millis;
   /** Cosmetic label for the UI: where the car came from. */

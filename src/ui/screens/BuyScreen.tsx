@@ -12,6 +12,7 @@ import { RARITY_COLOR, duration, money, theme } from '../theme';
 import { HUD_HEIGHT } from '../components/Hud';
 import { CarArt } from '../art/CarArt';
 import { Chip, EmptyState, Label, Row } from '../components/ui';
+import { getMarketTier, landedCost } from '../../sim/market';
 
 /**
  * The sourcing feed. Deals rotate off after a while, so this is the screen that
@@ -42,7 +43,7 @@ export function BuyScreen({ state }: { state: GameState }) {
             key={listing.id}
             listing={listing}
             state={state}
-            disabled={full || state.cash < listing.price}
+            disabled={full || state.cash < landedCost(listing)}
             onBuy={() => apply((s) => buyListing(s, listing.id))}
           />
         ))
@@ -68,10 +69,16 @@ function ListingRow({
   const sigma = appraisalSigma(state);
   const condition = estimatedCondition(listing, sigma);
   const band = appraisalBand(listing, sigma);
-  const looksCheap = listing.price <= estimatedWholesale(listing, sigma);
+  // EVERY NUMBER ON THIS ROW IS THE LANDED COST — the ask plus the transporter.
+  // Quoting the sticker and charging the sticker plus freight would put a green
+  // margin on a row that loses money, which is the whole reason the buyer's
+  // ceiling is denominated this way too.
+  const landed = landedCost(listing);
+  const tier = getMarketTier(listing.origin);
+  const looksCheap = landed <= estimatedWholesale(listing, sigma);
   const expiresIn = listing.expiresAt - state.t;
-  const spreadLow = band.low - listing.price;
-  const spreadHigh = band.high - listing.price;
+  const spreadLow = band.low - landed;
+  const spreadHigh = band.high - landed;
   // Rarity is not an appraisal — you can see a spoiler — so it is stated flatly
   // rather than hedged the way condition is.
   const badge = RARITIES[listing.car.rarity].badge;
@@ -119,6 +126,9 @@ function ListingRow({
           {badge ? (
             <Chip text={badge.toUpperCase()} color={RARITY_COLOR[listing.car.rarity]} filled />
           ) : null}
+          {listing.origin !== 'local' ? (
+            <Chip text={tier.name.toUpperCase()} color={theme.colors.textFaint} />
+          ) : null}
           {looksCheap ? (
             <Chip
               text={band.exact ? 'UNDER WHOLESALE' : 'LOOKS CHEAP'}
@@ -132,7 +142,14 @@ function ListingRow({
       </View>
 
       <View style={styles.priceCol}>
-        <Text style={styles.price}>{money(listing.price)}</Text>
+        <Text style={styles.price}>{money(landed)}</Text>
+        {listing.freight > 0 ? (
+          // Broken out rather than folded in silently: the player is choosing to
+          // pay for distance and should see what it costs them per car.
+          <Text style={styles.freight}>
+            {money(listing.price)} + {money(listing.freight)} freight
+          </Text>
+        ) : null}
         <Text
           style={[
             styles.spread,
@@ -169,6 +186,7 @@ const styles = StyleSheet.create({
   meta: { color: theme.colors.textDim, fontSize: 11 },
   expiry: { color: theme.colors.textFaint, fontSize: 10 },
   priceCol: { alignItems: 'flex-end', gap: 1 },
+  freight: { color: theme.colors.textFaint, fontSize: 9 },
   price: {
     color: theme.colors.text,
     fontSize: 16,

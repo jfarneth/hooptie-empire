@@ -3,6 +3,7 @@ import { SAVE_VERSION, advance, createInitialState } from './engine';
 import { activeNotes, bookRoom } from './notes';
 import { deserialize, migrate, serialize } from './save';
 import { SKILL_IDS } from './skills';
+import { landedCost, reachLevel } from './market';
 import { STAGE_ORDER, getStage } from './stages';
 
 /**
@@ -280,6 +281,40 @@ describe('migration chain', () => {
       expect(migrated.skills[id].xp).toBeGreaterThanOrEqual(0);
       expect(migrated.skills[id].xp).toBeLessThan(BALANCE.skills.xpBase * 1_000_000);
     }
+    expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+  });
+
+  /**
+   * v12 -> v13: market reach.
+   *
+   * A listing written before this existed came out of the only market there
+   * was, so it is local and free. Backfilled rather than left undefined for a
+   * concrete reason: `landedCost` adds `freight` to the ask, and `undefined`
+   * would price every pre-migration listing at NaN — which is not a crash, it is
+   * worse, because `NaN > ceiling` is false and `cash < NaN` is false, so the
+   * car would silently become both un-buyable and free depending on which gate
+   * looked at it.
+   */
+  it('lands a v12 feed as local stock with nothing to pay the truck', () => {
+    const v12: any = JSON.parse(JSON.stringify(createInitialState(93, 0)));
+    v12.version = 12;
+    expect(v12.listings.length).toBeGreaterThan(0);
+    for (const l of v12.listings) {
+      delete l.origin;
+      delete l.freight;
+    }
+
+    const migrated = migrate(v12, 12);
+    expect(migrated.version).toBe(SAVE_VERSION);
+    for (const l of migrated.listings) {
+      expect(l.origin).toBe('local');
+      expect(l.freight).toBe(0);
+      expect(Number.isFinite(landedCost(l))).toBe(true);
+      expect(landedCost(l)).toBe(l.price);
+    }
+    // The upgrade itself needs no backfill: a missing key reads as zero, which
+    // is local-only, which is exactly what the old build did.
+    expect(reachLevel(migrated)).toBe(0);
     expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
   });
 

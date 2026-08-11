@@ -146,7 +146,7 @@ function UpgradeCard({
             <Chip text="OWNED" color={theme.colors.money} />
           ) : null}
         </Row>
-        <Text style={styles.description}>{upgradeDisplayDescription(def, state.stage)}</Text>
+        <Text style={styles.description}>{upgradeDisplayDescription(def, state.stage, lvl)}</Text>
       </View>
 
       {!maxed ? (

@@ -275,6 +275,27 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
     prospects: (s.prospects ?? []).map((p: any) => ({ ...p, arrivedAt: 0, claimed: false })),
     stats: { ...s.stats, commissionPaid: 0 },
   }),
+
+  /**
+   * v12 -> v13: market reach.
+   *
+   * Listings gain `origin` and `freight`. Everything already on an old feed came
+   * from the only market that existed when it was written, so it is local and it
+   * is free — and that is the honest answer rather than a convenient one: those
+   * cars were sourced under the old rules and nobody is going to truck them
+   * anywhere. Backfilled rather than left undefined because `landedCost` adds
+   * `freight` to the ask, and `undefined` would make every pre-migration listing
+   * cost NaN and quietly un-buyable.
+   *
+   * The `reach` upgrade itself needs no backfill: `level()` reads a missing key
+   * as zero, which is local-only, which is exactly what an old save was doing.
+   * Written out longhand for the usual reason — a migration has to keep meaning
+   * what it meant the day it shipped.
+   */
+  12: (s) => ({
+    ...s,
+    listings: (s.listings ?? []).map((l: any) => ({ ...l, origin: 'local', freight: 0 })),
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

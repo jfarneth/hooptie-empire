@@ -2,6 +2,7 @@ import { BALANCE } from './balance';
 import { clamp } from './economy';
 import { getStage } from './stages';
 import { level } from './upgrades';
+import { extraSlots, supplyMultiplier } from './market';
 import type { ReconMods } from './cars';
 import type { HaggleSkill } from './haggle';
 import type { GameState, Skill, SkillId } from './types';
@@ -311,12 +312,20 @@ export interface SourcingMods {
  */
 export function sourcingModsFor(state: Pick<GameState, 'skills' | 'upgrades' | 'stage'>): SourcingMods {
   const scout = level(state, 'scout');
+  // Scout and reach stack multiplicatively, which is the house rule for two
+  // things touching one axis: `scout` works the contacts you have harder, and
+  // `reach` adds markets those contacts were never going to cover.
   return {
-    slots: BALANCE.baseListingSlots + scout * BALANCE.listingSlotsPerScoutLevel + listingSlotBonus(state),
+    slots:
+      BALANCE.baseListingSlots +
+      scout * BALANCE.listingSlotsPerScoutLevel +
+      extraSlots(state) +
+      listingSlotBonus(state),
     intervalMs:
-      BALANCE.listingIntervalMs *
-      Math.pow(BALANCE.listingIntervalPerScoutLevel, scout) *
-      listingIntervalMultiplier(state),
+      (BALANCE.listingIntervalMs *
+        Math.pow(BALANCE.listingIntervalPerScoutLevel, scout) *
+        listingIntervalMultiplier(state)) /
+      Math.max(0.0001, supplyMultiplier(state)),
     sigma: appraisalSigma(state),
   };
 }

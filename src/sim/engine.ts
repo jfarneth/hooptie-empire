@@ -14,6 +14,7 @@ import { generateProspect } from './customers';
 import { deskCounter, resolveCounter } from './haggle';
 import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
 import { mintId } from './ids';
+import { drawOrigin, freightCost, getMarketTier, landedCost } from './market';
 import { LISTING_SOURCES, makeName, modelsForMake, modelsForTiers } from './models';
 import { getStage } from './stages';
 import {
@@ -61,7 +62,7 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -120,6 +121,10 @@ function spawnStarterListing(s: GameState): void {
     car,
     price,
     expiresAt: s.t + BALANCE.listingLifetimeMs * 2,
+    // The opening deal is always the car down the road. A new game has no reach
+    // and nothing to truck anything with.
+    origin: 'local',
+    freight: 0,
     source: pick(s.rng, LISTING_SOURCES),
     appraisalNoise: drawAppraisalNoise(s),
   });
@@ -400,17 +405,25 @@ function spawnListing(s: GameState): void {
       edge,
   );
 
+  // Where this one is, and what the truck costs. Drawn before the source label
+  // because the label depends on it; consumes no draw at all while the business
+  // is local-only, which is what keeps a pre-reach save replaying identically.
+  const origin = drawOrigin(s.rng, s);
+  const tier = getMarketTier(origin);
+
   s.listings.push({
     id: mintId(s, 'lst'),
     car,
     price: ask,
+    origin,
+    freight: freightCost(origin, ask),
     expiresAt: s.t + BALANCE.listingLifetimeMs,
     // A franchise consumes one fewer draw per listing than the open market
     // does, which is fine: determinism needs the same state to consume the same
     // stream, not every stage to consume the same amount.
     source: sourcing.makeId
-      ? `${makeName(sourcing.makeId)} allocation`
-      : pick(s.rng, LISTING_SOURCES),
+      ? `${makeName(sourcing.makeId)} ${tier.allocation}`
+      : pick(s.rng, tier.sources),
     appraisalNoise: drawAppraisalNoise(s),
   });
 }
@@ -658,8 +671,13 @@ function stepAutomation(s: GameState): void {
       // The retainer buyer sees exactly what the player sees, and works from the
       // bad end of it. Left on ground truth it was omniscient, which made
       // automating strictly better than looking at the feed yourself.
-      if (listing.price > acquisitionCeiling(s, listing)) continue;
-      if (s.cash - listing.price < reserve) continue;
+      // Judged on what the car costs to get here, not on the sticker. A buyer
+      // that compares the ask against its margin rule and then pays the ask plus
+      // freight is the same class of bug as one that gates on wholesale at a
+      // store pricing in retail — it quietly buys at a loss it can't see.
+      const landed = landedCost(listing);
+      if (landed > acquisitionCeiling(s, listing)) continue;
+      if (s.cash - landed < reserve) continue;
       buyListingInternal(s, listing.id);
     }
   }
@@ -795,9 +813,21 @@ export type AppraisalStance = 'worstCase' | 'estimate';
  *    case" means the bottom of the band (anything spending money unattended)
  *    or the estimate (the harness bot, because that is what a person does).
  *  - **Franchise.** There is no wholesale market for an allocation and nothing to
- *    appraise; sigma is zero, so both stances agree. Invoice is the price, every
- *    unit is saleable, and the only question is whether the sticker leaves the
- *    margin you asked for.
+ *    appraise; sigma is zero, so both stances agree and the same formula answers
+ *    it. Invoice is the price and every unit is saleable, so the only question
+ *    is still whether the sticker leaves the margin you asked for.
+ *
+ * THE BASIS IS CASH RETAIL AT EVERY STAGE, and the franchise branch used to have
+ * its own line reading `windowPrice` — retail x the store's subprime markup —
+ * which let the buyer pay up to 22% ABOVE what the car sells for. It never bit
+ * while an invoice asked ~0.9x retail and there was nothing else to add, so it
+ * sat there as a latent version of the exact bug this function has now paid for
+ * three times: judging a purchase against a number the car is not sold at. It
+ * bit the moment freight went on top, because landed cost could clear retail
+ * while still passing a ceiling set 22% over it — the retainer buyer filled a
+ * franchise lot with two points of margin and the business lost $145M with a
+ * full lot the whole way down. One basis now, and freight is inside the
+ * comparison rather than outside it.
  */
 export function acquisitionCeiling(
   s: GameState,
@@ -805,8 +835,6 @@ export function acquisitionCeiling(
   stance: AppraisalStance = 'worstCase',
 ): number {
   const keepBack = 1 - minBuyMargin(s);
-  if (getStage(s.stage).sourcing.makeId) return windowPrice(s, listing.car) * keepBack;
-
   const sigma = appraisalSigma(s);
   const basis =
     stance === 'worstCase'
@@ -926,11 +954,15 @@ function buyListingInternal(s: GameState, listingId: string): boolean {
   const idx = s.listings.findIndex((l) => l.id === listingId);
   if (idx < 0) return false;
   const listing = s.listings[idx];
-  if (s.cash < listing.price) return false;
+  // The truck is part of the price. Everything downstream — floorplan, profit,
+  // the forced-sale haircut, the buyer's own ceiling — reads `costBasis`, so
+  // putting freight here is what makes distance cost real money exactly once.
+  const landed = landedCost(listing);
+  if (s.cash < landed) return false;
   if (s.cars.filter((c) => c.status !== 'sold').length >= carCapacity(s)) return false;
 
-  s.cash -= listing.price;
-  const car = { ...listing.car, costBasis: listing.price, acquiredAt: s.t };
+  s.cash -= landed;
+  const car = { ...listing.car, costBasis: landed, acquiredAt: s.t };
   s.cars.push(car);
 
   // You own it now, so you can put it on a lift. This is where the appraisal
@@ -939,7 +971,7 @@ function buyListingInternal(s: GameState, listingId: string): boolean {
   reportAppraisal(s, listing, car);
 
   s.listings.splice(idx, 1);
-  awardXp(s, 'buy', buyXp(listing.price));
+  awardXp(s, 'buy', buyXp(landed));
   return true;
 }
 
