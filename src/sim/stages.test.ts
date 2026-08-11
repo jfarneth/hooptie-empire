@@ -12,7 +12,7 @@ import { advance, cloneState, createInitialState } from './engine';
 import { getModel, modelsForMake, modelsForTiers } from './models';
 import { overCapacityFactor } from './notes';
 import { appraisalSigma } from './skills';
-import { STAGES, STAGE_ORDER, getStage, hasReached, isFranchise, nextStage, stageRank } from './stages';
+import { STAGES, STAGE_ORDER, getStage, hasReached, isFranchise, nextStage, stageRank, typicalCarPrice } from './stages';
 import { UPGRADES, carCapacity, collectionsCapacity, level, upgradeCost, upgradeUnlocked } from './upgrades';
 import type { GameState, StageId } from './types';
 
@@ -514,5 +514,84 @@ describe('the collections desk across a move', () => {
     expect(overCapacityFactor(10, 8)).toBeGreaterThan(1);
     expect(overCapacityFactor(10, 8)).toBeLessThan(BALANCE.overCapacityMissPenaltyCap);
     expect(overCapacityFactor(8, 8)).toBe(1);
+  });
+});
+
+// ------------------------------------------------ what a car costs here
+
+/**
+ * `typicalCarPrice` is the unit three separate spending gates are denominated
+ * in: the automation reserve, the reopening float on a stage move, and the size
+ * of the shark's offer. If it is wrong, all three are wrong at once and none of
+ * them look wrong — they just quietly refuse to let the player do things.
+ *
+ * It WAS wrong, by 3.6x at curbstone, for two compounding reasons: it priced a
+ * model's clean `baseValue` rather than the 200,000-mile example that actually
+ * turns up, and it took `values[n / 2]` on an even-length bimodal list, which
+ * returned the cheapest commuter and pretended the beater half of the feed did
+ * not exist. The result was a $23,820 reserve on a business that starts with
+ * $3,000: a retainer buyer that could never buy anything at any price.
+ *
+ * Every test that existed passed throughout, because they all computed their
+ * expectations by calling `typicalCarPrice` — so they agreed with it by
+ * construction whatever it said. This one does not: it generates listings
+ * through the real engine and checks the claim against what the feed is
+ * actually asking.
+ */
+describe('typicalCarPrice', () => {
+  /** Median ask across listings the engine really spawns at this stage. */
+  function realMedianAsk(stage: StageId): number {
+    const prices: number[] = [];
+    for (let seed = 0; seed < 3; seed++) {
+      let s: GameState = { ...createInitialState(700 + seed, 0), stage, listings: [] };
+      const seen = new Set<string>();
+      for (let i = 0; i < 60; i++) {
+        s = advance(s, 30_000);
+        for (const l of s.listings) {
+          if (seen.has(l.id)) continue;
+          seen.add(l.id);
+          prices.push(l.price);
+        }
+      }
+    }
+    prices.sort((a, b) => a - b);
+    return prices[Math.floor(prices.length / 2)];
+  }
+
+  it('agrees with what the feed actually asks, at every stage', () => {
+    for (const stage of STAGES) {
+      const real = realMedianAsk(stage.id);
+      const claim = typicalCarPrice(stage);
+      expect(real).toBeGreaterThan(0);
+      // Generous either way — this is an estimate used to size a float, not a
+      // valuation. It is still nowhere near wide enough to admit the 3.6x the
+      // old formula was out by at curbstone.
+      expect(claim).toBeGreaterThan(real * 0.6);
+      expect(claim).toBeLessThan(real * 1.5);
+    }
+  });
+
+  /**
+   * The used stages are where this broke and the franchise stages are why
+   * nobody noticed: a delivered car really is worth close to its clean base
+   * value, so the old formula was right at the top of the ladder and wrong at
+   * the bottom, which is the worst possible place for a bug to hide.
+   */
+  it('prices a worn-out beater well under the model it came from', () => {
+    const curbstone = getStage('curbstone');
+    const cheapest = Math.min(...modelsForTiers(curbstone.sourcing.tiers ?? []).map((m) => m.baseValue));
+    expect(typicalCarPrice(curbstone)).toBeLessThan(cheapest);
+  });
+
+  it('takes the middle of an even, bimodal model list rather than the upper half', () => {
+    // Curbstone sources three beaters and three commuters and nothing between
+    // them, so an off-by-one in the median lands entirely inside one cluster.
+    const curbstone = getStage('curbstone');
+    const models = modelsForTiers(curbstone.sourcing.tiers ?? []);
+    expect(models.length % 2).toBe(0);
+
+    const beaters = models.filter((m) => m.tier === 'beater').length;
+    expect(beaters).toBeGreaterThan(0);
+    expect(beaters).toBeLessThan(models.length);
   });
 });

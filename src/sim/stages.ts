@@ -1,4 +1,6 @@
 import { BALANCE } from './balance';
+import { TIER_PROFILE } from './cars';
+import { conditionFactor, mileageFactor } from './economy';
 import { modelsForMake, modelsForTiers } from './models';
 import type { CarTier, StageId } from './types';
 
@@ -290,19 +292,72 @@ const BY_ID = new Map(STAGES.map((s) => [s.id, s]));
  * Roughly what one car costs to buy at this store.
  *
  * Median list price of what the store actually sources, so it tracks the ladder
- * without anybody maintaining a second table. Used to work out how much float a
- * business needs to reopen after a move — the entry cost buys the keys, this is
- * what buys something to sell.
+ * without anybody maintaining a second table. Three things read it and all three
+ * are gates on spending: the automation reserve in `stepAutomation`, the
+ * reopening float on a stage move, and the size of the shark's offer.
+ *
+ * IT MUST PRICE THE CAR THAT ACTUALLY TURNS UP, NOT THE MODEL. `baseValue` is a
+ * clean low-mileage example, and the first cut of this used it raw — so a
+ * curbstone car was valued at $11,910 when the feed was showing $1,577 beaters
+ * with 200,000 miles on them. The reserve is two of these, which put a $23,820
+ * floor under a business that starts with $3,000: the retainer buyer could
+ * never buy anything, at any price, however cheap, and a player who had set
+ * their working-capital floor to $500 watched `max()` silently override it by a
+ * factor of forty-seven.
+ *
+ * So mileage and condition come from the same profile `generateCar` rolls
+ * against, taken at the midpoint — which for a symmetric draw IS the median car,
+ * and this function's job is the median. Composed from `mileageFactor` and
+ * `conditionFactor` rather than re-deriving a curve; it is `retailValue` for a
+ * car that has never been repossessed.
+ *
+ * Nothing caught this because nothing measures it. The harness bot gates its own
+ * buying on `cash - price < 400 + float` and never consults this number, so it
+ * bought happily all the way up a ladder the retainer buyer could not move on.
  */
 export function typicalCarPrice(stage: StageDef): number {
   const models = stage.sourcing.makeId
     ? modelsForMake(stage.sourcing.makeId)
     : modelsForTiers(stage.sourcing.tiers ?? []);
   if (models.length === 0) return 0;
-  const values = models.map((m) => m.baseValue).sort((a, b) => a - b);
-  const median = values[Math.floor(values.length / 2)];
+
+  // A franchise takes delivery from the manufacturer, so its stock profile
+  // overrides the tier's — exactly the branch `stockProfile` takes in engine.ts.
+  const delivered = stage.sourcing.makeId
+    ? {
+        mileage: [stage.sourcing.mileageMin, stage.sourcing.mileageMax] as const,
+        condition: [stage.sourcing.conditionMin, stage.sourcing.conditionMax] as const,
+      }
+    : null;
+
+  const values = models
+    .map((m) => {
+      const profile = delivered ?? TIER_PROFILE[m.tier];
+      const mileage = (profile.mileage[0] + profile.mileage[1]) / 2;
+      const condition = (profile.condition[0] + profile.condition[1]) / 2;
+      return m.baseValue * mileageFactor(mileage) * conditionFactor(condition);
+    })
+    .sort((a, b) => a - b);
+
   const askMid = (stage.sourcing.askMin + stage.sourcing.askMax) / 2;
-  return Math.round(median * BALANCE.wholesaleOfRetail * askMid);
+  return Math.round(median(values) * BALANCE.wholesaleOfRetail * askMid);
+}
+
+/**
+ * True median: the mean of the two central values when the list is even.
+ *
+ * Not pedantry. Curbstone sources exactly six models — three beaters around
+ * $2,000 and three commuters around $5,500 — so the list is bimodal with an even
+ * split and there is no middle element to pick. Taking `values[n / 2]` returned
+ * the cheapest commuter and pretended the beater half of the feed did not
+ * exist, which on its own overstated a curbstone car by 60%.
+ */
+function median(sorted: readonly number[]): number {
+  if (sorted.length === 0) return 0;
+  const mid = sorted.length / 2;
+  return sorted.length % 2 === 1
+    ? sorted[Math.floor(mid)]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 export function getStage(id: StageId): StageDef {

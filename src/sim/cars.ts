@@ -9,8 +9,14 @@ import type { Car, CarModel, CarTier, GameState, Millis } from './types';
 /**
  * Per-tier condition and mileage profiles. Beaters arrive tired and cheap;
  * luxury arrives clean and expensive and sits on the lot forever.
+ *
+ * Exported because `typicalCarPrice` in stages.ts has to price the car that
+ * actually turns up rather than the model's clean-example `baseValue`, and the
+ * only honest way to do that is to read the same profile the generator rolls
+ * against. Anything that estimates what a store's stock is worth belongs here,
+ * not in a second table that can drift.
  */
-const TIER_PROFILE: Record<
+export const TIER_PROFILE: Record<
   CarTier,
   { mileage: [number, number]; condition: [number, number] }
 > = {

@@ -232,6 +232,43 @@ describe('minimum working capital', () => {
     expect(after.cash).toBeLessThan(s.cash);
   });
 
+  /**
+   * The bug a player hit and no test could: $20,000 in the bank, a $1,577 car on
+   * the feed that cleared the buyer's own price test, working capital set to
+   * $500 — and the retainer buyer bought nothing, for days.
+   *
+   * The reserve is `max(player floor, weeks of expenses, price of N cars)`, and
+   * the last term was computed from a model's clean `baseValue` rather than the
+   * 200,000-mile beater that actually turns up. At curbstone that put the floor
+   * at $23,820 against a $3,000 starting balance, so `max()` overrode the
+   * player's $500 by a factor of forty-seven and the buyer was inert forever.
+   *
+   * ABSOLUTE ON PURPOSE. Every test around this one sizes its fixture by calling
+   * `typicalCarPrice`, so they agreed with the broken value by construction and
+   * went on passing. This one states the requirement in dollars a player would
+   * recognise: twenty thousand is enough to buy a beater at a curbstone lot.
+   */
+  it('buys a cheap car at a curbstone lot with $20,000 in the bank', () => {
+    let bought = 0;
+    let dealt = 0;
+    for (let seed = 0; seed < 60; seed++) {
+      const s = cloneState(createInitialState(5_000 + seed, 0));
+      s.upgrades = { autoBuy: 1, driveway: 3 };
+      s.business = { ...businessDefaults(), minWorkingCapital: 500 };
+      s.cash = 20_000;
+
+      const sigma = appraisalSigma(s);
+      if (!s.listings.some((l) => l.price <= pessimisticWholesale(l, sigma))) continue;
+      dealt += 1;
+      if (advance(s, 5_000).cars.length > 0) bought += 1;
+    }
+
+    // Some openings deal nothing the buyer will touch; that is the ask band
+    // doing its job. But whenever it IS dealt a bargain it has to take it.
+    expect(dealt).toBeGreaterThan(0);
+    expect(bought).toBe(dealt);
+  });
+
   it('holds the standing shop order to the same floor', () => {
     const s = cloneState(createInitialState(77, 0));
     s.upgrades = { autoRecon: 1 };

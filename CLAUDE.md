@@ -470,7 +470,7 @@ business is dead, not taxed.
 ## Verify
 
 ```bash
-npm test        # 282 tests
+npm test        # 286 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2min
@@ -480,11 +480,19 @@ The ladder, median at `--seeds=16 --hours=32`, reached by 16/16:
 
 | | |
 |---|---|
-| Small used dealership | ~4h32m |
-| Large used dealership | ~9h15m |
-| Low-cost franchise | ~19h44m |
+| Small used dealership | ~2h29m |
+| Large used dealership | ~7h34m |
+| Low-cost franchise | ~18h32m |
 | Midsize franchise | ~55h08m |
 | Premium franchise | ~320h59m |
+
+The first three rungs came in by 45%, 18% and 6% when `typicalCarPrice` was
+fixed — see the regression note below. That decay up the ladder is the shape to
+expect from that fix and is how you can tell it is the cause: the number was
+only ever wrong on the used stages. The bottom two rungs are the ones to re-read
+if anyone wants the old pacing back, and `reopeningCars` is the honest lever for
+it. The midsize and premium figures predate the fix and are still measured at
+`--hours=350 --seeds=8`; nothing reaches them in 32h.
 
 Measured at `--hours=350 --seeds=8`, because the ladder no longer fits in 32h.
 Roughly a tripling per rung now, steepening at the top — the shape to preserve. A 4h run only ever
@@ -496,16 +504,19 @@ compare against for everything below the franchise:
 
 | | |
 |---|---|
-| stage 2 reached | ~3h52m (8/64 inside 4h) |
+| stage 2 reached | ~2h32m (64/64) |
+| first note written | ~2h34m |
+| first repossession | ~3h06m |
 | take-it-back odds on the deal sheet | ~30% |
-| walk-away rate | ~64% |
-| bad-buy rate | ~25% |
-| appraisal error | ~9.6% |
-| Buying / Closing / Wrenching to level 5 | 52m / 43m / 40m |
-| $100k cash | ~3h09m |
-| end cash at 4h | ~$125k |
-| lifetime profit at 4h | ~$133k |
-| cars sold at 4h | ~74 |
+| walk-away rate | ~61% |
+| bad-buy rate | ~28% |
+| appraisal error | ~7.7% |
+| Buying / Closing / Wrenching to level 5 | 50m / 43m / 46m |
+| $100k cash | ~2h30m |
+| end cash at 4h | ~$32k |
+| end portfolio at 4h | ~$174k |
+| lifetime profit at 4h | ~$468k |
+| cars sold at 4h | ~262 |
 
 **These were re-measured, and the numbers they replaced were badly stale.** The
 old table dated from before running costs, the ladder stretch and the margin
@@ -740,6 +751,34 @@ Most have a guarding test; check before "simplifying" the code around them.
   commits — including the one CLAUDE.md called the sharpest knob in the game.
   Nothing failed, because dead constants never do. When you move a number, grep
   `BALANCE.<key>` and delete what has no readers.
+- **`typicalCarPrice` must price the car that TURNS UP, not the model.** It read
+  `model.baseValue` — a clean low-mileage example — for a curbstone feed that
+  actually deals 200,000-mile beaters, and it took `values[n / 2]` on an
+  even-length bimodal list of three beaters and three commuters, which returned
+  the cheapest commuter and pretended the beater half did not exist. Together
+  those overstated a curbstone car by 3.6x. Three spending gates are denominated
+  in this number, so all three broke at once and none of them looked broken:
+  the automation reserve (`max(player floor, weeks of expenses, N cars)`) sat at
+  $23,820 against a $3,000 starting balance, so **the retainer buyer could never
+  buy anything at any price** and silently overrode a player's $500 working-capital
+  setting by a factor of forty-seven; `reopeningFloat` gated the used rungs at
+  roughly twice their designed size; and the shark over-lent. Fixing it took the
+  first three rungs in by 45%, 18% and 6% — the decay is the tell, because the
+  number was only ever wrong where a car's value is a fraction of its base value.
+  **The franchise stages were correct throughout**, which is exactly why the
+  pacing work never caught it.
+- **The harness cannot see the retainer buyer's reserve at all.** The bot gates
+  its own buying on `cash - price < 400 + float` and never calls
+  `typicalCarPrice`, so it traded happily all the way up a ladder the retainer
+  buyer was frozen on. Automation the harness does not itself use is unmeasured
+  by construction — check it by playing, or by instrumenting the actual gate.
+- **A test that computes its expectation by calling the thing under test cannot
+  fail.** Every test around the working-capital floor sized its fixture with
+  `typicalCarPrice`, so they agreed with the broken value by construction and
+  stayed green through all of it. The guards that replaced them are absolute:
+  one compares the claim against listings the real engine spawns, the other says
+  in dollars that $20,000 buys a beater at a curbstone lot. Same disease as the
+  entry below; a different flavour of it.
 - **A test that asserts `sum >= count` cannot fail.** The first automation test
   written for skills passed on a run that accrued zero XP. Mutation-test any
   test guarding a regression: break the code, watch it go red, put it back.
