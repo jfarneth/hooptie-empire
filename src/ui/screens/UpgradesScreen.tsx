@@ -3,6 +3,8 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { purchaseUpgrade } from '../../sim/actions';
 import {
   UPGRADES,
+  upgradeDisplayDescription,
+  upgradeDisplayName,
   getUpgrade,
   level,
   upgradeCost,
@@ -134,7 +136,7 @@ function UpgradeCard({
     <View style={[styles.card, maxed && styles.cardMaxed]}>
       <View style={{ flex: 1, gap: 3 }}>
         <Row gap={6}>
-          <Text style={styles.name}>{def.name}</Text>
+          <Text style={styles.name}>{upgradeDisplayName(def, state.stage)}</Text>
           {def.maxLevel > 1 ? (
             <Chip
               text={maxed ? 'MAX' : `${lvl}/${def.maxLevel}`}
@@ -144,7 +146,7 @@ function UpgradeCard({
             <Chip text="OWNED" color={theme.colors.money} />
           ) : null}
         </Row>
-        <Text style={styles.description}>{def.description}</Text>
+        <Text style={styles.description}>{upgradeDisplayDescription(def, state.stage)}</Text>
       </View>
 
       {!maxed ? (

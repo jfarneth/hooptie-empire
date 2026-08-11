@@ -249,7 +249,13 @@ interface Milestones {
   [key: string]: number | undefined;
 }
 
-function runOne(seed: number, hours: number, verbose: boolean, stay = false) {
+function runOne(
+  seed: number,
+  hours: number,
+  verbose: boolean,
+  stay = false,
+  cadence: { activeMs: number; idleMs: number } | null = null,
+) {
   let s = createInitialState(seed, 0);
   const appraisal: AppraisalTally = {
     judged: 0,
@@ -296,7 +302,11 @@ function runOne(seed: number, hours: number, verbose: boolean, stay = false) {
   while (s.t < totalMs) {
     s = advance(s, STEP_MS);
     markMilestones();
-    s = botTurn(s, appraisal, stay);
+    // In cadence mode the bot only exists during its active windows; the rest
+    // of the cycle is the same engine-only run that offline catch-up performs.
+    const cycleT = cadence ? s.t % (cadence.activeMs + cadence.idleMs) : 0;
+    const attending = !cadence || cycleT < cadence.activeMs;
+    if (attending) s = botTurn(s, appraisal, stay);
     markMilestones();
 
     if (verbose && s.t - lastReport >= 15 * 60 * 1000) {
@@ -347,6 +357,25 @@ function main() {
    * measured it.
    */
   const stay = args.includes('--stay');
+  /**
+   * `--cadence=15:240` — burst play. Active for the first number of minutes,
+   * then hands-off (engine only, exactly what offline catch-up runs) for the
+   * second, repeating. This is the profile a real person actually has — ten or
+   * twenty minutes over coffee, then hours away — and it is the mode where the
+   * commission desk matters: during bursts the bot grabs every walk-up inside
+   * the grace window and keeps the whole margin, and between bursts every sale
+   * is a staff sale at the stage's cut. The continuous default measures a
+   * player who never sleeps; keep quoting it for comparability, but read this
+   * one to know what the game actually pays.
+   */
+  const cadenceArg = args.find((a) => a.startsWith('--cadence='));
+  const cadence = cadenceArg
+    ? (() => {
+        const [active, idle] = cadenceArg.split('=')[1].split(':').map(Number);
+        if (!(active > 0) || !(idle > 0)) throw new Error('--cadence=activeMin:idleMin');
+        return { activeMs: active * 60_000, idleMs: idle * 60_000 };
+      })()
+    : null;
 
   /**
    * `--set=balance.rarity.valueStep=0` — the same knobs the admin console turns.
@@ -371,7 +400,9 @@ function main() {
   if (Object.keys(overrides).length > 0) applyTuning(overrides);
 
   console.log(
-    `\nBalance run — ${hours}h of play, ${seeds} seeds${stay ? ', STAYING PUT' : ''}\n${'='.repeat(64)}`,
+    `\nBalance run — ${hours}h of play, ${seeds} seeds${stay ? ', STAYING PUT' : ''}${
+      cadence ? `, cadence ${cadence.activeMs / 60_000}m on / ${cadence.idleMs / 60_000}m off` : ''
+    }\n${'='.repeat(64)}`,
   );
   for (const [path, value] of Object.entries(overrides)) {
     console.log(`  override  ${path} = ${value}`);
@@ -385,7 +416,7 @@ function main() {
   for (let i = 0; i < seeds; i++) {
     const seed = 1000 + i * 7919;
     if (verbose) console.log(`\nseed ${seed}`);
-    const { state, milestones, appraisal } = runOne(seed, hours, verbose, stay);
+    const { state, milestones, appraisal } = runOne(seed, hours, verbose, stay, cadence);
     finals.push(state);
     tallies.push(appraisal);
     for (const [key, t] of Object.entries(milestones)) {
@@ -448,6 +479,9 @@ function main() {
   console.log(`  cash / finance     ${String(median((s) => s.stats.cashDeals)).padStart(6)} /${String(median((s) => s.stats.financeDeals)).padStart(5)}`);
   console.log(`  notes paid / dflt  ${String(median((s) => s.stats.notesPaidOff)).padStart(6)} /${String(median((s) => s.stats.notesDefaulted)).padStart(5)}`);
   console.log(`  repos              ${String(median((s) => s.stats.reposCompleted)).padStart(12)}`);
+  console.log(
+    `  staff commission   ${fmtMoney(median((s) => s.stats.commissionPaid)).padStart(12)}`,
+  );
   console.log(
     `  haggles won / lost ${String(median((s) => s.stats.negotiationsWon)).padStart(6)} /${String(median((s) => s.stats.walkaways)).padStart(5)}`,
   );

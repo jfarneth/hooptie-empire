@@ -155,6 +155,32 @@ export interface StageDef {
    * Upmarket stores draw better credit before you screen anyone.
    */
   creditShift: number;
+  /**
+   * Who runs the sales side when you are not standing there, and what they
+   * charge for it.
+   *
+   * The `salesDesk` upgrade is one id all the way up the ladder, but WHO you
+   * hire changes with the store, and the pay structure is the progression
+   * story: the curbstone **business partner** draws no salary and takes half
+   * the profit on every deal he closes — his labour, your capital, the classic
+   * split. The dealership **sales managers** are salaried professionals on a
+   * far smaller cut, and the cut keeps thinning as you move upmarket. Getting
+   * better terms IS moving up in the world.
+   *
+   * The cut applies only to deals the STAFF closes. Close a walk-up yourself —
+   * the tap, the slider, the counter — and every dollar is yours, which is what
+   * makes attended play worth sitting down for. It is a share of PROFIT, not of
+   * price: curbstone margin runs about a quarter of the sale price, so a cut of
+   * price would be four times sharper than it reads.
+   */
+  desk: {
+    /** What the hire is called at this store. The upgrades screen shows this. */
+    title: string;
+    /** Share of the profit on deals the desk closes, 0-1. */
+    commission: number;
+    /** Whether they draw a weekly wage on top. The partner does not. */
+    salaried: boolean;
+  };
   sourcing: StageSourcing;
 }
 
@@ -211,6 +237,7 @@ export const STAGES: readonly StageDef[] = [
     rentPerWeek: 0,
     bhphMultiplier: 1,
     creditShift: 0,
+    desk: { title: 'Business partner', commission: 0.5, salaried: false },
     sourcing: { ...OPEN_MARKET, tiers: ['beater', 'commuter'], askMin: 0.8, askMax: 1.42 },
   },
   {
@@ -227,6 +254,7 @@ export const STAGES: readonly StageDef[] = [
     rentPerWeek: 400,
     bhphMultiplier: 1.5,
     creditShift: 0,
+    desk: { title: 'Sales manager', commission: 0.25, salaried: true },
     sourcing: {
       ...OPEN_MARKET,
       tiers: ['beater', 'commuter', 'family', 'truck'],
@@ -248,6 +276,7 @@ export const STAGES: readonly StageDef[] = [
     rentPerWeek: 2000,
     bhphMultiplier: 1.42,
     creditShift: 0.4,
+    desk: { title: 'Sales manager', commission: 0.2, salaried: true },
     sourcing: {
       ...OPEN_MARKET,
       tiers: ['commuter', 'family', 'truck', 'luxury'],
@@ -269,6 +298,7 @@ export const STAGES: readonly StageDef[] = [
     rentPerWeek: 4000,
     bhphMultiplier: 1.3,
     creditShift: 0.9,
+    desk: { title: 'Sales manager', commission: 0.12, salaried: true },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.16, askMax: 1.24, makeId: 'halvorsen' },
   },
   {
@@ -285,6 +315,7 @@ export const STAGES: readonly StageDef[] = [
     rentPerWeek: 9000,
     bhphMultiplier: 1.22,
     creditShift: 1.6,
+    desk: { title: 'Sales manager', commission: 0.1, salaried: true },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.2, askMax: 1.27, makeId: 'okabe' },
   },
   {
@@ -301,6 +332,7 @@ export const STAGES: readonly StageDef[] = [
     rentPerWeek: 20000,
     bhphMultiplier: 1.15,
     creditShift: 2.6,
+    desk: { title: 'Sales manager', commission: 0.08, salaried: true },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.23, askMax: 1.29, makeId: 'valmont' },
   },
 ];

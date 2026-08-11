@@ -232,8 +232,34 @@ export function upgradeCost(def: UpgradeDef, currentLevel: number, stage?: Stage
  */
 export function weeklyWage(def: UpgradeDef, stage?: StageId): number {
   if (!def.staff) return 0;
+  // The curbstone business partner draws NO wage — he works for a cut of every
+  // deal he closes instead (`STAGES[].desk`), which is both the fiction the
+  // stage's blurb promises ("nobody to pay but yourself") and the reason the
+  // overnight can no longer print money at full margin. Salaried desks at the
+  // dealership stages pay wages AND a smaller cut.
+  if (def.id === 'salesDesk' && stage && !getStage(stage).desk.salaried) return 0;
   const storeScale = stage ? getStage(stage).upgradeCostMultiplier : 1;
   return Math.round(def.baseCost * BALANCE.expenses.wageOfCost * storeScale);
+}
+
+/**
+ * What this hire is called at this store. One upgrade id climbs the whole
+ * ladder, but a curbstone business partner and a Valmont sales manager are not
+ * the same person, and the upgrades screen should not pretend they are.
+ */
+export function upgradeDisplayName(def: UpgradeDef, stage: StageId): string {
+  if (def.id === 'salesDesk') return getStage(stage).desk.title;
+  return def.name;
+}
+
+/** Same idea for the one-liner under the name. */
+export function upgradeDisplayDescription(def: UpgradeDef, stage: StageId): string {
+  if (def.id !== 'salesDesk') return def.description;
+  const desk = getStage(stage).desk;
+  const cut = Math.round(desk.commission * 100);
+  return desk.salaried
+    ? `Closes walk-ups you don't grab in time. Salaried, plus ${cut}% of the profit on deals they close.`
+    : `Closes walk-ups you don't grab in time. No salary — he takes ${cut}% of the profit on every deal he closes.`;
 }
 
 export function upgradeUnlocked(state: Pick<GameState, 'stage'>, def: UpgradeDef): boolean {

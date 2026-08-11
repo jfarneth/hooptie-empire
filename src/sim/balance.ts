@@ -68,6 +68,20 @@ export const BALANCE = {
   listingIntervalMs: 22_000,
   listingIntervalPerScoutLevel: 0.78,
   listingLifetimeMs: 150_000,
+
+  // ------------------------------------------------------------------ the desk
+  desk: {
+    /**
+     * How long a walk-up stands there before the sales staff moves in, and
+     * therefore how long the player has to grab the deal and keep the whole
+     * margin. The incentive for active play, in milliseconds.
+     *
+     * Prospect patience is 45s +/-30%, so at 20s the staff always has time
+     * left to work with. Push this above ~30s in the admin console and the
+     * slowest walk-ups will leave before the desk ever gets to them.
+     */
+    graceMs: 20_000,
+  },
   // The seller ask band moved into `STAGES[].sourcing` in stages.ts when the
   // ladder landed, because a franchise buys at invoice and a used lot does not.
   // It is still the sharpest knob in the game; it just lives per stage now.

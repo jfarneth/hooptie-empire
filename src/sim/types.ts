@@ -168,6 +168,26 @@ export interface Prospect {
     weeklyPayment: number;
     weeks: number;
   };
+  /**
+   * Sim time at which they walked up. Stamped at creation, never derived from
+   * `expiresAt` and the live patience constant — same rule as a promotion's
+   * `endsAt`, because the admin console can move the constant under a prospect
+   * already standing on the lot.
+   *
+   * This is what the desk's grace window counts from: the staff will not touch
+   * a walk-up until it has aged `BALANCE.desk.graceMs`, which is the player's
+   * chance to close the deal themselves and keep the whole margin.
+   */
+  arrivedAt: Millis;
+  /**
+   * True while the player has this deal open in front of them. A claimed
+   * prospect is invisible to the sales desk however stale it gets — staff
+   * closing a deal out from under the sheet the player is mid-slider on would
+   * be automation at its worst. Set and cleared by `claimDeal`/`releaseDeal`;
+   * lives in GameState rather than React because the desk reads it inside the
+   * tick.
+   */
+  claimed: boolean;
   /** Sim time at which this prospect walks. */
   expiresAt: Millis;
 }
@@ -276,6 +296,13 @@ export interface Stats {
   walkaways: number;
   totalCollected: number;
   lifetimeProfit: number;
+  /**
+   * Every dollar sales staff have taken off deals they closed. Already netted
+   * out of `lifetimeProfit`; tracked separately because "what did the partner
+   * cost me" is a number the player genuinely wants, and the away summary's
+   * morning line is built from its delta.
+   */
+  commissionPaid: number;
 }
 
 /** Things that happened during a slice of simulation, for the away summary. */

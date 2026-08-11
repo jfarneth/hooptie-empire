@@ -254,6 +254,27 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       car: { ...l.car, rarity: 'common' },
     })),
   }),
+
+  /**
+   * v11 -> v12: the commission desk.
+   *
+   * Prospects gain `arrivedAt` and `claimed`. Any prospect in flight when the
+   * save migrates gets `arrivedAt: 0` — an age far past the grace window, so
+   * the desk treats them exactly as the old build did (closes immediately)
+   * rather than granting a fresh window to a buyer who has already been
+   * standing there. They will all resolve within the minute either way.
+   *
+   * Stats gain `commissionPaid: 0` — nothing has been paid yet, and the desks
+   * on existing saves start charging their stage's cut from here forward. That
+   * is a change to the terms of an upgrade already bought, deliberately and
+   * with a ledger line the first time it bites; nothing a save holds is
+   * destroyed.
+   */
+  11: (s) => ({
+    ...s,
+    prospects: (s.prospects ?? []).map((p: any) => ({ ...p, arrivedAt: 0, claimed: false })),
+    stats: { ...s.stats, commissionPaid: 0 },
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

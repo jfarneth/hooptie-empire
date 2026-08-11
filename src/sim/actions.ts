@@ -97,6 +97,32 @@ export function takeCashDeal(state: GameState, prospectId: string): GameState {
 }
 
 /**
+ * Sit down at this deal. While claimed, the sales staff will not touch it —
+ * the grace window is how long you have to NOTICE a walk-up; this is what stops
+ * the clock once you have. The deal sheet claims on open and releases on close,
+ * so staff can never sell a car out from under the slider the player is
+ * holding.
+ */
+export function claimDeal(state: GameState, prospectId: string): GameState {
+  return act(state, (s) => {
+    const prospect = s.prospects.find((p) => p.id === prospectId);
+    if (!prospect || prospect.claimed) return false;
+    prospect.claimed = true;
+    return true;
+  });
+}
+
+/** Stand back up. The staff's clock has long expired, so they move in next tick. */
+export function releaseDeal(state: GameState, prospectId: string): GameState {
+  return act(state, (s) => {
+    const prospect = s.prospects.find((p) => p.id === prospectId);
+    if (!prospect || !prospect.claimed) return false;
+    prospect.claimed = false;
+    return true;
+  });
+}
+
+/**
  * Push back on a cash offer.
  *
  * Resolves immediately — they either take it, come back with a better number, or

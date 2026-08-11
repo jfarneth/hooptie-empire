@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { reconcileTuning } from '../sim/actions';
 import { advance, createInitialState } from '../sim/engine';
+import { getStage } from '../sim/stages';
 import { offlineCapMs } from '../sim/upgrades';
 import { specialFinds, type SpecialFind } from './finds';
 import type { GameState, Stats } from '../sim/types';
@@ -26,6 +27,10 @@ export interface AwaySummary {
   repos: number;
   /** Levels gained while the app was closed, e.g. ['Buying reached level 4']. */
   skillUps: string[];
+  /** What the sales staff took off the deals they closed while you were away. */
+  commissionPaid: number;
+  /** What that staff member is called at this store — partner or manager. */
+  deskTitle: string;
   /**
    * Special-edition and unicorn cars the retainer buyer picked up while nobody
    * was watching, with the deal it got.
@@ -61,6 +66,7 @@ interface GameStore {
 function diffStats(before: Stats, after: Stats) {
   return {
     carsSold: after.carsSold - before.carsSold,
+    commissionPaid: after.commissionPaid - before.commissionPaid,
     collected: after.totalCollected - before.totalCollected,
     notesPaid: after.notesPaidOff - before.notesPaidOff,
     repos: after.reposCompleted - before.reposCompleted,
@@ -116,6 +122,7 @@ export const useGame = create<GameStore>((set, get) => ({
           .filter((e) => e.kind === 'skill-up')
           .map((e) => e.label),
         specialFinds: specialFinds(saved, next),
+        deskTitle: getStage(next.stage).desk.title,
         ...delta,
       };
     }

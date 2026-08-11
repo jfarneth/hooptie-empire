@@ -12,6 +12,7 @@ import {
 } from '../../sim/haggle';
 import { repoThreshold } from '../../sim/business';
 import { getStage } from '../../sim/stages';
+import { level } from '../../sim/upgrades';
 import { activeNotes, canWriteNote, overCapacityFactor } from '../../sim/notes';
 import { haggleSkillFor } from '../../sim/skills';
 import { collectionsCapacity } from '../../sim/upgrades';
@@ -46,6 +47,13 @@ export function DealSheet({
   onDecline: () => void;
   onClose: () => void;
 }) {
+  // The sheet being open IS the claim — the staff stand back the moment you sit
+  // down (see claimDeal in LotScreen), so what the subtitle owes the player is
+  // the fact that this deal is now theirs to keep the whole margin on.
+  const deskWaiting =
+    level(state, 'salesDesk') > 0 && state.dealPolicy !== 'manual' && prospect != null;
+  const deskTitle = getStage(state.stage).desk.title;
+
   // Hooks must run unconditionally, so the counter lives above the early return.
   const neg = prospect?.negotiation ?? null;
   const step = neg ? roundingIncrement(neg.anchor) : 100;
@@ -107,7 +115,13 @@ export function DealSheet({
     <Sheet
       visible
       title={prospect.name}
-      subtitle={car ? `wants the ${carLabel(car)}` : undefined}
+      subtitle={
+        car
+          ? deskWaiting
+            ? `wants the ${carLabel(car)} — yours to close, ${deskTitle.toLowerCase()} waived off`
+            : `wants the ${carLabel(car)}`
+          : undefined
+      }
       onClose={onClose}
     >
       <Row gap={8}>

@@ -15,7 +15,7 @@
  * inventing state.
  */
 import { writeFileSync } from 'node:fs';
-import { moveToStage, purchaseUpgrade } from '../sim/actions';
+import { moveToStage, purchaseUpgrade, setDealPolicy } from '../sim/actions';
 import { advance, createInitialState } from '../sim/engine';
 import { serialize } from '../sim/save';
 import type { StageId } from '../sim/types';
@@ -32,6 +32,10 @@ state = moveToStage(state, wanted as StageId);
 for (const id of ['autoBuy', 'autoList', 'autoRecon', 'scout', 'mechanic', 'salesDesk', 'lot']) {
   if (canBuyUpgrade(state, id)) state = purchaseUpgrade(state, id);
 }
+// A hired desk on 'manual' is a desk that is not turned on — and with the
+// grace window it is also a lot where every walk-up waits for a player who is
+// not there. The whole point of this tool is automation running.
+state = setDealPolicy(state, 'auto');
 state = { ...state, cash: 3_000_000 };
 
 const STEP_MS = 5_000;

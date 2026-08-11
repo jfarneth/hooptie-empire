@@ -45,6 +45,7 @@ export const TUNABLE_GROUPS = [
   'Reconditioning',
   'Traffic & pricing',
   'Negotiation',
+  'The desk',
   'Financing',
   'Credit tiers',
   'Capacity',
@@ -117,6 +118,10 @@ export const TUNABLES: readonly TunableDef[] = [
   { path: 'balance.prospectLifetimeMs', label: 'Buyer patience', group: 'Traffic & pricing', kind: 'ms', min: 5_000, max: 600_000 },
   { path: 'balance.maxViablePriceRatio', label: 'Price at which traffic dies', group: 'Traffic & pricing', kind: 'ratio', min: 1, max: 5 },
   { path: 'balance.defaultAskRatio', label: 'Default ask when listing', group: 'Traffic & pricing', kind: 'ratio', min: 0.5, max: 3 },
+
+  // ----------------------------------------------------------------- the desk
+  { path: 'balance.desk.graceMs', label: 'Grab window before staff close', group: 'The desk', kind: 'ms', min: 0, max: 60_000,
+    help: 'How long you have to take a walk-up yourself and keep the staff\u2019s cut. Above ~30s the slowest buyers leave before the desk reaches them.' },
 
   // -------------------------------------------------------------- negotiation
   { path: 'balance.negotiation.fullPriceChance', label: 'Pays full price without haggling', group: 'Negotiation', kind: 'percent', min: 0, max: 1 },
@@ -244,6 +249,17 @@ export const TUNABLES: readonly TunableDef[] = [
       kind: 'ratio',
       min: 0.2,
       max: 4,
+    });
+    rows.push({
+      path: `stages.${stage.id}.desk.commission`,
+      label: `${stage.name} — ${stage.desk.title.toLowerCase()}'s cut`,
+      group: 'The desk',
+      kind: 'percent',
+      min: 0,
+      max: 1,
+      help: stage.desk.salaried
+        ? 'Share of profit on deals the manager closes, on top of wages. Player-closed deals pay nothing.'
+        : 'Share of profit on deals the partner closes. He draws no salary, so this is all he costs.',
     });
     rows.push({
       path: `stages.${stage.id}.sourcing.raritySellerCapture`,

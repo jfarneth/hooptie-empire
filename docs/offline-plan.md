@@ -1,8 +1,15 @@
 # The overnight problem — measurement and candidate levers
 
-**Status: measured, not decided.** No balance constants have moved. This
-document exists because the numbers below took real machinery to produce and
-the decision they inform is still open.
+**Status: OPTION E SHIPPED — the commission desk, plus the grab window.** The
+grid below is the measurement record that chose it. Post-ship numbers, same
+protocol: sleep at 2h with $21.5k → wake **$526k** (was $1,089k), sleep at 3h →
+$694k (was $1,316k), `affordBig` **0%** at both bedtimes. The big-lot overnight
+skip is dead at the 50/50 partner split with no cap change, no traffic change,
+and no touch to the offline-is-real pillar. Continuous-play harness numbers
+moved within noise, and `staff commission` reads $0 there by design — the bot
+grabs every deal inside the 20s window, which is exactly what an attentive
+player does. `--cadence=15:240` is the harness mode that measures a real
+person's day.
 
 ## The bug, stated precisely
 

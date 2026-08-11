@@ -19,6 +19,8 @@ import { LadderPylon } from './LadderPylon';
 import { LotGround } from './LotGround';
 import { fitCameraToWidth, type Camera } from './camera';
 import { environmentFor } from './environment';
+import { BALANCE } from '../../sim/balance';
+import { level } from '../../sim/upgrades';
 import { RARITIES, rarityRank } from '../../sim/rarity';
 import { assignSlots, lotLayout, variantOf, type LotLayout, type LotSlot } from './layout';
 import type { SurroundBounds } from './surroundings';
@@ -84,6 +86,21 @@ const LOT_INSET = 0.14;
 const MIN_CAR_WIDTH = 30;
 
 export function LotScene({ state, capacity, onSelectCar, onSelectProspect, onPressSign }: Props) {
+  /**
+   * Seconds until the sales staff close a walk-up and take their cut — the
+   * number on the little clock beside the buyer. Null when there is no staff to
+   * close it, no standing policy for them to follow, the player has already sat
+   * down at the deal, or the window has lapsed (the desk closes within a tick
+   * of zero, so a lingering 0 would just flicker).
+   */
+  const deskClockFor = (prospect?: Prospect): number | null => {
+    if (!prospect) return null;
+    if (level(state, 'salesDesk') === 0 || state.dealPolicy === 'manual') return null;
+    if (prospect.claimed) return null;
+    const left = Math.ceil((BALANCE.desk.graceMs - (state.t - prospect.arrivedAt)) / 1000);
+    return left > 0 ? left : null;
+  };
+
   const { width } = useWindowDimensions();
   const stage = getStage(state.stage);
 
@@ -243,6 +260,7 @@ export function LotScene({ state, capacity, onSelectCar, onSelectProspect, onPre
             camera={camera}
             scale={markerScale}
             prospect={shoppers.get(car.id)}
+            deskCountdown={deskClockFor(shoppers.get(car.id))}
             onPressProspect={onSelectProspect}
           />
         ))}
@@ -398,6 +416,7 @@ function CarMarkers({
   camera,
   scale,
   prospect,
+  deskCountdown,
   onPressProspect,
 }: {
   car: Car;
@@ -406,6 +425,8 @@ function CarMarkers({
   camera: Camera;
   scale: number;
   prospect?: Prospect;
+  /** Seconds left on the staff clock, or null when no clock is running. */
+  deskCountdown: number | null;
   onPressProspect: (id: string) => void;
 }) {
   const pulse = useRef(new Animated.Value(0)).current;
@@ -516,6 +537,16 @@ function CarMarkers({
           >
             <Shopper size={Math.max(20, 30 * scale)} />
           </Pressable>
+          {deskCountdown != null ? (
+            // Seconds until the staff close this one and take their cut. The
+            // number IS the active-play incentive, so it hangs right on the
+            // buyer — grab them before it hits zero and the whole margin is
+            // yours. Hidden once claimed: a deal you are sitting at has no
+            // clock.
+            <View style={[styles.deskClock, { transform: [{ scale }] }]} pointerEvents="none">
+              <Text style={styles.deskClockText}>{deskCountdown}s</Text>
+            </View>
+          ) : null}
         </Animated.View>
       ) : null}
     </>
@@ -617,6 +648,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 1,
   },
+  deskClock: {
+    marginTop: 2,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(16,18,25,0.85)',
+    borderColor: '#f2a63b',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  deskClockText: { color: '#f2a63b', fontSize: 9, fontWeight: '800', fontVariant: ['tabular-nums'] },
   grade: {
     borderWidth: 1,
     borderRadius: theme.radius.pill,

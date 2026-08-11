@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
+  claimDeal,
   counterOffer,
   declineProspect,
   listForSale,
   repriceCar,
+  releaseDeal,
   startRecon,
   takeCashDeal,
   takeFinanceDeal,
@@ -28,6 +30,21 @@ export function LotScreen({ state }: { state: GameState }) {
   const apply = useGame((s) => s.apply);
   const [carId, setCarId] = useState<string | null>(null);
   const [prospectId, setProspectId] = useState<string | null>(null);
+
+  /**
+   * Opening a deal claims it; closing the sheet releases it. While claimed the
+   * sales staff will not touch the walk-up, however long you deliberate — the
+   * grace window is for NOTICING a buyer, not a speed-run of the negotiation.
+   * Both are idempotent sim actions, so a re-render cannot double-fire them.
+   */
+  const openDeal = (id: string) => {
+    apply((s) => claimDeal(s, id));
+    setProspectId(id);
+  };
+  const closeDeal = () => {
+    if (prospectId) apply((s) => releaseDeal(s, prospectId));
+    setProspectId(null);
+  };
   const [ladderOpen, setLadderOpen] = useState(false);
 
   const car = carId ? (state.cars.find((c) => c.id === carId) ?? null) : null;
@@ -64,7 +81,7 @@ export function LotScreen({ state }: { state: GameState }) {
           // number, so nothing here pretends the space was bought.
           capacity={Math.max(carCapacity(state), held)}
           onSelectCar={setCarId}
-          onSelectProspect={setProspectId}
+          onSelectProspect={openDeal}
           onPressSign={() => setLadderOpen(true)}
         />
 
@@ -108,7 +125,7 @@ export function LotScreen({ state }: { state: GameState }) {
       <DealSheet
         state={state}
         prospect={prospect}
-        onClose={() => setProspectId(null)}
+        onClose={closeDeal}
         onCash={() => {
           if (!prospect) return;
           apply((s) => takeCashDeal(s, prospect.id));

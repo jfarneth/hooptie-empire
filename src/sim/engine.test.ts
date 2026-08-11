@@ -43,7 +43,10 @@ function fingerprint(s: GameState) {
     prospects: s.prospects.map(
       (p) =>
         `${p.id}:${p.negotiation.currentOffer}:${p.negotiation.status}:` +
-        `${p.negotiation.countersMade}:${p.negotiation.reservation.toFixed(2)}`,
+        `${p.negotiation.countersMade}:${p.negotiation.reservation.toFixed(2)}:` +
+        // The desk's grace window counts from arrivedAt and skips claimed
+        // prospects, so both are inputs to what the tick does next.
+        `${p.arrivedAt}:${p.claimed}`,
     ),
     // Skills are a record of nested objects, so like prospects they are what
     // would catch a missed clone in cloneState.

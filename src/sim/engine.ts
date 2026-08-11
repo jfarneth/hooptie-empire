@@ -61,7 +61,7 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -154,6 +154,7 @@ function blankState(seed: number, wallNow: number): GameState {
       walkaways: 0,
       totalCollected: 0,
       lifetimeProfit: 0,
+      commissionPaid: 0,
     },
     events: [],
     prestige: { count: 0, points: 0, history: [] },
@@ -661,9 +662,18 @@ function stepAutomation(s: GameState): void {
 
   if (level(s, 'salesDesk') > 0 && s.dealPolicy !== 'manual' && s.prospects.length > 0) {
     for (const prospect of [...s.prospects]) {
+      // The player's window. Staff leave a walk-up alone until it has aged the
+      // grace period — that is the standing chance to close the deal yourself
+      // and keep their cut — and they never touch a deal the player has open
+      // in front of them, however stale it gets. Offline, nobody grabs
+      // anything, so every sale is a staff sale and the cut applies to the
+      // whole night. That asymmetry IS the offline brake, and it needs no
+      // knowledge of whether anyone is watching.
+      if (prospect.claimed) continue;
+      if (s.t - prospect.arrivedAt < BALANCE.desk.graceMs) continue;
       const choice = chooseDeal(s, prospect.id);
       if (choice === 'finance') {
-        acceptFinance(s, prospect.id);
+        acceptFinance(s, prospect.id, 'desk');
       } else if (choice === 'cash') {
         runDeskNegotiation(s, prospect.id);
       }
@@ -687,14 +697,14 @@ function runDeskNegotiation(s: GameState, prospectId: string): void {
 
   // Already at the asking price, or the desk has had its turn: just close.
   if (neg.countersMade > 0 || neg.currentOffer >= neg.anchor) {
-    acceptCash(s, prospectId);
+    acceptCash(s, prospectId, 'desk');
     return;
   }
 
   const haggle = haggleSkillFor(s);
   const counter = deskCounter(neg, haggle);
   if (counter <= neg.currentOffer) {
-    acceptCash(s, prospectId);
+    acceptCash(s, prospectId, 'desk');
     return;
   }
 
@@ -705,7 +715,7 @@ function runDeskNegotiation(s: GameState, prospectId: string): void {
   }
 
   // Accepted, or they came back with a better number — either way, take it.
-  acceptCash(s, prospectId);
+  acceptCash(s, prospectId, 'desk');
 }
 
 /** Which side of the deal the standing policy takes. */
@@ -943,7 +953,42 @@ function reportAppraisal(s: GameState, listing: Listing, car: Car): void {
   });
 }
 
-function acceptCash(s: GameState, prospectId: string): boolean {
+/**
+ * Who closed the deal. The player's tap keeps every dollar; the staff's close
+ * pays the stage's commission. This is the whole attended-play incentive and
+ * the whole offline brake in one parameter — offline, there is nobody to tap,
+ * so every deal is a 'desk' deal and the cut applies to the entire absence.
+ */
+type DealCloser = 'player' | 'desk';
+
+/**
+ * The staff's cut of a deal they closed: the stage's commission rate on the
+ * PROFIT at signing, never on the price — curbstone margin is about a quarter
+ * of the sale price, so a cut of price would be four times sharper than it
+ * reads. Floored at zero (nobody pays the staff for selling at a loss, and the
+ * staff do not eat the loss either) and capped at the cash the deal actually
+ * put in the till, so a commission can never be the thing that takes the
+ * business below where it stood — only the shark gets to do that.
+ */
+function commissionOn(s: GameState, profitAtSigning: number, cashReceived: number): number {
+  const cut = Math.round(getStage(s.stage).desk.commission * Math.max(0, profitAtSigning));
+  return Math.min(cut, Math.max(0, cashReceived));
+}
+
+function payCommission(s: GameState, cut: number, dealLabel: string): void {
+  if (cut <= 0) return;
+  s.cash -= cut;
+  s.stats.lifetimeProfit -= cut;
+  s.stats.commissionPaid += cut;
+  logEvent(s, {
+    t: s.t,
+    kind: 'expense',
+    label: `${getStage(s.stage).desk.title}'s cut on ${dealLabel}`,
+    amount: -cut,
+  });
+}
+
+function acceptCash(s: GameState, prospectId: string, closer: DealCloser = 'player'): boolean {
   const idx = s.prospects.findIndex((p) => p.id === prospectId);
   if (idx < 0) return false;
   const prospect = s.prospects[idx];
@@ -966,16 +1011,22 @@ function acceptCash(s: GameState, prospectId: string): boolean {
   logEvent(s, {
     t: s.t,
     kind: 'sale-cash',
-    label: `Cash sale: ${carLabel(car)}`,
+    label:
+      closer === 'desk'
+        ? `${getStage(s.stage).desk.title} sold ${carLabel(car)}`
+        : `Cash sale: ${carLabel(car)}`,
     amount: price,
   });
+  if (closer === 'desk') {
+    payCommission(s, commissionOn(s, profit, price), carLabel(car));
+  }
 
   removeCar(s, car.id);
   s.prospects.splice(idx, 1);
   return true;
 }
 
-function acceptFinance(s: GameState, prospectId: string): boolean {
+function acceptFinance(s: GameState, prospectId: string, closer: DealCloser = 'player'): boolean {
   const idx = s.prospects.findIndex((p) => p.id === prospectId);
   if (idx < 0) return false;
   const prospect = s.prospects[idx];
@@ -1001,9 +1052,20 @@ function acceptFinance(s: GameState, prospectId: string): boolean {
   logEvent(s, {
     t: s.t,
     kind: 'sale-finance',
-    label: `Financed: ${label} to ${prospect.name} (${prospect.tier})`,
+    label:
+      closer === 'desk'
+        ? `${getStage(s.stage).desk.title} financed ${label} to ${prospect.name} (${prospect.tier})`
+        : `Financed: ${label} to ${prospect.name} (${prospect.tier})`,
     amount: prospect.downPayment,
   });
+  if (closer === 'desk') {
+    // Profit at signing is the whole contract's edge — down payment plus paper
+    // minus the metal — because that is the deal the staff actually closed. The
+    // cap in commissionOn keeps the cut inside the down payment, the only cash
+    // this deal has produced so far.
+    const profitAtSigning = prospect.downPayment + prospect.financeTerms.amountFinanced - car.costBasis;
+    payCommission(s, commissionOn(s, profitAtSigning, prospect.downPayment), label);
+  }
 
   // The car leaves the lot but stays in state so a repo can bring it back.
   car.status = 'sold';

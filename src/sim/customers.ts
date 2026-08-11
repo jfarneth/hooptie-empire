@@ -72,6 +72,10 @@ export function generateProspect(
     negotiation,
     downPayment,
     financeTerms: terms,
+    // Stamped, never derived from expiresAt and the live patience constant —
+    // the desk's grace window counts from this.
+    arrivedAt: now,
+    claimed: false,
     expiresAt: now + BALANCE.prospectLifetimeMs * (0.7 + nextFloat(rng) * 0.6),
   };
 }

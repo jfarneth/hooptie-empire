@@ -27,6 +27,16 @@ anything together: `conditionFreeValue` multiplies by the grade, and
 `spawnListing` prices the ask against `baseTrim(car)`. Scale both and rarity is
 worth exactly zero; scale neither and it is paint.
 
+**Sales staff work for a cut.** The `salesDesk` upgrade is the curbstone
+**business partner** (no salary, 50% of profit on deals he closes) and the
+salaried **sales manager** above (thinning cut per stage, in `STAGES[].desk`).
+Staff wait out a 20-second grace window (`BALANCE.desk.graceMs`) before closing
+any walk-up — grab the deal yourself inside it and every dollar is yours. That
+one asymmetry is both the active-play incentive and the offline brake: nobody
+taps while the app is closed, so overnight sales all pay the cut, and the
+measured wake-up at a curbstone fell from $1.09M to $526k — the "sleep past two
+stores" bug, dead. `docs/offline-plan.md` is the full measurement record.
+
 **Promotions** are temporary boosts the business runs under, and there is
 currently one: every new business opens on a **grand opening** that doubles
 walk-up traffic for its first twenty minutes. `src/sim/promotions.ts` is the
@@ -388,6 +398,35 @@ The HUD floats over the screens rather than sitting above them, so every scroll
 view pads its content by `HUD_HEIGHT`. A new screen that forgets starts under the
 cash readout.
 
+## The desk works for a cut
+
+Rules that carry the mechanic, each with a test named for it in `desk.test.ts`:
+
+- **The cut hangs on WHO CLOSED, not on attendance.** `acceptCash`/`acceptFinance`
+  take a `closer` param; the desk paths pass `'desk'`, every player action stays
+  `'player'`. Offline every sale is a desk sale by construction, so the brake
+  needs no attended/unattended flag, no amendment to the offline-is-real pillar,
+  and leaves no leave-the-app-open exploit — a lit screen earns nothing unless
+  you actually tap deals.
+- **Commission is a share of PROFIT at signing, never of price.** Curbstone
+  margin runs ~25% of the sale price, so a cut of price is four times sharper
+  than it reads. Floored at zero (a loss is all yours) and capped at the cash
+  the deal actually produced, so on a financed deal it can never take the till
+  below where it stood — only the shark goes below zero.
+- **`arrivedAt` is stamped, `claimed` is state.** The grace window counts from a
+  stamped clock (same rule as a promotion's `endsAt`), and opening the deal
+  sheet claims the prospect so staff can never sell a car out from under the
+  slider the player is holding. Both are in the tick fingerprint.
+- **The harness bot closes everything inside the window**, so continuous runs
+  report `staff commission $0` — correct, not broken. `--cadence=15:240` is the
+  mode that measures a real person (bursts of play, hours away); measured at
+  36h it shows the partner taking ~$589k of a $1.29M gross. The overnight rig
+  lives in the offline-plan doc.
+- **The v11→v12 migration backfills `arrivedAt: 0`** so in-flight prospects on
+  old saves close old-style (instantly) rather than being granted a window they
+  never had. Desks on existing saves start charging from migration forward —
+  terms change on a bought upgrade, deliberately; nothing held is destroyed.
+
 ## Retirement, the shark, and the one bill that goes below zero
 
 **Retirement is the prestige layer and the ultimate escape hatch, and it is one
@@ -541,7 +580,7 @@ business is dead, not taxed.
 ## Verify
 
 ```bash
-npm test        # 313 tests
+npm test        # 327 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~4min
@@ -877,7 +916,7 @@ Most have a guarding test; check before "simplifying" the code around them.
   the live constants would silently re-grade every old save after the next
   balance pass.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v10**. Saves are long-lived and local to the device; "we wiped
+  Currently **v12**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4

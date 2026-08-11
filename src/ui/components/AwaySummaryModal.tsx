@@ -57,6 +57,16 @@ export function AwaySummaryModal({
           value={String(summary.repos)}
           tone={summary.repos > 0 ? theme.colors.danger : undefined}
         />
+        {summary.commissionPaid > 0 ? (
+          // The other half of every overnight sale: who closed them, and what
+          // that cost. Deals you close yourself never pay this — which is the
+          // whole reason to show it.
+          <Tile
+            label={`${summary.deskTitle}'s cut`}
+            value={money(summary.commissionPaid)}
+            tone={theme.colors.warn}
+          />
+        ) : null}
       </View>
 
       {summary.skillUps.length > 0 ? (
