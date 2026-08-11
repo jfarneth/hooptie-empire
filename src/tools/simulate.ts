@@ -71,6 +71,18 @@ interface AppraisalTally {
    * listing is gone the ask is gone with it.
    */
   byRarity: Record<Rarity, { bought: number; margin: number }>;
+  /**
+   * How often the lot was the thing stopping the bot buying, versus how often
+   * cash was.
+   *
+   * The two are not interchangeable and the difference decides whether capacity
+   * is a pacing lever at all: a lot that is never full is a lot whose size does
+   * not matter, and shrinking it changes nothing until it starts to bite — at
+   * which point it bites hard. Sampled once per bot turn, before it acts.
+   */
+  turns: number;
+  lotFull: number;
+  brokeNotFull: number;
 }
 
 function blankRarityTally(): AppraisalTally['byRarity'] {
@@ -82,8 +94,17 @@ function blankRarityTally(): AppraisalTally['byRarity'] {
   };
 }
 
-function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
+function botTurn(state: GameState, appraisal: AppraisalTally, stay = false): GameState {
   let s = state;
+
+  {
+    const held = s.cars.filter((c) => c.status !== 'sold').length;
+    const full = held >= carCapacity(s);
+    const cheapest = s.listings.reduce((min, l) => Math.min(min, l.price), Infinity);
+    appraisal.turns += 1;
+    if (full) appraisal.lotFull += 1;
+    else if (s.cash < cheapest) appraisal.brokeNotFull += 1;
+  }
 
   // Float the bot keeps back at all times: enough to make rent for a few weeks.
   //
@@ -98,7 +119,7 @@ function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
   //    payroll reset against a full book; the bot takes every rung as it comes,
   //    which makes it the *worst* case for the move and the right thing to
   //    measure the ladder against.
-  if (canAdvanceStage(s)) s = advanceStage(s);
+  if (!stay && canAdvanceStage(s)) s = advanceStage(s);
 
   // 2. Close any walk-up standing in front of us. Paper when it pays better and
   //    the desk has room for it; otherwise sell them the car.
@@ -228,13 +249,16 @@ interface Milestones {
   [key: string]: number | undefined;
 }
 
-function runOne(seed: number, hours: number, verbose: boolean) {
+function runOne(seed: number, hours: number, verbose: boolean, stay = false) {
   let s = createInitialState(seed, 0);
   const appraisal: AppraisalTally = {
     judged: 0,
     absError: 0,
     overpaid: 0,
     byRarity: blankRarityTally(),
+    turns: 0,
+    lotFull: 0,
+    brokeNotFull: 0,
   };
   const milestones: Milestones = {};
   const totalMs = hours * 60 * 60 * 1000;
@@ -272,7 +296,7 @@ function runOne(seed: number, hours: number, verbose: boolean) {
   while (s.t < totalMs) {
     s = advance(s, STEP_MS);
     markMilestones();
-    s = botTurn(s, appraisal);
+    s = botTurn(s, appraisal, stay);
     markMilestones();
 
     if (verbose && s.t - lastReport >= 15 * 60 * 1000) {
@@ -310,6 +334,19 @@ function main() {
   const hours = getArg('hours', 4);
   const seeds = getArg('seeds', 6);
   const verbose = args.includes('--verbose');
+  /**
+   * `--stay` — never move up the ladder.
+   *
+   * The bot normally takes every rung the instant it is affordable, which makes
+   * it the worst case for the move. What that can never show is the case a real
+   * player hits constantly: being ASLEEP on a rung. Eight hours of offline
+   * catch-up runs at whatever store you closed the app on, and nothing in the
+   * game moves you up while you are gone — so the money piles up at one
+   * capacity, against one ask band, with nothing to spend it on. That is how a
+   * player wakes up able to skip a store, and the default harness has never
+   * measured it.
+   */
+  const stay = args.includes('--stay');
 
   /**
    * `--set=balance.rarity.valueStep=0` — the same knobs the admin console turns.
@@ -333,7 +370,9 @@ function main() {
   }
   if (Object.keys(overrides).length > 0) applyTuning(overrides);
 
-  console.log(`\nBalance run — ${hours}h of play, ${seeds} seeds\n${'='.repeat(64)}`);
+  console.log(
+    `\nBalance run — ${hours}h of play, ${seeds} seeds${stay ? ', STAYING PUT' : ''}\n${'='.repeat(64)}`,
+  );
   for (const [path, value] of Object.entries(overrides)) {
     console.log(`  override  ${path} = ${value}`);
   }
@@ -346,7 +385,7 @@ function main() {
   for (let i = 0; i < seeds; i++) {
     const seed = 1000 + i * 7919;
     if (verbose) console.log(`\nseed ${seed}`);
-    const { state, milestones, appraisal } = runOne(seed, hours, verbose);
+    const { state, milestones, appraisal } = runOne(seed, hours, verbose, stay);
     finals.push(state);
     tallies.push(appraisal);
     for (const [key, t] of Object.entries(milestones)) {
@@ -434,6 +473,14 @@ function main() {
    * six to seven points a grade on the used stages, and if it is flat the ask is
    * tracking the trim and the feature is doing nothing.
    */
+  const turns = tallies.reduce((n, t) => n + t.turns, 0);
+  if (turns > 0) {
+    const full = tallies.reduce((n, t) => n + t.lotFull, 0) / turns;
+    const broke = tallies.reduce((n, t) => n + t.brokeNotFull, 0) / turns;
+    console.log(`  lot full           ${(full * 100).toFixed(1).padStart(11)}%`);
+    console.log(`  broke, lot empty   ${(broke * 100).toFixed(1).padStart(11)}%`);
+  }
+
   const pooled = blankRarityTally();
   for (const t of tallies) {
     for (const id of RARITY_ORDER) {
