@@ -7,5 +7,6 @@ export * from './engine';
 export * from './models';
 export * from './notes';
 export * from './save';
+export * from './skills';
 export * from './types';
 export * from './upgrades';

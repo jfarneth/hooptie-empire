@@ -1,7 +1,8 @@
 # Hooptie Empire
 
 An idle tycoon game about the American used-car business. You start selling one
-car at a time out of a driveway and climb toward a lot with its own finance desk.
+car at a time out of a driveway and climb six rungs to a premium franchise
+store.
 
 The genre hook is not flipping cars — plenty of games do that. It is that
 **buy-here-pay-here is modelled honestly**. On a BHPH lot you sell the car twice:
@@ -11,9 +12,25 @@ desk, which makes lending the most thematically honest idle mechanic available i
 any business setting. Flipping cars is the tutorial. The loan portfolio is the
 game.
 
-Current scope is a vertical slice: **stage 1 (curbstoning) and stage 2 (a small
-BHPH lot)**, fully playable and tuned. Stage 1 runs about 35–45 minutes and
-stage 2 sustains several hours.
+**Six dealerships**, all built and tuned: curbstoning off a driveway, a small
+used lot, a large used lot, then franchise stores for a budget, a mainstream and
+a premium marque. The first is about an hour; the last takes a serious player
+most of a day.
+
+Two things change every time you move up, and together they are the shape of the
+game. **Cars get more expensive** — better inventory, bigger margins, and a much
+larger cheque before you own any of it. **Your staff does not come with you** —
+every employee resets and costs more to hire at the bigger store. Property,
+inventory, the loan book and everything the work has taught you all carry over;
+the payroll does not. Moving up is a decision, not a button, and the game puts
+the bill in front of you before you sign.
+
+The franchise stores are deliberately a different game. You buy from one
+manufacturer at invoice: one make on the whole feed, standardised pricing, and no
+guesswork about condition because nobody appraises a car off a transporter. The
+question stops being *is this a good car* and becomes *can you move volume and
+write paper* — which is the real difference between an independent lot and a
+franchise store.
 
 ## Running it
 
@@ -82,7 +99,9 @@ src/
     customers.ts    # walk-ups, credit tiers, deal structuring
     haggle.ts       # negotiation: opening offers, reservation prices, counters
     cars.ts         # generation, reconditioning, repo damage
+    stages.ts       # the six dealerships: entry costs, staffing, sourcing
     upgrades.ts     # definitions and derived stats
+    skills.ts       # Buying/Closing/Wrenching: XP, levels, derived stats
     actions.ts      # player commands (state -> state)
     save.ts         # serialization, versioning, migrations
     balance.ts      # every tuning constant in the game, one file
@@ -99,22 +118,39 @@ should hard-code a number that changes the curve.
 
 ```bash
 npm run sim -- --hours=4 --seeds=8 --verbose
+npm run sim -- --hours=32 --seeds=16     # far enough to see the whole ladder
 ```
 
 The harness drives the real engine with a scripted "reasonable player" and
-reports time-to-milestone across seeds:
+reports time-to-milestone across seeds. A four-hour run only ever reaches the
+large used lot, so the franchise stages need the longer invocation:
 
 ```
-  stage 2: BHPH              43m   (8/8)
-  first note written         43m   (8/8)
-  first repo               1h02m   (8/8)
-  first note paid off      1h40m   (8/8)
-  walk-away rate             9.2%
-  default rate              30.2%
+  Small used dealership    1h11m   (16/16)
+  Large used dealership    3h16m   (16/16)
+  Low-cost franchise       5h40m   (16/16)
+  Midsize franchise       12h03m   (16/16)
+  Premium franchise       27h36m   (16/16)
+  walk-away rate            53.0%
+  default rate              23.8%
 ```
 
 When the harness and the way the game actually feels disagree, the game is right
 — but this is how you find out which constant to reach for.
+
+One caveat that has already caused a wrong turn. That `default rate` is measured
+over the contracts the automated sales desk chose to write, and the desk
+underwrites on expected value — so making borrowers riskier makes it write safer
+paper, and the number can move the *opposite* way to the knob you turned. Tune
+credit risk against the odds the deal sheet quotes instead.
+
+**Everything is tunable in-app.** Office → Admin exposes the simulation's
+constants — the ask band, negotiation odds, credit risk, collections capacity,
+the cost of every rung on the ladder — as live fields. Changes apply
+immediately, save with your game, and hold while the app is closed; they do not
+rewrite history, so cars you already own keep their cost basis and contracts
+already written keep their terms. Every row shows its shipped default and can be
+reset individually.
 
 ## Design notes
 
@@ -137,15 +173,42 @@ usually is not, and pushing far past it loses them. Modelling it that way rather
 than as a distance-from-their-offer formula means some buyers genuinely have room
 and some genuinely do not, which is what makes it read as a person.
 
+**Pushing back is a gamble.** Turn down their number and there is a good chance
+they are simply gone — about half of all negotiations now end in a walk-off.
+Nothing bad can happen if you just take the opening offer, so the real question
+on every walk-up is whether this buyer is worth the risk at all. Closing is the
+skill that buys you the odds.
+
 Two things stay hidden on purpose. The deal sheet shows exact expected value and
 exact default odds for financing, because those are long-run properties a dealer
 really does learn. One buyer's private walk-away number is not something anyone on
 that lot could know, so the slider gives a qualitative read and a **tell** instead
 of a percentage. Reading customers is a skill, not arithmetic.
 
-**Collections capacity** caps how many active notes you can service. Grow the
-book past the desk and everyone's default odds climb. Growing without staffing is
-a real and punishing mistake, which is the point.
+**Collections capacity is a hard cap** on how many contracts you can carry. Fill
+the desk and the finance option goes away — walk-ups get sold the car instead of
+the payment until something on the book pays off or goes bad. Staffing the desk
+is what buys the right to write more paper, which makes it the decision the whole
+back half of the game turns on.
+
+**House rules** (Office → Business) are the standing constraints the place runs
+under while you are not watching: a floor under the till that no automation will
+spend past, how many missed payments you allow before the car comes back, the
+least margin your sales manager will sign for in cash and on paper, and how far
+under the worst case your buyer on retainer insists on being before it spends
+your money. None of them is a free win. Pull the repo trigger sooner and you
+recover a better car from a customer who might have caught up; give them rope and
+you collect more from the ones who do, and get back a rougher car from the ones
+who never had it.
+
+The three margin rules are set in **standard deviations off the average deal at
+the store you are standing in**, not in flat percent, because 20% of the gross is
+an ordinary car at a curbstone lot and more than a Valmont franchise can produce
+on anything it will ever sell. At the bottom the desk takes whatever walks up. At
+the top it is holding out for something that essentially has to be a mispriced
+unicorn — and the panel tells you, in dollars, what each stop is asking for. The
+buyer's rule reaches below zero, which is a real strategy at a store that spends
+its life short of stock: overpay a little and keep the stalls full.
 
 ## Not built yet
 

@@ -1,32 +1,52 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
-  buyLot,
-  canBuyLot,
+  claimDeal,
   counterOffer,
   declineProspect,
   listForSale,
   repriceCar,
+  sellToWholesaler,
+  releaseDeal,
   startRecon,
   takeCashDeal,
   takeFinanceDeal,
   unlist,
 } from '../../sim/actions';
-import { BALANCE } from '../../sim/balance';
+import { getStage } from '../../sim/stages';
 import { carCapacity } from '../../sim/upgrades';
 import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
 import { money, theme } from '../theme';
+import { HUD_HEIGHT } from '../components/Hud';
 import { CarSheet } from '../components/CarSheet';
+import { StageCard } from '../components/StageCard';
 import { DealSheet } from '../components/DealSheet';
-import { LotGrid } from '../components/LotGrid';
-import { Button, Card, EmptyState, Label, Meter } from '../components/ui';
+import { Sheet } from '../components/Sheet';
+import { LotScene } from '../lot/LotScene';
+import { Card, Label } from '../components/ui';
 
-/** The main screen: your inventory, your walk-ups, and the road to the lot. */
+/** The main screen: your lot, your walk-ups, and the road to a bigger store. */
 export function LotScreen({ state }: { state: GameState }) {
   const apply = useGame((s) => s.apply);
   const [carId, setCarId] = useState<string | null>(null);
   const [prospectId, setProspectId] = useState<string | null>(null);
+
+  /**
+   * Opening a deal claims it; closing the sheet releases it. While claimed the
+   * sales staff will not touch the walk-up, however long you deliberate — the
+   * grace window is for NOTICING a buyer, not a speed-run of the negotiation.
+   * Both are idempotent sim actions, so a re-render cannot double-fire them.
+   */
+  const openDeal = (id: string) => {
+    apply((s) => claimDeal(s, id));
+    setProspectId(id);
+  };
+  const closeDeal = () => {
+    if (prospectId) apply((s) => releaseDeal(s, prospectId));
+    setProspectId(null);
+  };
+  const [ladderOpen, setLadderOpen] = useState(false);
 
   const car = carId ? (state.cars.find((c) => c.id === carId) ?? null) : null;
   const prospect = prospectId ? (state.prospects.find((p) => p.id === prospectId) ?? null) : null;
@@ -40,53 +60,54 @@ export function LotScreen({ state }: { state: GameState }) {
     if (carId && !car) setCarId(null);
   }, [carId, car]);
 
+  const stage = getStage(state.stage);
   const held = state.cars.filter((c) => c.status !== 'sold').length;
-  const lotProgress = state.cash / BALANCE.lotPurchaseCost;
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {state.stage === 'curbstoner' ? (
-          <Card style={styles.goalCard}>
-            <Label>Next: your own lot</Label>
-            <View style={styles.goalRow}>
-              <Text style={styles.goalValue}>
-                {money(state.cash)} <Text style={styles.goalOf}>of {money(BALANCE.lotPurchaseCost)}</Text>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        // The lot is a surface, not a list: it must not bounce away from the
+        // showroom at the top or the street at the bottom.
+        bounces={false}
+      >
+        <LotScene
+          state={state}
+          // Paved for whichever is larger: the space you own, or the cars you
+          // are actually holding. A lot can be over capacity — a repo comes back
+          // to a full lot, and walking back down the ladder lands thirty cars on
+          // a driveway — and a car with no stall is a car the player cannot tap,
+          // which is a car they can never sell. The HUD still reports the real
+          // number, so nothing here pretends the space was bought.
+          capacity={Math.max(carCapacity(state), held)}
+          onSelectCar={setCarId}
+          onSelectProspect={openDeal}
+          onPressSign={() => setLadderOpen(true)}
+        />
+
+        <View style={styles.below}>
+          {held === 0 ? (
+            <Card>
+              <Text style={styles.hint}>
+                Nothing on the lot yet. Head to <Text style={styles.hintStrong}>Buy</Text> and pick
+                something up — look for anything priced under wholesale.
               </Text>
-            </View>
-            <Meter progress={lotProgress} color={theme.colors.accent} height={5} />
-            <Text style={styles.goalHint}>
-              A lot means a finance desk. Instead of selling a car once, you sell it once for the
-              down payment and again as paper.
-            </Text>
-            <Button
-              label={canBuyLot(state) ? `Buy the lot — ${money(BALANCE.lotPurchaseCost)}` : 'Keep flipping'}
-              tone={canBuyLot(state) ? 'primary' : 'ghost'}
-              disabled={!canBuyLot(state)}
-              onPress={() => apply(buyLot)}
-              style={{ marginTop: 10 }}
-            />
-          </Card>
-        ) : null}
+            </Card>
+          ) : null}
 
-        <Label>{state.stage === 'curbstoner' ? 'Driveway' : 'The lot'}</Label>
-
-        {held === 0 ? (
-          <EmptyState
-            title="Nothing to sell"
-            hint="Head to Buy and pick something up. Look for anything priced under wholesale."
-          />
-        ) : (
-          <LotGrid
-            state={state}
-            capacity={carCapacity(state)}
-            onSelectCar={setCarId}
-            onSelectProspect={setProspectId}
-          />
-        )}
-
-        <RecentActivity state={state} />
+          <RecentActivity state={state} />
+        </View>
       </ScrollView>
+
+      <Sheet
+        visible={ladderOpen}
+        title="The ladder"
+        subtitle={`Every store, what it costs, and what it takes. You are at ${stage.shortName}.`}
+        onClose={() => setLadderOpen(false)}
+      >
+        <StageCard state={state} />
+      </Sheet>
 
       <CarSheet
         state={state}
@@ -100,12 +121,18 @@ export function LotScreen({ state }: { state: GameState }) {
         }}
         onUnlist={() => car && apply((s) => unlist(s, car.id))}
         onReprice={(price) => car && apply((s) => repriceCar(s, car.id, price))}
+        onWholesale={() => {
+          if (!car) return;
+          apply((s) => sellToWholesaler(s, car.id));
+          // The car no longer exists, so the sheet has nothing left to show.
+          setCarId(null);
+        }}
       />
 
       <DealSheet
         state={state}
         prospect={prospect}
-        onClose={() => setProspectId(null)}
+        onClose={closeDeal}
         onCash={() => {
           if (!prospect) return;
           apply((s) => takeCashDeal(s, prospect.id));
@@ -137,14 +164,18 @@ function RecentActivity({ state }: { state: GameState }) {
   if (recent.length === 0) return null;
 
   const color = (kind: string) =>
-    kind === 'repo' || kind === 'note-default'
+    kind === 'repo' || kind === 'note-default' || kind === 'stage-down'
       ? theme.colors.danger
       : kind === 'payment' || kind === 'sale-cash' || kind === 'sale-finance'
         ? theme.colors.money
-        : theme.colors.textDim;
+        : kind === 'skill-up' || kind === 'stage-up' || kind === 'promotion'
+          ? theme.colors.accent
+          : kind === 'appraisal'
+            ? theme.colors.warn
+            : theme.colors.textDim;
 
   return (
-    <View style={{ gap: 6, marginTop: 8 }}>
+    <View style={{ gap: 6 }}>
       <Label>Activity</Label>
       <Card style={{ gap: 5, paddingVertical: 10 }}>
         {recent.map((e, i) => (
@@ -166,17 +197,10 @@ function RecentActivity({ state }: { state: GameState }) {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 10, paddingBottom: 32 },
-  goalCard: { gap: 8, borderColor: theme.colors.accentDim },
-  goalRow: { flexDirection: 'row', alignItems: 'baseline' },
-  goalValue: {
-    color: theme.colors.text,
-    fontSize: 20,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-  },
-  goalOf: { color: theme.colors.textDim, fontSize: 13, fontWeight: '600' },
-  goalHint: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 17 },
+  content: { paddingTop: HUD_HEIGHT, paddingBottom: 32 },
+  below: { padding: 16, gap: 12 },
+  hint: { color: theme.colors.textDim, fontSize: 13, lineHeight: 19 },
+  hintStrong: { color: theme.colors.accent, fontWeight: '700' },
   eventRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   eventLabel: { color: theme.colors.textDim, fontSize: 12, flex: 1 },
   eventAmount: { fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
