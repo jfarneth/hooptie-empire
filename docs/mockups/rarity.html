@@ -467,8 +467,8 @@
     </p>
     <div class="metaline">
       <span>jfarneth/hooptie-empire</span>
-      <span>branch claude/vehicle-rarity-feature-78xqvk</span>
-      <span>proposal — nothing implemented</span>
+      <span>shipped to master</span>
+      <span>measurements in docs/rarity-plan.md</span>
     </div>
   </header>
 
@@ -638,7 +638,9 @@
         <p>
           Baking rarity would take the sprite matrix from 81 frames to 324 and needs Blender, which
           a normal checkout does not have. Trim is an <strong>SVG overlay composited over whatever
-          drew the car</strong>, so it works over the sprite and the vector fallback alike.
+          drew the car</strong>. The catch, found on the way: an overlay can only <em>add</em>, so a
+          lift is undrawable — trucks wear fender flares and a light bar instead, which read from
+          overhead where ride height does not.
         </p>
       </div>
       <div class="note-card">
@@ -670,7 +672,7 @@
       freq: 'the feed',               tell: 'Stock trim. Nothing bolted on.' },
     { id: 'rare',      name: 'Rare',      p: 0.09,  mult: 1.1, color: '#4fb3d9',
       badge: 'Sport', odds: '9%',
-      freq: 'about every 8 minutes',  tell: 'One bolt-on: spoiler on a car, lift and a light bar on a truck, rails on a van.' },
+      freq: 'about every 8 minutes',  tell: 'One bolt-on: spoiler on a car, fender flares and a light bar on a truck, rails on a van.' },
     { id: 'epic',      name: 'Epic',      p: 0.009, mult: 1.2, color: '#9b74e6',
       badge: 'Special Edition', odds: '0.9%',
       freq: 'about every 85 minutes', tell: 'The bolt-on, plus twin racing stripes over the hood, roof and decklid.' },

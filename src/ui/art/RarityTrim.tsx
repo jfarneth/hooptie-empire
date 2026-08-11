@@ -149,15 +149,21 @@ function SideTrim({
         <G>
           {/* Arches over both wheels: a flare is a bulge on the bodywork, so it
               is a hoop struck from the wheel centre and sitting on the panel. */}
-          {shape.wheels.map((cx) => (
-            <Path
-              key={cx}
-              d={`M${cx - shape.wheelR - 2.2},${sill} A${shape.wheelR + 2.2},${shape.wheelR + 2.2} 0 0 1 ${cx + shape.wheelR + 2.2},${sill}`}
-              fill="none"
-              stroke={trim}
-              strokeWidth={2.1}
-            />
-          ))}
+          {shape.wheels.map((cx) => {
+            // Struck OUTSIDE the tyre, not through it. The overlay draws above
+            // the wheels, so an arc at the tyre's own radius paints over the
+            // tread and reads as a smudge rather than as bodywork.
+            const r = shape.wheelR + 3;
+            return (
+              <Path
+                key={cx}
+                d={`M${cx - r},${sill} A${r},${r} 0 0 1 ${cx + r},${sill}`}
+                fill="none"
+                stroke={trim}
+                strokeWidth={1.8}
+              />
+            );
+          })}
           <Rect
             x={roof[0] + 2}
             y={roofY - 3.1}
@@ -198,20 +204,20 @@ function SideTrim({
       {rank >= 2 ? (
         <G>
           <Rect
-            x={6}
-            y={shoulder + (sill - shoulder) * 0.42}
-            width={88}
-            height={1.9}
+            x={7}
+            y={shoulder + (sill - shoulder) * 0.44}
+            width={86}
+            height={1.15}
             fill={stripe}
-            opacity={0.92}
+            opacity={0.8}
           />
           <Rect
-            x={6}
-            y={shoulder + (sill - shoulder) * 0.66}
-            width={88}
-            height={0.85}
+            x={7}
+            y={shoulder + (sill - shoulder) * 0.68}
+            width={86}
+            height={0.55}
             fill={stripe}
-            opacity={0.92}
+            opacity={0.8}
           />
         </G>
       ) : null}

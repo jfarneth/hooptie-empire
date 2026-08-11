@@ -19,6 +19,14 @@ player set three house rules the business then runs under offline: a working
 capital floor, the repo trigger, and the retainer buyer's minimum margin.
 `src/sim/business.ts` resolves them.
 
+**Every car carries a trim grade** — common, rare, epic, legendary at
+90/9/0.9/0.1 — and it is worth 10% more of the car at each step. `src/sim/rarity.ts`
+is the table and `docs/rarity-plan.md` is the design record with every
+measurement behind it. Two one-line seams carry the whole feature and only mean
+anything together: `conditionFreeValue` multiplies by the grade, and
+`spawnListing` prices the ask against `baseTrim(car)`. Scale both and rarity is
+worth exactly zero; scale neither and it is paint.
+
 **Promotions** are temporary boosts the business runs under, and there is
 currently one: every new business opens on a **grand opening** that doubles
 walk-up traffic for its first twenty minutes. `src/sim/promotions.ts` is the
@@ -100,6 +108,58 @@ flat price band. Buying stops being a decision and throughput starts. Never test
 a capability by comparing stage ids — ask the stage. `financing` is true for five
 of the six, and a `=== 'smallUsed'` check silently means "no finance desk at a
 Valmont store".
+
+## Trim grades
+
+**Rarity is PUBLIC. Condition is PRIVATE. That asymmetry is the whole design.**
+You can see a spoiler and a lift kit, so a grade carries no appraisal noise, no
+band and no sigma — `appraisedCar` passes it through untouched and
+`appraisal.ts` never mentions it. It is what keeps the line the rest of the game
+draws between what an operator could know and what they could not, and it is
+what makes a graded car a decision (is it worth the lot slot?) rather than a
+lottery.
+
+**The multiplier belongs in `conditionFreeValue` and nowhere else.** That is
+already the basis for anything scaling with how much car is present, so retail,
+wholesale, the finance window, recon cost, recon value gain, the forced-sale
+haircut and the traffic reference all price a spoiler correctly from one
+multiply. Recon ROI comes out flat across grades because cost and value gain
+scale together — which is right, and is the tell if the multiplier ever lands in
+only one of them.
+
+**`raritySellerCapture` is per stage, and it is not a nerf.** Zero on the used
+stages: a Tuesday dealer auction does not charge for a spoiler and the wholesale
+book has no column for one. 0.7 on the franchises: a manufacturer genuinely does
+list the trim package on the invoice. Measured at 8 seeds over 350h, leaving the
+franchises at zero pulled the premium store in from 318h to **218h** and doubled
+lifetime profit — a different game, not a feature. At 0.7 the top sits 15% inside
+baseline, which is inside the band this harness can resolve at all.
+
+**Leaving franchise capture at zero also fixes the premium-franchise flatline.**
+Baseline at 350h is cash $0, portfolio $0, book 0/8 — the top open bug below,
+reproduced exactly. With the franchise premium free it is $62.3M cash and a full
+43/43 book. That is NOT shipped, on the grounds that rarity should not be a
+stealth economy patch, but it is one slider in Office → Admin and it is now the
+cheapest known lever on that bug.
+
+**The trim is an OVERLAY, and an overlay can only add.** `RarityTrim` composites
+over whatever drew the car, because baking rarity would take the sprite matrix
+from 81 frames to 324 and needs a Blender pipeline a normal checkout cannot run.
+The consequence is a real design constraint: a *lift* was the obvious treatment
+for a modified truck and it cannot be drawn, since the overlay cannot raise a
+body it did not draw. Fender flares and a roof light bar say the same thing
+additively and, unlike ride height, actually read from directly overhead. Two
+passes — underglow beneath the car, everything else on top.
+
+**The two renderers do not frame a car the same way, and assuming they do puts
+spoilers in mid-air.** The artboards agree on aspect to 0.06%, which is what the
+plan assumed was enough; measured, the sprite's sedan fills 85% of its frame
+where the vector drawing fills 73%, and a coupe goes the other way. `footprint.ts`
+carries a table per renderer, and `tools/measure-sprites` regenerates the sprite
+half by reading the committed PNGs through headless Chromium — no Blender, no
+Python imaging stack. The shape tables live in `art/vector/shapes.ts` rather than
+inside the components so that anything needing to know where a bootlid is does
+not have to import `react-native-svg` to find out.
 
 ## The rule that must not break
 
@@ -392,15 +452,19 @@ well under it on the franchises:
 
 | | ask band | margin, best to worst |
 |---|---|---|
-| Curbstone | 0.62–1.42 | +54% to **−5%** |
-| Small used | 0.66–1.38 | +51% to **−2%** |
-| Large used | 0.74–1.30 | +45% to +4% |
+| Curbstone | 0.80–1.42 | +41% to **−5%** |
+| Small used | 0.84–1.38 | +38% to **−2%** |
+| Large used | 0.90–1.30 | +33% to +4% |
 | Low-cost franchise | 1.16–1.24 | +14% to +8% |
 | Midsize franchise | 1.20–1.27 | +11% to +6% |
 | Premium franchise | 1.23–1.29 | +9% to +4.5% |
 
 The percentage falls as the dollars rise, which is what makes the top a volume
-business and the bottom a judgement one. Two measured facts about it:
+business and the bottom a judgement one. **This table was stale for the three
+used stages until the trim-grade work re-derived it** — it still quoted the bands
+from `43aa751`, which `d1625bd` ("bring used margins back to earth") had already
+raised, so it claimed a +54% best case against a build delivering +41%. Numbers
+in prose rot exactly like dead constants do. Two measured facts about it:
 
 - **Widening the early band costs nothing in pace.** Going from 0.8–1.2 to
   0.62–1.42 left the stage-2 milestone flat (2h36m → 2h29m). A selective buyer
@@ -418,7 +482,14 @@ running. The working-capital floor is now `max(player floor, weeks of expenses,
 price of N cars at this store)` — denominated in the unit that actually matters.
 `reopeningFloat` is sized the same way.
 
-**The premium franchise still kills the economy, and it is the top open bug.**
+**The premium franchise still kills the economy, and it is the top open bug —
+but there is now a measured lever on it.** Setting the three franchise stages'
+`raritySellerCapture` to 0 (one slider in Office → Admin) takes the 350h end
+state from cash $0 / book 0/8 to **$62.3M cash and a full 43/43 book**. It is not
+shipped that way because rarity should not be a stealth economy patch, and
+because the honest fix is probably still the upgrade multiplier — but it is the
+cheapest known thing that makes the top of the ladder trade at all.
+
 The ladder is completable — 8/8 seeds buy the premium store at ~321h — but the
 business then flatlines and never trades again. The tell is the one this file
 already names: lifetime profit is identical to the dollar at 350h and 420h,
@@ -470,21 +541,33 @@ business is dead, not taxed.
 ## Verify
 
 ```bash
-npm test        # 286 tests
+npm test        # 313 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
-npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2min
+npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~4min
+
+# A/B a change against an IDENTICAL RNG stream by zeroing the new feature's own
+# constant, rather than against the previous build — which measures the reshuffle
+# from any added draw as much as the change itself.
+npm run sim -- --seeds=64 --set=balance.rarity.valueStep=0
 ```
 
-The ladder, median at `--seeds=16 --hours=32`, reached by 16/16:
+The ladder, **re-measured with trim grades at `--seeds=8 --hours=350`**, reached
+by 8/8. The `no trim` column is the same build with `valueStep=0`, so the two
+columns share an RNG stream and the difference is the feature and nothing else:
 
-| | |
-|---|---|
-| Small used dealership | ~2h29m |
-| Large used dealership | ~7h34m |
-| Low-cost franchise | ~18h32m |
-| Midsize franchise | ~55h08m |
-| Premium franchise | ~320h59m |
+| | no trim | shipped |
+|---|---|---|
+| Small used dealership | 2h46m | ~2h31m |
+| Large used dealership | 8h04m | ~7h04m |
+| Low-cost franchise | 18h44m | ~16h37m |
+| Midsize franchise | 55h00m | ~50h34m |
+| Premium franchise | 318h24m | ~271h06m |
+
+The used stages move ~10% because they keep the whole trim premium; the top two
+move less because the franchises price most of it into the invoice. The `no trim`
+column also reproduces the pre-rarity numbers below to within noise, which is how
+you can tell the harness and the ladder are still measuring the same thing.
 
 The first three rungs came in by 45%, 18% and 6% when `typicalCarPrice` was
 fixed — see the regression note below. That decay up the ladder is the shape to
@@ -504,19 +587,19 @@ compare against for everything below the franchise:
 
 | | |
 |---|---|
-| stage 2 reached | ~2h32m (64/64) |
-| first note written | ~2h34m |
-| first repossession | ~3h06m |
+| stage 2 reached | ~2h22m (64/64) |
+| first note written | ~2h24m |
+| first repossession | ~2h56m |
 | take-it-back odds on the deal sheet | ~30% |
 | walk-away rate | ~61% |
 | bad-buy rate | ~28% |
 | appraisal error | ~7.7% |
 | Buying / Closing / Wrenching to level 5 | 50m / 43m / 46m |
 | $100k cash | ~2h30m |
-| end cash at 4h | ~$32k |
-| end portfolio at 4h | ~$174k |
-| lifetime profit at 4h | ~$468k |
-| cars sold at 4h | ~262 |
+| end cash at 4h | ~$31k |
+| end portfolio at 4h | ~$196k |
+| lifetime profit at 4h | ~$543k |
+| cars sold at 4h | ~275 |
 
 **These were re-measured, and the numbers they replaced were badly stale.** The
 old table dated from before running costs, the ladder stretch and the margin

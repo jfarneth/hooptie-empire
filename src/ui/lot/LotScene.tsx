@@ -19,7 +19,7 @@ import { LadderPylon } from './LadderPylon';
 import { LotGround } from './LotGround';
 import { fitCameraToWidth, type Camera } from './camera';
 import { environmentFor } from './environment';
-import { RARITIES } from '../../sim/rarity';
+import { RARITIES, rarityRank } from '../../sim/rarity';
 import { assignSlots, lotLayout, variantOf, type LotLayout, type LotSlot } from './layout';
 import type { SurroundBounds } from './surroundings';
 
@@ -464,7 +464,12 @@ function CarMarkers({
         </View>
       ) : null}
 
-      {RARITIES[car.rarity].badge ? (
+      {rarityRank(car.rarity) >= rarityRank('epic') ? (
+        // Epic and above only. Sport is one car in eleven, and five extra
+        // labels on a lot that already carries fifty-four price tags is clutter
+        // bought for the least notable grade — the spoiler already says it, and
+        // the feed chip and the inventory sheet both spell it out.
+        //
         // Hung off the tail rather than the windscreen, which already carries a
         // price tag or a READY flag. Markers hang off the CAR and never off the
         // stall — a badge placed over the stall lands on the tail of the car in

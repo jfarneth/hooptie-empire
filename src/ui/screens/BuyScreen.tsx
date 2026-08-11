@@ -109,7 +109,10 @@ function ListingRow({
           {' · '}
           {listing.source}
         </Text>
-        <Row gap={6} style={{ marginTop: 4 }}>
+        {/* Wraps, because SPECIAL EDITION next to LOOKS CHEAP leaves the expiry
+            no room and it silently truncated to "gone in …" — the sort of thing
+            a green test suite has nothing to say about. */}
+        <Row gap={6} style={{ marginTop: 4, flexWrap: 'wrap' }}>
           {/* The trim badge comes first: it is the only thing here that is a
               plain fact about the car rather than an estimate, and on the one
               listing in ten that has one it is the reason to look. */}

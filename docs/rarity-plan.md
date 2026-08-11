@@ -1,7 +1,22 @@
 # Vehicle rarity — design and implementation plan
 
-**Status: proposal. Nothing here is implemented.**
-Visual spec: `docs/mockups/rarity.html` (open it in a browser).
+**Status: SHIPPED.** This document is kept as the design record; where the build
+and the plan disagree, a note says which way it went and why. Visual spec:
+`docs/mockups/rarity.html`.
+
+Four things turned out differently once measured, and all four are worth reading
+before touching this area:
+
+1. **The franchise stages needed `raritySellerCapture` after all.** The plan left
+   it as an escape hatch; the 350h run made it a shipped field. See below.
+2. **The two renderers do not frame a car the same way.** The plan assumed one
+   shared footprint would do because the artboards agree on aspect to 0.06%.
+   They disagree on everything else by up to 16%.
+3. **A lift cannot be drawn.** An overlay can only add, so trucks got fender
+   flares and a light bar instead — which read from overhead, where a lift does
+   not.
+4. **The base feed deals 78 cars an hour, not 164.** It is slot-capped, and that
+   is what killed the listing-shelf-life idea.
 
 Four trim grades on every car the game deals — common, rare, epic, legendary —
 at 90 / 9 / 0.9 / 0.1 percent. Each step is worth 10% more at retail than the
@@ -66,7 +81,7 @@ them live:
 | grade | probability | value multiplier | what you see |
 |---|---|---|---|
 | common | 0.900 | 1.00 | stock trim, nothing bolted on |
-| rare | 0.090 | 1.10 | one bolt-on: spoiler / lift + light bar / roof rails |
+| rare | 0.090 | 1.10 | one bolt-on: spoiler / flares + light bar / roof rails |
 | epic | 0.009 | 1.20 | the bolt-on, plus twin racing stripes |
 | legendary | 0.001 | 1.30 | all of it, plus neon underglow |
 
@@ -97,22 +112,61 @@ midsize milestone 49h38m → 76h03m). A +13.6% relative margin lift at the top
 **will** pull the midsize and premium milestones in, and nobody knows by how
 much until it is measured.
 
-**The lever if it comes in too hot** is a per-stage `raritySellerCapture` in
-`STAGES[].sourcing` — the share of the rarity premium the seller prices into the
-ask:
+### What the harness actually said, and why capture shipped
+
+`raritySellerCapture` was planned as an escape hatch and is now a shipped field
+in `STAGES[].sourcing`: the share of the trim premium the seller prices in.
 
 ```ts
-ask = wholesaleValue(car) * (1 - capture * (1 - 1 / rarityMult)) * askRatio * edge
+ask = wholesaleValue(baseTrim(car)) * rarityAskMult(rarity, capture) * askRatio * edge
 ```
 
-At `capture: 0` the seller gives the trim away, which is honest for the used
-stages — nobody at a Tuesday dealer auction pays extra for a spoiler. At
-`capture: 1` rarity is worth exactly nothing and the trim is pure flavour. A
-manufacturer, by contrast, genuinely does charge for a trim package, so a
-non-zero franchise capture is the *realistic* setting as well as the corrective
-one. **Ship at 0 everywhere, measure, and raise the three franchise entries if
-the harness says the top came in too fast** — do not reach for the ask band,
-which is the sharpest knob in the game and would move common cars too.
+Every run below is a clean A/B on an IDENTICAL RNG stream, using the new
+`--set=balance.rarity.valueStep=0` harness flag. That matters: rarity adds a draw
+per car, so comparing against the previous build would have measured the
+reshuffle as much as the feature. The baseline reproduces the shipped game to
+within noise (stage 2 at 2h36m against the documented ~2h32m).
+
+**64 seeds, 4h** — the used stages, where capture is 0:
+
+| | baseline | rarity | |
+|---|---|---|---|
+| stage 2 reached | 2h36m | **2h22m** | −9% |
+| lifetime profit | $438k | **$543k** | +24% |
+| portfolio | $164k | $196k | +19% |
+| cars sold | 253 | 275 | +9% |
+| bad-buy rate | 28.2% | 27.9% | flat |
+| walk-away rate | 61.5% | 60.1% | flat |
+
+**8 seeds, 350h** — the whole ladder, and the reason capture is not zero:
+
+| | baseline | capture 0 | **shipped (0.7)** |
+|---|---|---|---|
+| Large used | 8h04m | 7h04m | 7h04m |
+| Low-cost franchise | 18h44m | 16h37m | 16h37m |
+| Midsize franchise | 55h00m | 47h46m | **50h34m** |
+| Premium franchise | 318h24m | **218h11m** | **271h06m** |
+| lifetime profit | $50.6M | $103.5M | $58.6M |
+
+At capture 0 the top rung came in **31% early and lifetime profit doubled**,
+which is a different game rather than a feature. At 0.7 the top sits 15% inside
+baseline — and CLAUDE.md's own rule is that the harness cannot separate two
+configs within ~15%, so that is as close to "unchanged" as this tool can report.
+The used stages keep the full premium, because an auction genuinely does not
+charge for a spoiler and because the early ladder moving 9% faster is a *welcome*
+answer to the standing "stage 1 may now be too slow" question.
+
+**⚠ THE ONE FINDING THAT IS NOT A PACING NUMBER.** At capture 0 the premium
+franchise stops flatlining. Baseline at 350h: cash $0, portfolio $0, book 0/8,
+collections desk 0 — CLAUDE.md's top open bug, reproduced exactly. With the
+franchise premium free: **$62.3M cash, $2.0M portfolio, a full 43/43 book.** The
+margin is enough to rebuild the office and keep trading.
+
+That is not shipped, and deliberately so: rarity should not be a stealth economy
+patch, and CLAUDE.md's own reading is that the honest fix is the upgrade
+multiplier at the top rather than more margin. But it is one slider in
+Office → Admin (`Valmont — trim priced in`), and it is now the cheapest known
+lever on that bug. Somebody should decide that on purpose.
 
 ### How often this actually happens
 
