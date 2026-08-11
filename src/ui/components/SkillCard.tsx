@@ -74,7 +74,10 @@ export function SkillCard({ def, state }: { def: SkillDef; state: GameState }) {
         <Row gap={8}>
           <Text style={styles.name}>{def.name}</Text>
           <Chip
-            text={maxed ? 'MAX' : `LVL ${level}`}
+            // The cap is on the chip because the ladder is fifty long now. "LVL
+            // 27" alone reads as nearly nothing or nearly everything depending
+            // on what the player assumes the top is.
+            text={maxed ? 'MAX' : `LVL ${level}/${BALANCE.skills.maxLevel}`}
             color={maxed ? theme.colors.money : theme.colors.accent}
           />
         </Row>

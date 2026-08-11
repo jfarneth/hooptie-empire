@@ -19,6 +19,11 @@ player set three house rules the business then runs under offline: a working
 capital floor, the repo trigger, and the retainer buyer's minimum margin.
 `src/sim/business.ts` resolves them.
 
+**Promotions** are temporary boosts the business runs under, and there is
+currently one: every new business opens on a **grand opening** that doubles
+walk-up traffic for its first twenty minutes. `src/sim/promotions.ts` is the
+table and the plumbing; the tray above the tab bar is the readout.
+
 An **admin console** (Office → Admin, visible to everyone) edits the tuning
 constants live. `src/sim/tuning.ts` is the registry; adding a knob is one entry
 in `TUNABLES` and nothing else. It is the one place the sim writes a global —
@@ -122,6 +127,39 @@ Consequences to respect:
   Note that the fingerprint only bites for fields the *tick* writes — `business`
   is set by actions only, so its real guard is the clone-isolation test in
   `business.test.ts`. Anything else in that shape needs the same treatment.
+  `promotions` is in the fingerprint because the tick expires them.
+
+## Promotions
+
+**A promotion is a clock on the save, and the only one so far starts itself.**
+`createInitialState` opens every business — including the one you start after
+retiring — on a twenty-minute grand opening that doubles walk-up traffic.
+Measured at 64 seeds over the first 30 minutes it is worth **+83% end cash and
++58% lifetime profit** ($2.9k → $5.4k, $5.9k → $9.3k); by hour four it has
+washed out entirely and end cash is flat to within 0.2%. That shape is the
+point — a boost, not an economy change.
+
+Three rules the module is built on, all easy to break:
+
+- **`endsAt` is stamped when a promotion starts, never derived from a duration
+  on read.** Same reason as `nextBillAt`: the clock has to survive the app being
+  closed, and a length recomputed from the live constants would silently
+  lengthen or shorten a promotion when the admin console moved the knob under a
+  run already in progress. The tunable therefore only applies to promotions that
+  start *after* the change, and its help text says so.
+- **A promotion multiplies the arrival rate and nothing else.** `prospectRate`
+  is already zero above `maxViablePriceRatio`, so twice nothing is nothing —
+  running a promotion is not a way to sell an overpriced car, and there is a
+  test named for it.
+- **The stop is the clock filter in `livePromotions`, not the sweep in
+  `stepPromotions`.** The sweep is bookkeeping and a ledger line; moving it to
+  the end of `step` changes no behaviour, which was confirmed by mutating it.
+  Both are wanted: the UI and the harness read the accessor between ticks and
+  neither runs the sweep.
+
+Starting one that is already running **extends** it rather than stacking a
+second copy — two grand openings would double traffic twice, which is not what
+"run it again" means to anybody.
 
 ## The lot is a scene, and cars are drawn through one seam
 
@@ -240,6 +278,17 @@ must keep doing:
 - **Markers hang off the car, not off the stall.** A badge positioned above the
   stall lands on the tail of the car in the row in front, which put price tags on
   the wrong cars until it was caught in a screenshot.
+
+**A car with a buyer standing at it opens the DEAL, not the car.** Tapping a
+parked car normally opens the inventory sheet; while a prospect is beside it,
+the same tap opens the deal sheet instead. Two reasons, and both matter: the
+shopper figure is a ~30px target next to a car that fills its stall, so the
+obvious thing to tap was the wrong thing; and the inventory sheet exists to
+reprice and unlist, neither of which you can honestly do with a customer looking
+over the bonnet. Declining the buyer hands the car straight back. `LotScene`
+builds one `carId → prospect` map and both the pressable and its marker read it
+— reaching for `prospects.find` per car was sixty scans a render at a premium
+franchise.
 
 **The lot is a hard limit, and a repossession is the path that used to break
 it.** Every buying path is gated on capacity, but a repo adds a car without
@@ -421,7 +470,7 @@ business is dead, not taxed.
 ## Verify
 
 ```bash
-npm test        # 270 tests
+npm test        # 282 tests
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~2s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2min
@@ -447,16 +496,28 @@ compare against for everything below the franchise:
 
 | | |
 |---|---|
-| stage 2 reached | ~1h11m |
-| first repossession | ~1h58m |
+| stage 2 reached | ~3h52m (8/64 inside 4h) |
 | take-it-back odds on the deal sheet | ~30% |
-| harness `default rate` | ~24% (see below — not the same number) |
-| walk-away rate | ~55% |
+| walk-away rate | ~64% |
 | bad-buy rate | ~25% |
-| Buying / Closing / Wrenching to level 5 | 1h34m / 1h16m / 2h16m |
-| large used reached | ~3h37m |
-| end cash at 4h | ~$20k |
-| end portfolio at 4h | ~$245k |
+| appraisal error | ~9.6% |
+| Buying / Closing / Wrenching to level 5 | 52m / 43m / 40m |
+| $100k cash | ~3h09m |
+| end cash at 4h | ~$125k |
+| lifetime profit at 4h | ~$133k |
+| cars sold at 4h | ~74 |
+
+**These were re-measured, and the numbers they replaced were badly stale.** The
+old table dated from before running costs, the ladder stretch and the margin
+reshaping landed, and it claimed stage 2 at ~1h11m and end cash at ~$20k against
+a build that actually reached stage 2 at ~3h54m with ~$125k. It is worth knowing
+that happened, because the file's own advice — always state the seed count,
+never compare across builds — is exactly what stops it happening again. A 4h run
+now barely reaches the small lot at all, so **the default `npm run sim` says
+nothing about anything above stage 1**; use the 32h and 350h invocations for the
+rest of the ladder. The first repossession, the first note paid off and the
+portfolio numbers no longer land inside 4h and have been dropped rather than
+quoted from a run that does not reach them.
 
 **Always state the seed count.** Seed count moves these numbers further than most
 features do, and comparing a 6-seed run against a 64-seed target is the single
@@ -495,6 +556,28 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   and shifting position up by 0.06 took end cash from $1.52M to $282k; another
   0.06 took it to $28k. Results track the bot's buyable pass rate almost
   exactly. Do not widen or move it without a 64-seed run.
+- **The skill cap and the XP curve are ONE setting.** `maxLevel` is 50 and
+  `xpGrowth` is 1.12, and they moved together for a reason that is easy to miss:
+  at the old growth of 1.55 the fiftieth level costs on the order of 10^11 XP,
+  so raising the cap alone does not lengthen the ladder — it saws the top forty
+  rungs off and leaves every effect curve stretched across levels nobody can
+  reach. `effect()` still interpolates `at1` → `atMax` over the whole range, so
+  a maxed skill is worth exactly what it always was; what changed is that you
+  arrive there over a career instead of an afternoon. Measured at 64 seeds over
+  4h, the retune left pacing flat (stage 2 3h54m → 3h52m, end cash −0.2%,
+  lifetime profit +0.7% — all inside the noise band) while level 5 arrives about
+  three times sooner (Buying 2h46m → 52m). The visible cost is that a 4h run now
+  finishes in the high twenties rather than maxed, so Buying's σ stays wider for
+  longer: appraisal error 7.8% → 9.6% and bad-buy rate 21.5% → 25.1%, which
+  lands that health metric back on the ~25% this file already calls the target.
+  **A level number is not comparable across a change to either constant** — see
+  the v9 → v10 migration, which re-derives the level from the XP behind it
+  rather than carrying the number across.
+- **A milestone level is set by XP, not by proportion.** `extraCounterAt` is 15
+  of 50, not 30. It was 6 of 10 and cost ~1,445 XP; level 15 costs ~1,940, so
+  Closing's third counter still arrives at roughly the point in a run it always
+  did. Holding the *fraction* would have put it at ~10k XP and quietly deferred
+  the best thing Closing does by hours.
 - **Throughput compounds; judgement doesn't.** Anything that adds cars per hour
   is worth far more than it looks: shortening the listing interval measured +15%
   end cash, one extra feed slot +21%. This is why Buying grants *no* throughput
@@ -570,6 +653,18 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   `acceptFinance` — the single path the sales desk, the harness bot and the
   player's tap all go through. A full book sells the customer the car instead of
   the payment; it never sends them away.
+- **A promotion is a boost, not an economy.** It moves the arrival rate and
+  nothing else, which is what lets it be strong early — +83% cash over the first
+  30 minutes — without a single price, margin or credit number moving with it.
+  The moment one wants to touch pricing or the feed, the honest shape is another
+  accessor beside `promotionTrafficMultiplier`, read at the one call site that
+  cares, rather than a generic modifier bag every system has to consult.
+- **The promotion tray is in the tab bar, not the HUD.** The HUD is the two
+  scores, and a third readout with a clock on it floating over the lot would
+  crowd the surface the game most wants you looking at. It renders nothing when
+  nothing is running, because this is a state the game is briefly in rather than
+  a permanent fixture, and it is deliberately not pressable — there is nothing
+  to open yet, and a control that no-ops teaches players to stop tapping.
 - **House rules are limits, not dials.** The business suite deliberately offers
   discrete choices rather than sliders: these are settings a player picks once
   and then reasons about after eight hours away, and a limit survives that
@@ -648,8 +743,19 @@ Most have a guarding test; check before "simplifying" the code around them.
 - **A test that asserts `sum >= count` cannot fail.** The first automation test
   written for skills passed on a run that accrued zero XP. Mutation-test any
   test guarding a regression: break the code, watch it go red, put it back.
+- **A level number is save data whose MEANING lives in `balance.ts`.** The v9 →
+  v10 migration is the worked example: the cap went 10 → 50 and the XP curve
+  came down with it, so carrying a level across verbatim would have taken a
+  maxed player from every effect at full strength to a third of it, in one
+  reload, with nothing lost that could be pointed at. The migration adds up what
+  each level cost at the OLD prices and re-spends it at the NEW ones, which puts
+  a maxed v9 skill at 27 of 50 with every minute of play intact. Both curves are
+  written out longhand there and that is not duplication to be tidied away — a
+  migration has to keep meaning what it meant the day it shipped, and reading
+  the live constants would silently re-grade every old save after the next
+  balance pass.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v9**. Saves are long-lived and local to the device; "we wiped
+  Currently **v10**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4
@@ -752,9 +858,14 @@ need a branch preview, build it somewhere that is not the live site.
   tutorial is a lot to ask before the game changes shape. If that needs
   shortening, `lotPurchaseCost` is the honest lever — it targets stage 1 without
   undoing the negotiation change. Needs a human playing it.
-- **Every skill now levels ~50% slower** (Buying 5 at 1h21m, was 53m) for the
-  same reason: fewer closed deals means less XP. Nothing about the skills
-  changed. Check this against feel before touching `xpBase`.
+- **Fifty levels is a shape nobody has felt yet.** The retune keeps a maxed
+  skill worth exactly what it was and hands out level-ups roughly three times as
+  often early, which is the trade it was chosen for — but the harness can only
+  say that pacing did not move. What it cannot say is whether a 4h run finishing
+  in the high twenties reads as "still climbing" or as "will never get there",
+  and whether the shallower per-level step still feels like a reward. Needs a
+  human playing it. `maxLevel` and `xpGrowth` are both in Office → Admin, which
+  is the fastest way to try a different length.
 - **The three house rules are unmeasured by design.** The harness bot runs them
   all at their defaults, which is what makes the cap's measurement clean — but it
   means nothing here bounds what a player gets from setting them. The repo

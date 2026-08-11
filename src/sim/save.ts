@@ -165,6 +165,67 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
    * about the run itself changes.
    */
   8: (s) => ({ ...s, prestige: { count: 0, points: 0, history: [] }, loan: null }),
+
+  /**
+   * v9 → v10: promotions, and a skill ladder five times as long.
+   *
+   * TWO CHANGES, ONE MIGRATION, because they shipped together.
+   *
+   * Promotions backfill to nothing. A promotion is something that ran at a
+   * moment, and a save written before the feature existed never had one — the
+   * grand opening belongs to a business opening its doors, and back-dating one
+   * onto a lot that has been trading for six hours would just be free traffic.
+   * `cloneState` maps this key every tick, so it has to exist rather than be
+   * left undefined.
+   *
+   * Skills are the delicate half. The cap went from 10 to 50 and the XP curve
+   * came down to match (60 × 1.12^n, from 100 × 1.55^n), which means a level
+   * number written under the old curve means something quite different under
+   * the new one — a maxed v9 player would reload as 10/50 and watch every
+   * effect they had earned drop to a third of its value. So the level is not
+   * carried across: the XP behind it is. Every level the save had bought is
+   * added back up at the OLD prices and re-spent at the NEW ones, which lands a
+   * maxed v9 skill at level 27 of 50 with the whole of their play preserved and
+   * something left to climb.
+   *
+   * Both curves are written out longhand here, and that is not duplication to
+   * be tidied away: a migration has to keep meaning what it meant on the day it
+   * shipped, and `BALANCE` is free to move underneath it. Reading the live
+   * constants would silently re-grade every old save differently after the next
+   * balance pass.
+   */
+  9: (s) => {
+    const OLD = { xpBase: 100, xpGrowth: 1.55, maxLevel: 10 };
+    const NEW = { xpBase: 60, xpGrowth: 1.12, maxLevel: 50 };
+    const costOf = (c: typeof OLD, lvl: number) =>
+      Math.round(c.xpBase * Math.pow(c.xpGrowth, lvl - 1));
+
+    const regrade = (skill: any) => {
+      const from = Math.max(1, Math.min(OLD.maxLevel, Math.round(Number(skill?.level) || 1)));
+      // Everything they ever earned in this skill: what each level below them
+      // cost, plus whatever is banked toward the next one.
+      let earned = Math.max(0, Number(skill?.xp) || 0);
+      for (let lvl = 1; lvl < from; lvl++) earned += costOf(OLD, lvl);
+
+      let level = 1;
+      while (level < NEW.maxLevel && earned >= costOf(NEW, level)) {
+        earned -= costOf(NEW, level);
+        level += 1;
+      }
+      // Nothing banks against a level that will never arrive, same as grantXp.
+      return { level, xp: level >= NEW.maxLevel ? 0 : Math.round(earned) };
+    };
+
+    return {
+      ...s,
+      promotions: [],
+      skills: {
+        buy: regrade(s.skills?.buy),
+        sell: regrade(s.skills?.sell),
+        repair: regrade(s.skills?.repair),
+      },
+    };
+  },
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

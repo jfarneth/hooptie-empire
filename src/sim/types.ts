@@ -193,6 +193,29 @@ export interface Skill {
 }
 
 /**
+ * Promotions: temporary boosts the business is running under.
+ *
+ * A `Record`-free union rather than a free string so an unknown id cannot get
+ * onto a save and then fail to resolve against the table. See promotions.ts.
+ */
+export type PromotionId = 'grandOpening';
+
+/**
+ * One promotion, running.
+ *
+ * `endsAt` is stamped when it starts rather than derived from a duration on
+ * every read, for the same reason `nextBillAt` is: the clock has to survive the
+ * app being closed, and a promotion whose length is recomputed from the current
+ * constants would silently lengthen or shorten itself when the admin console
+ * moved the knob under a run already in progress.
+ */
+export interface ActivePromotion {
+  id: PromotionId;
+  startedAt: Millis;
+  endsAt: Millis;
+}
+
+/**
  * Standing instruction for the sales desk once it is staffed.
  * 'auto' compares the cash offer against the expected value of the paper,
  * which is the same calculation the deal sheet shows the player.
@@ -258,6 +281,7 @@ export interface SimEvent {
     | 'stage-up'
     | 'stage-down'
     | 'skill-up'
+    | 'promotion'
     | 'appraisal'
     | 'expense'
     | 'loan'
@@ -341,6 +365,8 @@ export interface GameState {
   dealPolicy: DealPolicy;
   /** House rules the whole business runs under. See BusinessPolicy. */
   business: BusinessPolicy;
+  /** Promotions currently running. Empty most of the time. See promotions.ts. */
+  promotions: ActivePromotion[];
   /** What carries across retirements. See PrestigeState. */
   prestige: PrestigeState;
   /** Outstanding shark loan, or null. One at a time, enforced in takeLoan. */

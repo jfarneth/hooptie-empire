@@ -30,6 +30,12 @@ import type { SurroundBounds } from './surroundings';
  * next to the car they want, and an empty stall is empty tarmac rather than a
  * missing list item.
  *
+ * A CAR WITH A BUYER AT IT IS A DEAL, NOT A CAR. Tapping it opens the deal
+ * sheet rather than the inventory sheet — the buyer figure is a small target
+ * beside a large one, and the inventory sheet exists to reprice and unlist,
+ * which are not things you do with somebody standing at the bonnet. Declining
+ * the buyer hands the car back.
+ *
  * Rendered as layers rather than one big SVG:
  *  - the ground plate and everything standing on it, one memoised `Svg`,
  *    redrawn only when the lot changes shape;
@@ -132,6 +138,17 @@ export function LotScene({ state, capacity, onSelectCar, onSelectProspect, onPre
     return held.map((car, i) => ({ car, slot: layout.slots[slots[i]] })).filter((p) => p.slot);
   }, [held, layout]);
 
+  /**
+   * Who is standing at which car. Built once rather than searched per car — at
+   * a premium franchise that was sixty scans of the prospect list per render,
+   * and both the car and its marker need the answer.
+   */
+  const shoppers = useMemo(() => {
+    const byCar = new Map<string, Prospect>();
+    for (const p of state.prospects) if (!byCar.has(p.carId)) byCar.set(p.carId, p);
+    return byCar;
+  }, [state.prospects]);
+
   const occupied = new Set(parked.map((p) => p.slot.index));
   const carWidthPx = layout.carWidth * camera.scale;
   const markerScale = Math.max(0.5, Math.min(1.05, carWidthPx / 70));
@@ -200,7 +217,18 @@ export function LotScene({ state, capacity, onSelectCar, onSelectProspect, onPre
           slot={slot}
           layout={layout}
           camera={camera}
-          onPress={() => onSelectCar(car.id)}
+          prospect={shoppers.get(car.id)}
+          onPress={() => {
+            // THE CAR IS THE DEAL WHILE SOMEBODY IS STANDING AT IT. The buyer
+            // figure is a ~30px target beside a car that fills the stall, and
+            // tapping the obvious thing used to open the inventory sheet — a
+            // screen whose whole purpose is repricing and unlisting, neither of
+            // which you can honestly do with a customer looking over the
+            // bonnet. Declining the buyer hands the car back.
+            const shopper = shoppers.get(car.id);
+            if (shopper) onSelectProspect(shopper.id);
+            else onSelectCar(car.id);
+          }}
         />
       ))}
 
@@ -213,7 +241,7 @@ export function LotScene({ state, capacity, onSelectCar, onSelectProspect, onPre
             layout={layout}
             camera={camera}
             scale={markerScale}
-            prospect={state.prospects.find((p) => p.carId === car.id)}
+            prospect={shoppers.get(car.id)}
             onPressProspect={onSelectProspect}
           />
         ))}
@@ -278,12 +306,14 @@ function ParkedCar({
   slot,
   layout,
   camera,
+  prospect,
   onPress,
 }: {
   car: Car;
   slot: LotSlot;
   layout: LotLayout;
   camera: Camera;
+  prospect?: Prospect;
   onPress: () => void;
 }) {
   // Drive-in: a car eases into its stall when it first appears.
@@ -301,6 +331,14 @@ function ParkedCar({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
+      // Names what the tap will actually open, which is the whole point of the
+      // buyer branch — a label that always said "open the car" would be wrong
+      // exactly when it mattered.
+      accessibilityLabel={
+        prospect
+          ? `Buyer at this car offering ${money(prospect.negotiation.currentOffer)} — open the deal`
+          : 'Open this car'
+      }
       style={({ pressed }) => [
         styles.car,
         {

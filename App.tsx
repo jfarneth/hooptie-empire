@@ -6,6 +6,7 @@ import { activeNotes } from './src/sim/notes';
 import { useGame } from './src/state/store';
 import { AwaySummaryModal } from './src/ui/components/AwaySummaryModal';
 import { Hud } from './src/ui/components/Hud';
+import { PromotionBar } from './src/ui/components/PromotionBar';
 import { Loading } from './src/ui/components/ui';
 import { BuyScreen } from './src/ui/screens/BuyScreen';
 import { LotScreen } from './src/ui/screens/LotScreen';
@@ -97,6 +98,10 @@ export default function App() {
             <Hud state={state} />
           </View>
         </View>
+
+        {/* Above the tabs rather than over the lot: the HUD is the two scores,
+            and a promotion is status. Renders nothing when nothing is running. */}
+        <PromotionBar state={state} />
 
         <View style={styles.tabBar}>
           {TABS.map(({ id, label }) => {

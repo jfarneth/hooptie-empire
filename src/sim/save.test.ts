@@ -243,6 +243,63 @@ describe('migration chain', () => {
     expect(() => advance(migrated, 60_000)).not.toThrow();
   });
 
+  /**
+   * v9 -> v10: the skill ladder went from ten levels to fifty and the XP curve
+   * came down to match, which means a v9 level number does not mean what it
+   * used to. Carrying it across verbatim would take a maxed player from every
+   * effect at full strength to a third of it, in one reload, with no way back —
+   * the loud version of the thing migrations exist to prevent.
+   *
+   * So the XP is carried and the level is re-derived. This is the test that
+   * bites if someone "simplifies" that back to copying the number over.
+   */
+  it('re-grades v9 skills onto the longer ladder instead of keeping the number', () => {
+    const v9: any = JSON.parse(JSON.stringify(createInitialState(91, 0)));
+    v9.version = 9;
+    delete v9.promotions;
+    v9.skills = {
+      buy: { level: 10, xp: 0 }, // maxed under the old cap
+      sell: { level: 4, xp: 60 },
+      repair: { level: 1, xp: 0 }, // never used
+    };
+
+    const migrated = migrate(v9, 9);
+    expect(migrated.version).toBe(SAVE_VERSION);
+
+    // A maxed v9 skill had bought ~9.2k XP. Re-spent at the new prices that is
+    // well up the fifty-level ladder, not level 10 of it.
+    expect(migrated.skills.buy.level).toBeGreaterThan(20);
+    expect(migrated.skills.buy.level).toBeLessThan(BALANCE.skills.maxLevel);
+    // Time invested is ordered the same way it was, and nobody loses ground.
+    expect(migrated.skills.sell.level).toBeGreaterThan(4);
+    expect(migrated.skills.buy.level).toBeGreaterThan(migrated.skills.sell.level);
+    expect(migrated.skills.repair).toEqual({ level: 1, xp: 0 });
+
+    for (const id of SKILL_IDS) {
+      expect(migrated.skills[id].level).toBeGreaterThanOrEqual(1);
+      expect(migrated.skills[id].xp).toBeGreaterThanOrEqual(0);
+      expect(migrated.skills[id].xp).toBeLessThan(BALANCE.skills.xpBase * 1_000_000);
+    }
+    expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+  });
+
+  /**
+   * A promotion is something that ran at a moment. A save written before they
+   * existed never had one, and back-dating a grand opening onto a business that
+   * has been trading for hours would just be free traffic.
+   */
+  it('gives a v9 save no promotions rather than a back-dated one', () => {
+    const v9: any = JSON.parse(JSON.stringify(createInitialState(92, 0)));
+    v9.version = 9;
+    v9.t = 6 * 60 * 60 * 1000;
+    delete v9.promotions;
+
+    const migrated = migrate(v9, 9);
+    expect(migrated.promotions).toEqual([]);
+    // And the tick that reads it every slice does not care.
+    expect(() => advance(migrated, 60_000)).not.toThrow();
+  });
+
   it('preserves counters a v2 save already had', () => {
     const state = createInitialState(3, 0);
     const withStats: any = JSON.parse(JSON.stringify(state));

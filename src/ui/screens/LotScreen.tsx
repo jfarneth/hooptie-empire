@@ -144,7 +144,7 @@ function RecentActivity({ state }: { state: GameState }) {
       ? theme.colors.danger
       : kind === 'payment' || kind === 'sale-cash' || kind === 'sale-finance'
         ? theme.colors.money
-        : kind === 'skill-up' || kind === 'stage-up'
+        : kind === 'skill-up' || kind === 'stage-up' || kind === 'promotion'
           ? theme.colors.accent
           : kind === 'appraisal'
             ? theme.colors.warn

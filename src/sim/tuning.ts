@@ -47,6 +47,7 @@ export const TUNABLE_GROUPS = [
   'Financing',
   'Credit tiers',
   'Capacity',
+  'Promotions',
   'Skills',
   'The ladder',
   'Running costs',
@@ -149,10 +150,20 @@ export const TUNABLES: readonly TunableDef[] = [
   { path: 'balance.capacityPerDrivewayLevel', label: 'Cars per driveway level', group: 'Capacity', kind: 'int', min: 1, max: 10 },
   { path: 'balance.capacityPerLotLevel', label: 'Cars per lot level', group: 'Capacity', kind: 'int', min: 1, max: 40 },
 
+  // --------------------------------------------------------------- promotions
+  { path: 'balance.promotions.grandOpening.trafficMultiplier', label: 'Grand opening — traffic ×', group: 'Promotions', kind: 'ratio', min: 1, max: 10,
+    help: 'Multiplies walk-ups while it runs. It cannot rescue an overpriced car — that traffic is already zero.' },
+  { path: 'balance.promotions.grandOpening.durationMs', label: 'Grand opening — how long', group: 'Promotions', kind: 'ms', min: 60_000, max: 8 * 60 * 60 * 1000,
+    help: 'Only applies to promotions that start after the change; a running one already stamped its end time onto the save.' },
+
   // ------------------------------------------------------------------- skills
-  { path: 'balance.skills.maxLevel', label: 'Skill max level', group: 'Skills', kind: 'int', min: 2, max: 50 },
+  // The cap and the XP curve are one setting. Moving the cap without moving
+  // growth is what makes the top of the ladder unreachable — at 1.55 the
+  // fiftieth level costs ~10^11 XP. See balance.ts.
+  { path: 'balance.skills.maxLevel', label: 'Skill max level', group: 'Skills', kind: 'int', min: 2, max: 200 },
   { path: 'balance.skills.xpBase', label: 'XP for level 2', group: 'Skills', kind: 'int', min: 10, max: 10_000 },
   { path: 'balance.skills.xpGrowth', label: 'XP growth per level', group: 'Skills', kind: 'ratio', min: 1.01, max: 4 },
+  { path: 'balance.skills.sell.extraCounterAt', label: 'Closing level for a third counter', group: 'Skills', kind: 'int', min: 0, max: 200 },
   { path: 'balance.skills.xp.buyPerCar', label: 'Buying XP per car', group: 'Skills', kind: 'number', min: 0, max: 500 },
   { path: 'balance.skills.xp.sellPerDeal', label: 'Closing XP per deal', group: 'Skills', kind: 'number', min: 0, max: 500 },
   { path: 'balance.skills.xp.repairPerPoint', label: 'Wrenching XP per condition point', group: 'Skills', kind: 'number', min: 0, max: 1_000 },

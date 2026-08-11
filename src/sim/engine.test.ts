@@ -47,6 +47,9 @@ function fingerprint(s: GameState) {
     // them, so this is a tripwire rather than an active guard here — the guard
     // that bites is the clone-isolation test in business.test.ts.
     business: s.business,
+    // Promotions ARE written by the tick — it expires them — so a missed clone
+    // or an off-by-one in the expiry sweep shows up right here.
+    promotions: s.promotions.map((p) => `${p.id}:${p.startedAt}:${p.endsAt}`),
     stats: s.stats,
   };
 }
@@ -163,9 +166,19 @@ describe('lot capacity is strict', () => {
     let s = createInitialState(90210, 0);
     s = { ...s, cash: 400_000_000 };
     s = moveToStage(s, 'smallUsed');
-    for (const id of ['autoBuy', 'autoList', 'autoRecon', 'salesDesk', 'scout', 'collections']) {
+    for (const id of ['autoBuy', 'autoList', 'autoRecon', 'salesDesk', 'collections']) {
       if (canBuyUpgrade(s, id)) s = purchaseUpgrade(s, id);
     }
+    // Scout to the top, and that is load-bearing rather than flavour. The
+    // retainer buyer is choosy — most of the feed is over its ceiling — so on a
+    // four-slot feed the lot sits at capacity about 1% of the time, and whether
+    // a repo happens to land in one of those slices comes down to the seed. It
+    // did land, once, which is how this test passed for as long as it did; any
+    // change that shifted the RNG stream by one draw took it red for a reason
+    // that had nothing to do with the lot. A maxed feed keeps the lot pinned at
+    // capacity 10-25% of the time instead, and every seed tried produces the
+    // collision several times over.
+    while (canBuyUpgrade(s, 'scout')) s = purchaseUpgrade(s, 'scout');
     // The desk has to be writing paper, or nothing is ever repossessed and the
     // whole point of this fixture goes untested.
     s = setDealPolicy(s, 'finance');

@@ -138,14 +138,31 @@ describe('Buying', () => {
 
   /**
    * The rounding still has to be right for when it is switched back on. Floored,
-   * a 0→1 curve only reaches 1 at exactly max level — dead for nine of the ten
-   * levels it spans, which is the bug this replaced.
+   * a 0→1 curve only reaches 1 at exactly max level — dead for every level below
+   * the cap, which is the bug this replaced, and worse now the ladder is fifty
+   * long rather than ten.
    */
   it('would step the slot bonus partway up rather than only at the cap', () => {
     const spec = { at1: 0, atMax: 1, ease: 0.7 };
-    expect(Math.round(effect(spec, 4))).toBe(0);
-    expect(Math.round(effect(spec, 5))).toBe(1);
-    expect(Math.floor(effect(spec, 9))).toBe(0); // the old behaviour, for contrast
+    const max: number = BALANCE.skills.maxLevel;
+
+    let step = max;
+    for (let lvl = 1; lvl <= max; lvl++) {
+      if (Math.round(effect(spec, lvl)) === 1) {
+        step = lvl;
+        break;
+      }
+    }
+    // Rounding puts the step where the eased curve crosses a half — comfortably
+    // short of the cap, which is the whole point.
+    expect(step).toBeGreaterThan(1);
+    expect(step).toBeLessThan(max);
+
+    // The old behaviour, for contrast: floored, a 0→1 curve is dead for every
+    // level but the last one. Written against the cap rather than a number, so
+    // it keeps meaning this when the ladder's length changes again.
+    expect(Math.floor(effect(spec, max - 1))).toBe(0);
+    expect(Math.floor(effect(spec, max))).toBe(1);
   });
 
   it('stacks with the scout upgrade rather than replacing it', () => {

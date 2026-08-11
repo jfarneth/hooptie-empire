@@ -322,6 +322,34 @@ export const BALANCE = {
     reopeningCars: 6,
   },
 
+  // ---------------------------------------------------------------- promotions
+  /**
+   * Temporary boosts the business runs under. See `src/sim/promotions.ts` for
+   * the table; these are the dials.
+   *
+   * One promotion so far, and it starts itself: every new business opens with a
+   * grand opening. It exists because the first twenty minutes of a run are the
+   * thinnest part of the game — one car on the lot, one buyer every couple of
+   * minutes — and a doubled arrival rate turns that into something with a pulse
+   * without touching a single number the rest of the economy is balanced on.
+   *
+   * A promotion multiplies the ARRIVAL RATE and nothing else. It does not make
+   * an overpriced car sell: `prospectRate` still returns zero above
+   * `maxViablePriceRatio`, and twice nothing is nothing.
+   *
+   * Changing `durationMs` only affects promotions that start after the change —
+   * a running one already stamped its end time onto the save, the same way
+   * `nextBillAt` is stamped rather than recomputed.
+   */
+  promotions: {
+    grandOpening: {
+      /** Multiplier on walk-up traffic while it runs. */
+      trafficMultiplier: 2,
+      /** How long it runs, in sim ms. ~8.5 game weeks. */
+      durationMs: 20 * 60 * 1000,
+    },
+  },
+
   // ---------------------------------------------------------------- retirement
   /**
    * Selling the whole operation and starting over. `src/sim/prestige.ts` does
@@ -411,10 +439,35 @@ export const BALANCE = {
    * are not committed here until the harness has argued with them.
    */
   skills: {
-    maxLevel: 10,
-    /** XP to go from level 1 to 2; each level costs `xpGrowth` times the last. */
-    xpBase: 100,
-    xpGrowth: 1.55,
+    /**
+     * Fifty levels, not ten.
+     *
+     * THE CAP AND THE XP CURVE ARE ONE SETTING AND MUST MOVE TOGETHER. At the
+     * old growth of 1.55 the fiftieth level costs on the order of 10^11 XP —
+     * raising the cap alone would not lengthen the ladder, it would saw the top
+     * forty rungs off it and leave every effect curve stretched over levels
+     * nobody can reach. So the growth came down with it.
+     *
+     * What the retune preserves is the total: `effect()` still interpolates
+     * `at1` → `atMax` across the whole range, so a maxed skill is worth exactly
+     * what it was worth before. What changes is the shape of getting there —
+     * many small levels instead of ten large ones, spread across a career
+     * rather than an afternoon. A 4h run used to finish maxed; it now lands
+     * somewhere in the high twenties, which is the runway this exists to buy.
+     */
+    maxLevel: 50,
+    /**
+     * XP to go from level 1 to 2; each level costs `xpGrowth` times the last.
+     *
+     * 60 × 1.12^(n-1). Cumulative: ~290 to level 5, ~890 to level 10, ~12.9k to
+     * level 30, ~128k to level 50. Against the old curve (100 × 1.55^(n-1),
+     * ~9.2k to level 10) the first ten levels are an order of magnitude cheaper
+     * and the last twenty are where the time goes — which is the point. The
+     * early game should be handing out level-ups, and the cap should be a thing
+     * you approach over the whole ladder.
+     */
+    xpBase: 60,
+    xpGrowth: 1.12,
 
     /**
      * XP awards. Money-driven grants scale with a square root so one expensive
@@ -480,8 +533,16 @@ export const BALANCE = {
       walkChanceMult: { at1: 1, atMax: 0.6, ease: 0.7 },
       roomMean: { at1: 0.46, atMax: 0.52, ease: 0.7 },
       deskCounterFrac: { at1: 0.55, atMax: 0.72, ease: 0.7 },
-      /** Level at which the player gets a third counter. 0 disables it. */
-      extraCounterAt: 6,
+      /**
+       * Level at which the player gets a third counter. 0 disables it.
+       *
+       * Set by XP rather than by proportion, which is why it is 15 of 50 and
+       * not 30. It was 6 of 10, which cost ~1,445 XP; level 15 on the new curve
+       * costs ~1,940, so the perk still arrives at roughly the point in a run
+       * it always did. Holding the *fraction* instead would have pushed it to
+       * ~10k XP and quietly deferred the best thing Closing does by hours.
+       */
+      extraCounterAt: 15,
     },
     /**
      * Wrenching. Caps deliberately well short of what the shop could bear.

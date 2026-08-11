@@ -25,6 +25,13 @@ import {
   overCapacityFactor,
 } from './notes';
 import { prestigeEdge } from './prestige';
+import {
+  expirePromotions,
+  getPromotion,
+  promotionDuration,
+  promotionTrafficMultiplier,
+  startPromotion,
+} from './promotions';
 import { chance, createRng, normalish, pick, range } from './rng';
 import {
   blankSkills,
@@ -53,10 +60,15 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
+
+  // Every business opens with a grand opening, including the one you start
+  // after retiring. It costs no RNG draws, so a run's stream is identical with
+  // or without it and every seeded comparison still lines up.
+  openTheDoors(state);
 
   // Seed the feed so a brand new player has something to look at immediately.
   // Waiting out the first listing interval on a cold open is the worst possible
@@ -69,6 +81,25 @@ export function createInitialState(seed: number, wallNow: number): GameState {
   for (let i = 1; i < BALANCE.initialListings; i++) spawnListing(state);
 
   return state;
+}
+
+/**
+ * The opening promotion, and the ledger line that tells the player it is on.
+ *
+ * The first twenty minutes are the thinnest part of the game — one car, one
+ * buyer every couple of minutes — and this is the cheapest honest way to give
+ * them a pulse: it moves the arrival rate and nothing else, so no price, margin
+ * or credit number the rest of the economy is balanced on has to move with it.
+ */
+function openTheDoors(s: GameState): void {
+  const active = startPromotion(s, 'grandOpening');
+  const def = getPromotion(active.id);
+  if (!def) return;
+  logEvent(s, {
+    t: s.t,
+    kind: 'promotion',
+    label: `${def.name} — ${def.effect.toLowerCase()} for ${Math.round(promotionDuration(active.id) / 60_000)} minutes.`,
+  });
 }
 
 /** The guaranteed opening deal. Affordable, and obviously worth doing. */
@@ -106,6 +137,7 @@ function blankState(seed: number, wallNow: number): GameState {
     skills: blankSkills(),
     dealPolicy: 'manual',
     business: businessDefaults(),
+    promotions: [],
     tuning: {},
     stats: {
       carsSold: 0,
@@ -161,12 +193,35 @@ export function advance(state: GameState, dtMs: number): GameState {
 /** One fixed 1s slice. Mutates. */
 function step(s: GameState): void {
   s.t += TICK_MS;
+  stepPromotions(s);
   stepRecon(s);
   stepListings(s);
   stepProspects(s);
   stepNotes(s);
   stepBills(s);
   stepAutomation(s);
+}
+
+// ----------------------------------------------------------------- promotions
+
+/**
+ * Retire anything that has run out.
+ *
+ * This is bookkeeping and a ledger line, NOT what makes the boost stop. The
+ * clock filter is inside `livePromotions`, so the traffic multiplier is already
+ * back to 1 on the tick a promotion is due whether this has swept it yet or
+ * not — which is deliberate, because the UI and the harness both read that
+ * accessor between ticks and neither of them runs the sweep. Moving this call
+ * to the end of `step` changes nothing; the belt and the braces are both real.
+ *
+ * Consumes no RNG, which is what lets promotions be added to an existing save
+ * without shifting a single draw in the stream.
+ */
+function stepPromotions(s: GameState): void {
+  if (s.promotions.length === 0) return;
+  for (const def of expirePromotions(s)) {
+    logEvent(s, { t: s.t, kind: 'promotion', label: `${def.name} is over.` });
+  }
 }
 
 // ------------------------------------------------------------------- expenses
@@ -372,6 +427,11 @@ function stepProspects(s: GameState): void {
   const advertising = level(s, 'advertising');
   const underwriting = level(s, 'underwriting');
   const haggle = haggleSkillFor(s);
+  // Applied to the rate rather than inside `prospectRate`, which stays a pure
+  // function of price and advertising. A promotion cannot rescue an overpriced
+  // car either way: the rate is already zero above `maxViablePriceRatio`, and
+  // twice nothing is nothing.
+  const promotion = promotionTrafficMultiplier(s);
 
   for (const car of s.cars) {
     if (car.status !== 'listed') continue;
@@ -382,7 +442,7 @@ function stepProspects(s: GameState): void {
     // in. Judging the ask against the finance window instead made a car priced
     // at what it is worth look like a 30% discount to the traffic model.
     const reference = retailValue(car);
-    const rate = prospectRate(car.askPrice, reference, advertising);
+    const rate = prospectRate(car.askPrice, reference, advertising) * promotion;
     if (!chance(s.rng, arrivalChance(rate, TICK_MS))) continue;
 
     s.prospects.push(generateProspect(s, s.rng, car, underwriting, haggle, s.t));
@@ -802,6 +862,10 @@ export function cloneState(s: GameState): GameState {
     // Nested and mutable: a shared policy object would let a rule change made
     // now rewrite the rules a historical state was running under.
     business: { ...s.business },
+    // The tick expires these and `startPromotion` extends one in place, so a
+    // shared array or a shared entry would leak backwards through history. The
+    // `??` covers a fixture written before promotions existed.
+    promotions: (s.promotions ?? []).map((p) => ({ ...p })),
     // The history is an array of records and the loan is written by the tick,
     // so both need real copies or mutations leak backwards through history.
     prestige: { ...s.prestige, history: s.prestige.history.map((r) => ({ ...r })) },
