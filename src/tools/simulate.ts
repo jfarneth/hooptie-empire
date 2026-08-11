@@ -31,7 +31,9 @@ import { acquisitionCeiling, advance, createInitialState, expectedCollections, w
 import { activeNotes, canWriteNote, overCapacityFactor } from '../sim/notes';
 import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level, upgradeCost } from '../sim/upgrades';
 import { STAGES, getStage, nextStage, stageRank, typicalCarPrice } from '../sim/stages';
-import type { GameState } from '../sim/types';
+import { RARITIES, RARITY_ORDER } from '../sim/rarity';
+import { applyTuning, getTunable } from '../sim/tuning';
+import type { GameState, Rarity } from '../sim/types';
 
 const STEP_MS = 5_000;
 
@@ -59,6 +61,25 @@ interface AppraisalTally {
   absError: number;
   /** Buys that were above the car's real wholesale value. */
   overpaid: number;
+  /**
+   * Every car the bot bought, split by trim grade: how many, and the gross
+   * margin it stood to make on each.
+   *
+   * Recorded at the moment of purchase, because that is the only point where
+   * both halves of a rarity deal exist at once — the ask, which was priced in
+   * stock trim, and the retail the graded car will actually fetch. Once the
+   * listing is gone the ask is gone with it.
+   */
+  byRarity: Record<Rarity, { bought: number; margin: number }>;
+}
+
+function blankRarityTally(): AppraisalTally['byRarity'] {
+  return {
+    common: { bought: 0, margin: 0 },
+    rare: { bought: 0, margin: 0 },
+    epic: { bought: 0, margin: 0 },
+    legendary: { bought: 0, margin: 0 },
+  };
 }
 
 function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
@@ -141,6 +162,12 @@ function botTurn(state: GameState, appraisal: AppraisalTally): GameState {
         appraisal.absError += Math.abs(estimatedRetail(l, sigma) - retailValue(l.car)) / Math.max(1, retailValue(l.car));
         if (l.price > wholesaleValue(l.car)) appraisal.overpaid += 1;
       }
+      // Both halves of the rarity deal, while they still exist together.
+      const grade = appraisal.byRarity[l.car.rarity];
+      if (grade) {
+        grade.bought += 1;
+        grade.margin += (retailValue(l.car) - l.price) / Math.max(1, retailValue(l.car));
+      }
       s = buyListing(s, l.id);
     }
   }
@@ -203,7 +230,12 @@ interface Milestones {
 
 function runOne(seed: number, hours: number, verbose: boolean) {
   let s = createInitialState(seed, 0);
-  const appraisal: AppraisalTally = { judged: 0, absError: 0, overpaid: 0 };
+  const appraisal: AppraisalTally = {
+    judged: 0,
+    absError: 0,
+    overpaid: 0,
+    byRarity: blankRarityTally(),
+  };
   const milestones: Milestones = {};
   const totalMs = hours * 60 * 60 * 1000;
   let lastReport = 0;
@@ -279,7 +311,32 @@ function main() {
   const seeds = getArg('seeds', 6);
   const verbose = args.includes('--verbose');
 
+  /**
+   * `--set=balance.rarity.valueStep=0` — the same knobs the admin console turns.
+   *
+   * This exists so a change can be A/B'd against an IDENTICAL RNG stream. Adding
+   * a draw per car reshuffles every seed, so comparing a new build against an
+   * old one measures the reshuffle as much as the change; setting the new
+   * feature's own constant to zero leaves the stream alone and isolates what the
+   * feature is actually worth. Overrides are applied before any state is built,
+   * exactly as `reconcileTuning` does on load.
+   */
+  const overrides: Record<string, number> = {};
+  for (const arg of args) {
+    if (!arg.startsWith('--set=')) continue;
+    const body = arg.slice('--set='.length);
+    const at = body.lastIndexOf('=');
+    if (at < 0) throw new Error(`--set needs path=value, got "${body}"`);
+    const path = body.slice(0, at);
+    if (!getTunable(path)) throw new Error(`--set: "${path}" is not a tunable`);
+    overrides[path] = Number(body.slice(at + 1));
+  }
+  if (Object.keys(overrides).length > 0) applyTuning(overrides);
+
   console.log(`\nBalance run — ${hours}h of play, ${seeds} seeds\n${'='.repeat(64)}`);
+  for (const [path, value] of Object.entries(overrides)) {
+    console.log(`  override  ${path} = ${value}`);
+  }
 
   const allMilestones: Record<string, number[]> = {};
   const finals: GameState[] = [];
@@ -366,6 +423,37 @@ function main() {
   const written = median((s) => s.stats.financeDeals);
   if (written > 0) {
     console.log(`  default rate       ${((defaults / written) * 100).toFixed(1).padStart(11)}%`);
+  }
+
+  /**
+   * Trim grades, pooled across every seed rather than taken as a median.
+   *
+   * Legendary is one car in a thousand, so a per-seed median of it is zero at
+   * every plausible run length and would report the rarest thing in the game as
+   * not existing. The margin column is the one that matters: it should climb by
+   * six to seven points a grade on the used stages, and if it is flat the ask is
+   * tracking the trim and the feature is doing nothing.
+   */
+  const pooled = blankRarityTally();
+  for (const t of tallies) {
+    for (const id of RARITY_ORDER) {
+      pooled[id].bought += t.byRarity[id].bought;
+      pooled[id].margin += t.byRarity[id].margin;
+    }
+  }
+  const totalBought = RARITY_ORDER.reduce((n, id) => n + pooled[id].bought, 0);
+  if (totalBought > 0) {
+    console.log(`\nTrim grades bought (all ${seeds} seeds pooled, ${totalBought} cars)`);
+    console.log('-'.repeat(64));
+    for (const id of RARITY_ORDER) {
+      const { bought, margin } = pooled[id];
+      const share = ((bought / totalBought) * 100).toFixed(2);
+      const mean = bought > 0 ? `${((margin / bought) * 100).toFixed(1)}%` : '—';
+      console.log(
+        `  ${RARITIES[id].name.padEnd(11)} ${String(bought).padStart(5)}` +
+          `  ${share.padStart(6)}% of buys   margin ${mean.padStart(6)}`,
+      );
+    }
   }
 
   console.log(`\nharness wall time: ${((Date.now() - started) / 1000).toFixed(1)}s\n`);

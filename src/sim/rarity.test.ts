@@ -5,6 +5,7 @@ import { advance, createInitialState, cloneState } from './engine';
 import {
   RARITY_ORDER,
   baseTrim,
+  rarityAskMult,
   rarityRank,
   rarityValueMult,
   rollRarity,
@@ -110,6 +111,27 @@ describe('rollRarity', () => {
     for (let i = 0; i < 500; i++) nextFloat(drawn);
 
     expect(rolled.s).toBe(drawn.s);
+  });
+});
+
+describe('rarityAskMult', () => {
+  it('is blind to the grade when the seller prices nothing in', () => {
+    for (const id of RARITY_ORDER) expect(rarityAskMult(id, 0)).toBe(1);
+  });
+
+  it('cancels the premium exactly when the seller prices all of it in', () => {
+    // At capture 1 the ask multiplier IS the value multiplier, so margin comes
+    // out identical to a stock car and the trim is worth nothing but paint.
+    for (const id of RARITY_ORDER) expect(rarityAskMult(id, 1)).toBeCloseTo(rarityValueMult(id), 10);
+  });
+
+  it('splits the premium linearly in between', () => {
+    // Half of a legendary's 30% is 15%, which is the only reading of "half the
+    // trim is priced in" anybody would guess.
+    expect(rarityAskMult('legendary', 0.5)).toBeCloseTo(1.15, 10);
+    expect(rarityAskMult('rare', 0.5)).toBeCloseTo(1.05, 10);
+    // And a capture over 1 cannot make a graded car cost MORE than it is worth.
+    expect(rarityAskMult('legendary', 4)).toBeCloseTo(rarityValueMult('legendary'), 10);
   });
 });
 

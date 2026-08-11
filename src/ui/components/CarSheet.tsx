@@ -4,13 +4,14 @@ import { canRecon, reconCost, reconDurationMs, reconLift, reconValueGain } from 
 import { reconModsFor } from '../../sim/skills';
 import { retailValue, wholesaleValue } from '../../sim/economy';
 import { getModel } from '../../sim/models';
+import { RARITIES, rarityValueMult } from '../../sim/rarity';
 import { getStage } from '../../sim/stages';
 import { windowPrice } from '../../sim/engine';
 import type { Car, GameState } from '../../sim/types';
-import { duration, money, theme } from '../theme';
+import { RARITY_COLOR, duration, money, theme } from '../theme';
 import { CarArt } from '../art/CarArt';
 import { Sheet } from './Sheet';
-import { Button, Meter, Row } from './ui';
+import { Button, Chip, Meter, Row } from './ui';
 
 /** Inventory detail: what this car is worth, what it needs, and what to do with it. */
 export function CarSheet({
@@ -33,6 +34,7 @@ export function CarSheet({
   if (!car) return <Sheet visible={false} title="" onClose={onClose} children={null} />;
 
   const model = getModel(car.modelId);
+  const badge = RARITIES[car.rarity].badge;
   const retail = retailValue(car);
   const reference = windowPrice(state, car);
   const shop = reconModsFor(state);
@@ -59,9 +61,20 @@ export function CarSheet({
           modelId={car.modelId}
           colorIndex={car.colorIndex}
           condition={car.condition}
+          rarity={car.rarity}
           width={220}
         />
       </View>
+
+      {badge ? (
+        <Row gap={8} style={styles.grade}>
+          <Chip text={badge.toUpperCase()} color={RARITY_COLOR[car.rarity]} filled />
+          <Text style={styles.gradeNote}>
+            Worth {Math.round((rarityValueMult(car.rarity) - 1) * 100)}% more than the same car in
+            stock trim — and nobody charged you for it.
+          </Text>
+        </Row>
+      ) : null}
 
       <View style={styles.figures}>
         <Figure label="You paid" value={money(car.costBasis)} />
@@ -165,6 +178,8 @@ function Figure({ label, value, accent }: { label: string; value: string; accent
 }
 
 const styles = StyleSheet.create({
+  grade: { alignItems: 'flex-start' },
+  gradeNote: { flex: 1, color: theme.colors.textDim, fontSize: 11, lineHeight: 15 },
   hero: {
     alignItems: 'center',
     paddingVertical: 8,

@@ -2,8 +2,11 @@ import { create } from 'zustand';
 import { reconcileTuning } from '../sim/actions';
 import { advance, createInitialState } from '../sim/engine';
 import { offlineCapMs } from '../sim/upgrades';
+import { specialFinds, type SpecialFind } from './finds';
 import type { GameState, Stats } from '../sim/types';
 import { makeSeed, readSave, writeSave } from './persistence';
+
+export type { SpecialFind };
 
 /**
  * The store owns the clock and nothing else. Every rule lives in `src/sim`;
@@ -23,7 +26,21 @@ export interface AwaySummary {
   repos: number;
   /** Levels gained while the app was closed, e.g. ['Buying reached level 4']. */
   skillUps: string[];
+  /**
+   * Special-edition and unicorn cars the retainer buyer picked up while nobody
+   * was watching, with the deal it got.
+   *
+   * The feed churns whether or not the app is open, so a graded car is one the
+   * player is very unlikely to be there to see — at the base feed the odds one
+   * is on screen when you open the game are about a third of a percent. The
+   * buyer already values them correctly and buys them; this is what tells you it
+   * happened, and it is the whole reason the carousel exists rather than a
+   * longer shelf life on the feed, which would have taxed throughput for every
+   * ordinary car in the game.
+   */
+  specialFinds: SpecialFind[];
 }
+
 
 interface GameStore {
   state: GameState | null;
@@ -98,6 +115,7 @@ export const useGame = create<GameStore>((set, get) => ({
           .slice(next.events.length > eventsBefore ? -(next.events.length - eventsBefore) : 0)
           .filter((e) => e.kind === 'skill-up')
           .map((e) => e.label),
+        specialFinds: specialFinds(saved, next),
         ...delta,
       };
     }

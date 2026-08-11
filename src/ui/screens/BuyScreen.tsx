@@ -4,10 +4,11 @@ import { buyListing } from '../../sim/actions';
 import { appraisalBand, estimatedCondition, estimatedWholesale } from '../../sim/appraisal';
 import { appraisalSigma } from '../../sim/skills';
 import { getModel } from '../../sim/models';
+import { RARITIES } from '../../sim/rarity';
 import { carCapacity } from '../../sim/upgrades';
 import type { GameState, Listing } from '../../sim/types';
 import { useGame } from '../../state/store';
-import { duration, money, theme } from '../theme';
+import { RARITY_COLOR, duration, money, theme } from '../theme';
 import { HUD_HEIGHT } from '../components/Hud';
 import { CarArt } from '../art/CarArt';
 import { Chip, EmptyState, Label, Row } from '../components/ui';
@@ -71,6 +72,9 @@ function ListingRow({
   const expiresIn = listing.expiresAt - state.t;
   const spreadLow = band.low - listing.price;
   const spreadHigh = band.high - listing.price;
+  // Rarity is not an appraisal — you can see a spoiler — so it is stated flatly
+  // rather than hedged the way condition is.
+  const badge = RARITIES[listing.car.rarity].badge;
 
   return (
     <Pressable
@@ -78,6 +82,9 @@ function ListingRow({
       style={({ pressed }) => [
         styles.row,
         looksCheap && styles.rowDeal,
+        // A graded car outranks the deal border: the two can both be true, and
+        // the rarer fact is the one worth colouring the whole row for.
+        badge ? { borderColor: RARITY_COLOR[listing.car.rarity] } : null,
         disabled && styles.rowDisabled,
         pressed && !disabled && { borderColor: theme.colors.accent },
       ]}
@@ -87,6 +94,7 @@ function ListingRow({
           modelId={listing.car.modelId}
           colorIndex={listing.car.colorIndex}
           condition={listing.car.condition}
+          rarity={listing.car.rarity}
           width={96}
         />
       </View>
@@ -102,6 +110,12 @@ function ListingRow({
           {listing.source}
         </Text>
         <Row gap={6} style={{ marginTop: 4 }}>
+          {/* The trim badge comes first: it is the only thing here that is a
+              plain fact about the car rather than an estimate, and on the one
+              listing in ten that has one it is the reason to look. */}
+          {badge ? (
+            <Chip text={badge.toUpperCase()} color={RARITY_COLOR[listing.car.rarity]} filled />
+          ) : null}
           {looksCheap ? (
             <Chip
               text={band.exact ? 'UNDER WHOLESALE' : 'LOOKS CHEAP'}

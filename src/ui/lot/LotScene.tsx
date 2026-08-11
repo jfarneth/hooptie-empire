@@ -14,11 +14,12 @@ import { retailValue } from '../../sim/economy';
 import { getStage } from '../../sim/stages';
 import type { Car, GameState, Prospect } from '../../sim/types';
 import { CarArt } from '../art/CarArt';
-import { duration, money, moneyShort, theme } from '../theme';
+import { RARITY_COLOR, duration, money, moneyShort, theme } from '../theme';
 import { LadderPylon } from './LadderPylon';
 import { LotGround } from './LotGround';
 import { fitCameraToWidth, type Camera } from './camera';
 import { environmentFor } from './environment';
+import { RARITIES } from '../../sim/rarity';
 import { assignSlots, lotLayout, variantOf, type LotLayout, type LotSlot } from './layout';
 import type { SurroundBounds } from './surroundings';
 
@@ -366,6 +367,7 @@ function ParkedCar({
           modelId={car.modelId}
           colorIndex={car.colorIndex}
           condition={car.condition}
+          rarity={car.rarity}
           width={w}
           angle="top"
           variant={variantOf(car.id, 4)}
@@ -458,6 +460,25 @@ function CarMarkers({
         <View style={[styles.pin, { left: windscreen.x, top: windscreen.y }]} pointerEvents="none">
           <View style={[styles.ready, { transform: [{ scale }] }]}>
             <Text style={styles.readyText}>READY {moneyShort(retailValue(car))}</Text>
+          </View>
+        </View>
+      ) : null}
+
+      {RARITIES[car.rarity].badge ? (
+        // Hung off the tail rather than the windscreen, which already carries a
+        // price tag or a READY flag. Markers hang off the CAR and never off the
+        // stall — a badge placed over the stall lands on the tail of the car in
+        // the row in front.
+        <View style={[styles.pin, { left: back.x, top: back.y }]} pointerEvents="none">
+          <View
+            style={[
+              styles.grade,
+              { borderColor: RARITY_COLOR[car.rarity], transform: [{ scale }] },
+            ]}
+          >
+            <Text style={[styles.gradeText, { color: RARITY_COLOR[car.rarity] }]}>
+              {RARITIES[car.rarity].badge.toUpperCase()}
+            </Text>
           </View>
         </View>
       ) : null}
@@ -591,6 +612,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 1,
   },
+  grade: {
+    borderWidth: 1,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    backgroundColor: 'rgba(16,18,25,0.82)',
+  },
+  gradeText: { fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
   repoText: { color: '#ffd9d2', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
   buyerHit: { alignItems: 'center', justifyContent: 'center' },
 });

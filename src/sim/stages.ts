@@ -88,6 +88,21 @@ export interface StageSourcing {
    * an invoice, not guessing at a stranger's Corolla, and the feed says so.
    */
   appraisalSigmaMult: number;
+  /**
+   * How much of a car's trim premium the seller prices into the ask, 0 to 1.
+   *
+   * At 0 the seller is blind to the grade and the whole premium is the dealer's
+   * — which is the truth of a Tuesday auction, where nobody pays extra for a
+   * spoiler and the book has no column for one. At 1 the trim is fully priced in
+   * and rarity is worth exactly nothing but paint.
+   *
+   * The franchise stages sit high, and that is not a nerf bolted on to protect
+   * the pacing: a manufacturer absolutely does charge for a trim package, and an
+   * allocation is priced off an invoice that lists it. Measured, leaving them at
+   * 0 pulled the premium franchise in by 31% (318h to 218h) and doubled lifetime
+   * profit, which is a different game rather than a feature.
+   */
+  raritySellerCapture: number;
 }
 
 export interface StageDef {
@@ -160,6 +175,8 @@ const OPEN_MARKET = {
   mileageMin: 0,
   mileageMax: 0,
   appraisalSigmaMult: 1,
+  // An auction seller does not charge for a spoiler.
+  raritySellerCapture: 0,
 } as const;
 
 /**
@@ -172,6 +189,8 @@ const FROM_THE_MANUFACTURER = {
   mileageMin: 4,
   mileageMax: 90,
   appraisalSigmaMult: 0,
+  // A factory does. Every franchise overrides this alongside its invoice band.
+  raritySellerCapture: 0.7,
   // Every franchise overrides these — the invoice thins as the marque moves
   // upmarket. Kept as a fallback so the shape is defined if a stage forgets.
   askMin: 1.16,

@@ -245,6 +245,17 @@ export const TUNABLES: readonly TunableDef[] = [
       min: 0.2,
       max: 4,
     });
+    rows.push({
+      path: `stages.${stage.id}.sourcing.raritySellerCapture`,
+      label: `${stage.name} — trim priced in`,
+      group: 'Rarity',
+      kind: 'percent',
+      min: 0,
+      max: 1,
+      help: stage.sourcing.makeId
+        ? 'A factory lists the trim package on the invoice. Drop this and the top of the ladder comes in about a third sooner.'
+        : 'How much of a graded car’s premium the seller charges for. At 0 it is all yours.',
+    });
     return rows;
   }),
 ];

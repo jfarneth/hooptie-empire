@@ -4,6 +4,7 @@ import { BODY_COLORS } from '../../../sim/models';
 import { shadeColor, weatheredColor } from '../../theme';
 import { CAR_BOX_L, CAR_BOX_W } from '../../lot/layout';
 import type { Archetype } from '../archetypes';
+import { TOP_SHAPES } from './shapes';
 
 /**
  * Cars seen from directly above, one drawing per archetype.
@@ -18,41 +19,6 @@ import type { Archetype } from '../archetypes';
  * layout.ts, so a van really is bigger than a hatch and one scale factor from
  * the lot positions all twelve.
  */
-
-interface TopShape {
-  /** Body footprint, centred in the artboard. */
-  w: number;
-  len: number;
-  rx: number;
-  /** Fractions of `len`: where the glass starts, the roof panel, the tail. */
-  hood: number;
-  roof: [number, number];
-  tail: number;
-  /** Pickup bed, as fractions of `len`. */
-  bed?: [number, number];
-  /** Premium cars get a chrome beltline and a bit more glass. */
-  chrome?: boolean;
-}
-
-const SHAPES: Record<Archetype, TopShape> = {
-  hatchEconomy: { w: 42, len: 92, rx: 9, hood: 0.28, roof: [0.42, 0.75], tail: 0.9 },
-  hatchPremium: { w: 44, len: 98, rx: 10, hood: 0.3, roof: [0.44, 0.76], tail: 0.91, chrome: true },
-
-  sedanEconomy: { w: 44, len: 104, rx: 9, hood: 0.29, roof: [0.43, 0.7], tail: 0.83 },
-  sedanPremium: { w: 47, len: 116, rx: 11, hood: 0.32, roof: [0.46, 0.71], tail: 0.85, chrome: true },
-
-  coupeEconomy: { w: 43, len: 98, rx: 11, hood: 0.31, roof: [0.45, 0.67], tail: 0.79 },
-  coupePremium: { w: 46, len: 106, rx: 13, hood: 0.34, roof: [0.48, 0.68], tail: 0.81, chrome: true },
-
-  suvEconomy: { w: 48, len: 108, rx: 7, hood: 0.25, roof: [0.38, 0.8], tail: 0.91 },
-  suvPremium: { w: 51, len: 118, rx: 8, hood: 0.27, roof: [0.4, 0.82], tail: 0.92, chrome: true },
-
-  vanEconomy: { w: 49, len: 112, rx: 7, hood: 0.2, roof: [0.32, 0.86], tail: 0.95 },
-  vanPremium: { w: 51, len: 120, rx: 8, hood: 0.22, roof: [0.34, 0.87], tail: 0.95, chrome: true },
-
-  truckEconomy: { w: 48, len: 116, rx: 6, hood: 0.24, roof: [0.36, 0.56], tail: 0.62, bed: [0.64, 0.95] },
-  truckPremium: { w: 51, len: 124, rx: 7, hood: 0.26, roof: [0.38, 0.57], tail: 0.63, bed: [0.65, 0.96], chrome: true },
-};
 
 export interface CarTopProps {
   archetype: Archetype;
@@ -73,7 +39,7 @@ function CarTopBase({
   variant = 0,
   showWear = true,
 }: CarTopProps) {
-  const shape = SHAPES[archetype] ?? SHAPES.sedanEconomy;
+  const shape = TOP_SHAPES[archetype] ?? TOP_SHAPES.sedanEconomy;
   const base = BODY_COLORS[colorIndex % BODY_COLORS.length];
   const paint = weatheredColor(base, condition);
 

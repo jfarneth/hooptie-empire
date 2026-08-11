@@ -2,6 +2,7 @@ import React, { memo } from 'react';
 import Svg, { Circle, Ellipse, G, Path, Rect } from 'react-native-svg';
 import { BODY_COLORS } from '../../../sim/models';
 import type { BodyStyle } from '../../../sim/types';
+import { SIDE_SHAPES } from './shapes';
 import { theme, weatheredColor } from '../../theme';
 
 /**
@@ -13,56 +14,6 @@ import { theme, weatheredColor } from '../../theme';
  * flat, and rough cars pick up rust blooms — so the lot reads as inventory
  * quality without the player opening a single card.
  */
-
-interface Shape {
-  body: string;
-  cabin: string;
-  /** Extra geometry drawn over the body, e.g. a pickup bed. */
-  detail?: string;
-  wheelR: number;
-  wheels: [number, number];
-}
-
-const SHAPES: Record<BodyStyle, Shape> = {
-  sedan: {
-    body: 'M6,33 L6,25 Q6,22 10,22 L90,22 Q94,22 94,25 L94,33 Z',
-    cabin: 'M27,22 L35,12 L65,12 L74,22 Z',
-    wheelR: 6,
-    wheels: [24, 76],
-  },
-  coupe: {
-    body: 'M7,33 L7,26 Q7,23 11,23 L89,23 Q93,23 93,26 L93,33 Z',
-    cabin: 'M29,23 L42,13 L60,13 L73,23 Z',
-    wheelR: 6,
-    wheels: [25, 75],
-  },
-  hatch: {
-    body: 'M9,33 L9,25 Q9,22 13,22 L87,22 Q91,22 91,25 L91,33 Z',
-    cabin: 'M26,22 L34,11 L70,11 L78,22 Z',
-    wheelR: 6,
-    wheels: [26, 74],
-  },
-  suv: {
-    body: 'M6,33 L6,24 Q6,21 10,21 L90,21 Q94,21 94,24 L94,33 Z',
-    cabin: 'M22,21 L27,9 L77,9 L82,21 Z',
-    wheelR: 7,
-    wheels: [24, 76],
-  },
-  van: {
-    body: 'M6,33 L6,24 Q6,21 10,21 L90,21 Q94,21 94,24 L94,33 Z',
-    cabin: 'M18,21 L23,7 L81,7 L86,21 Z',
-    wheelR: 6.5,
-    wheels: [24, 78],
-  },
-  truck: {
-    body: 'M6,33 L6,24 Q6,21 10,21 L90,21 Q94,21 94,24 L94,33 Z',
-    cabin: 'M21,21 L26,10 L52,10 L57,21 Z',
-    // Bed walls behind the cab.
-    detail: 'M60,21 L60,14 L92,14 L92,21 Z',
-    wheelR: 7,
-    wheels: [23, 77],
-  },
-};
 
 export interface CarSideProps {
   bodyStyle: BodyStyle;
@@ -80,7 +31,7 @@ function CarSideBase({
   width = 100,
   showWear = true,
 }: CarSideProps) {
-  const shape = SHAPES[bodyStyle] ?? SHAPES.sedan;
+  const shape = SIDE_SHAPES[bodyStyle] ?? SIDE_SHAPES.sedan;
   const base = BODY_COLORS[colorIndex % BODY_COLORS.length];
   const paint = weatheredColor(base, condition);
   const height = width * 0.44;

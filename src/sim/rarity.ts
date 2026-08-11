@@ -108,3 +108,18 @@ export function rollRarity(rng: RngState): Rarity {
 export function baseTrim(car: Car): Car {
   return car.rarity === 'common' ? car : { ...car, rarity: 'common' };
 }
+
+/**
+ * What the seller wants, as a multiple of the stock-trim value.
+ *
+ * `capture` is the share of the premium they price in — see
+ * `StageSourcing.raritySellerCapture`. At 0 this is 1 and the ask is blind to
+ * the grade; at 1 it is the full value multiplier and the trim is worth nothing.
+ * In between it is linear in the premium, which is the only reading of "half the
+ * trim is priced in" that anybody would guess.
+ */
+export function rarityAskMult(rarity: Rarity, capture: number): number {
+  if (capture <= 0) return 1;
+  const mult = rarityValueMult(rarity);
+  return 1 + Math.min(1, capture) * (mult - 1);
+}

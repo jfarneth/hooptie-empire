@@ -25,7 +25,7 @@ import {
   overCapacityFactor,
 } from './notes';
 import { prestigeEdge } from './prestige';
-import { baseTrim } from './rarity';
+import { baseTrim, rarityAskMult } from './rarity';
 import {
   expirePromotions,
   getPromotion,
@@ -379,14 +379,21 @@ function spawnListing(s: GameState): void {
   // Applied after the draw so the RNG stream is identical with or without an
   // edge; the discount is deterministic from the save's prestige points.
   const edge = 1 - prestigeEdge(s);
-  // THE ASK IS PRICED IN STOCK TRIM. This is one half of the rarity feature and
-  // the whole of its economics: a dealer auction does not pay extra for a
-  // spoiler and a wholesale book does not carry one, so the seller quotes the
-  // base car and the premium is left on the table for whoever spots it. Pricing
-  // the trimmed car here instead would scale ask and retail together and make
-  // rarity worth exactly nothing.
+  // THE ASK IS PRICED IN STOCK TRIM, or nearly so. This is one half of the
+  // rarity feature and the whole of its economics: a dealer auction does not pay
+  // extra for a spoiler and a wholesale book has no column for one, so the
+  // seller quotes the base car and the premium is left on the table for whoever
+  // spots it. Pricing the fully trimmed car instead would scale ask and retail
+  // together and make rarity worth exactly nothing.
+  //
+  // `raritySellerCapture` is how much of the premium this particular seller is
+  // wise to — zero at auction, high at a factory, which does list the trim
+  // package on the invoice.
   const ask = Math.round(
-    wholesaleValue(baseTrim(car)) * range(s.rng, sourcing.askMin, sourcing.askMax) * edge,
+    wholesaleValue(baseTrim(car)) *
+      rarityAskMult(car.rarity, sourcing.raritySellerCapture) *
+      range(s.rng, sourcing.askMin, sourcing.askMax) *
+      edge,
   );
 
   s.listings.push({
