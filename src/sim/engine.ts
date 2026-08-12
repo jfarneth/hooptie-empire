@@ -89,7 +89,7 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, Note, Prospect, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 18;
+export const SAVE_VERSION = 19;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -197,6 +197,9 @@ function blankState(seed: number, wallNow: number): GameState {
       shopReworks: 0,
       shopTurnedAway: 0,
     },
+    weeks: [],
+    weekRevenue: 0,
+    weekProfitAt: 0,
     events: [],
     prestige: { count: 0, points: 0, history: [] },
     loan: null,
@@ -352,6 +355,9 @@ function stepBills(s: GameState): void {
     });
     if (s.loan.paymentsRemaining <= 0) s.loan = null;
   }
+
+  // Last, so the week owns every cost it incurred.
+  closeTheWeek(s);
 }
 
 export interface WeeklyExpenses {
@@ -590,6 +596,7 @@ function stepNotes(s: GameState): void {
 
     if (result.paid) {
       s.cash += result.amount;
+      bookRevenue(s, result.amount);
       s.stats.totalCollected += result.amount;
       s.stats.lifetimeProfit += result.amount;
       logEvent(s, {
@@ -702,6 +709,7 @@ function repossess(s: GameState, carId: string, customer: string, note: Note, la
   if (overLotCapacity(s)) {
     const dumped = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
     s.cash += dumped;
+    bookRevenue(s, dumped);
     s.stats.lifetimeProfit += dumped - car.costBasis;
     removeCar(s, car.id);
     logEvent(s, {
@@ -788,6 +796,7 @@ function stepServiceDept(s: GameState): void {
 
   for (const { job } of result.billed) {
     s.cash += job.price;
+    bookRevenue(s, job.price);
     s.stats.lifetimeProfit += job.price;
     s.stats.shopRevenue += job.price;
     s.stats.shopJobsDone += 1;
@@ -1209,6 +1218,40 @@ export function registerWalkaway(s: GameState, customerName: string): void {
   logEvent(s, { t: s.t, kind: 'walkaway', label: `${customerName} walked` });
 }
 
+/**
+ * Money in, for the week's books.
+ *
+ * ONE SEAM, called wherever cash arrives from a customer. It is deliberately
+ * separate from `s.cash += ...` rather than folded into it: the shark's money
+ * and the admin console's are not revenue, and a helper that could not tell the
+ * difference would report a business as having a spectacular week every time it
+ * borrowed. Everything that goes through here is somebody paying for something.
+ */
+export function bookRevenue(s: GameState, amount: number): void {
+  if (amount > 0) s.weekRevenue += amount;
+}
+
+/**
+ * Close the week out and file it.
+ *
+ * Called at the END of `stepBills`, so the week that just ended carries its own
+ * rent, wages and floorplan rather than handing them to the next one. Profit is
+ * the change in `lifetimeProfit` rather than a second running total, which is
+ * what stops the two ever disagreeing.
+ */
+function closeTheWeek(s: GameState): void {
+  s.weeks.push({
+    endedAt: s.t,
+    revenue: Math.round(s.weekRevenue),
+    profit: Math.round(s.stats.lifetimeProfit - s.weekProfitAt),
+  });
+  if (s.weeks.length > BALANCE.weekHistory) {
+    s.weeks.splice(0, s.weeks.length - BALANCE.weekHistory);
+  }
+  s.weekRevenue = 0;
+  s.weekProfitAt = s.stats.lifetimeProfit;
+}
+
 export function logEvent(s: GameState, event: SimEvent): void {
   s.events.push(event);
   if (s.events.length > BALANCE.eventLogSize) {
@@ -1261,6 +1304,9 @@ export function cloneState(s: GameState): GameState {
     loan: s.loan ? { ...s.loan } : null,
     tuning: { ...s.tuning },
     stats: { ...s.stats },
+    // Written by the tick every game week, so a shared array would leak
+    // backwards through history exactly as a shared prospect would.
+    weeks: (s.weeks ?? []).map((w) => ({ ...w })),
     events: s.events.map((e) => ({ ...e })),
   };
 }
@@ -1365,6 +1411,7 @@ function acceptCash(s: GameState, prospectId: string, closer: DealCloser = 'play
   const price = prospect.negotiation.currentOffer;
   const profit = price - car.costBasis;
   s.cash += price;
+  bookRevenue(s, price);
   s.stats.carsSold += 1;
   s.stats.cashDeals += 1;
   s.stats.lifetimeProfit += profit;
@@ -1449,6 +1496,7 @@ function acceptFinance(
   s.notes.push(note);
 
   s.cash += prospect.downPayment;
+  bookRevenue(s, prospect.downPayment);
   s.stats.carsSold += 1;
   s.stats.financeDeals += 1;
   s.stats.lifetimeProfit += prospect.downPayment - car.costBasis;
@@ -1499,6 +1547,7 @@ function sellServicePlan(s: GameState, prospect: Prospect, car: Car): void {
   if (!contract) return;
 
   s.cash += contract.price;
+  bookRevenue(s, contract.price);
   s.stats.lifetimeProfit += contract.price;
   s.stats.planIncome += contract.price;
   s.stats.plansSold += 1;

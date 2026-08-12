@@ -23,6 +23,7 @@ import {
   takeFinanceDeal,
 } from '../sim/actions';
 import { BALANCE, MS_PER_GAME_DAY } from '../sim/balance';
+import { lastWeek, weekMargin } from '../sim/books';
 import { canRecon, reconCost } from '../sim/cars';
 import { reconModsFor } from '../sim/skills';
 import { deskCounter } from '../sim/haggle';
@@ -795,6 +796,21 @@ async function main() {
   console.log(`  portfolio          ${fmtMoney(median((s) => portfolioValue(s.notes))).padStart(12)}`);
   console.log(`  lifetime profit    ${fmtMoney(median((s) => s.stats.lifetimeProfit)).padStart(12)}`);
   console.log(`  cars sold          ${String(median((s) => s.stats.carsSold)).padStart(12)}`);
+  // The number the HUD puts beside cash. Printed here because it is the one
+  // readout in the game that is a RATE rather than a level, and a rate is the
+  // only thing that can say whether the business above is healthy or merely
+  // large — the whole point of the readout, and worth checking per build.
+  {
+    const margins = finals
+      .map((s) => weekMargin(lastWeek(s)))
+      .filter((m): m is number => m !== null)
+      .sort((a, b) => a - b);
+    const mid = margins.length > 0 ? margins[Math.floor(margins.length / 2)] : null;
+    console.log(
+      `  net margin, last wk${(mid === null ? 'no revenue' : `${(mid * 100).toFixed(1)}%`).padStart(12)}` +
+        `  (${median((s) => s.weeks.length)} weeks on the books)`,
+    );
+  }
   // The pricing rule, and where it sits against cash retail. At the default
   // these read `+35%` and `at retail`, which is the property that says a run is
   // comparable with everything measured before the slider existed.

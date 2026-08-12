@@ -495,6 +495,28 @@ export interface BusinessPolicy {
   shopRateLevel: number;
 }
 
+/**
+ * One trading week, closed and filed.
+ *
+ * The business already knows what it is worth (`cash`) and what it is owed
+ * (the book); what it had no way to say is whether last week went well. Cash
+ * cannot answer that — a week that bought six cars and sold none looks like a
+ * disaster and is just inventory — so this is the matched view: what came in,
+ * and what was left after everything the week cost.
+ */
+export interface WeekRecord {
+  /** Sim time the week was closed out, on the bill beat. */
+  endedAt: Millis;
+  /** Every dollar that came in: sales, down payments, collections, labour, cover. */
+  revenue: number;
+  /**
+   * What was left of it. The change in `lifetimeProfit` across the week, so it
+   * is matched rather than cash-basis — a car bought and not yet sold has taken
+   * money out of the till without costing the week anything.
+   */
+  profit: number;
+}
+
 export interface Stats {
   carsSold: number;
   cashDeals: number;
@@ -666,6 +688,22 @@ export interface GameState {
    */
   tuning: Record<string, number>;
   stats: Stats;
+  /**
+   * Closed trading weeks, oldest first, trimmed to `BALANCE.weekHistory`.
+   *
+   * On the save rather than derived from the event log, because the log is a
+   * sixty-entry ring buffer that a busy Valmont store fills in under a game
+   * week — reconstructing a trend from it would produce a chart that quietly
+   * got shorter as the business grew.
+   */
+  weeks: WeekRecord[];
+  /** Money in since the last bill. Closed and filed by `stepBills`. */
+  weekRevenue: number;
+  /**
+   * `lifetimeProfit` as it stood when this week opened, so the week's profit is
+   * a subtraction rather than a second running total that could drift from it.
+   */
+  weekProfitAt: number;
   /** Ring buffer of recent events; trimmed to BALANCE.eventLogSize. */
   events: SimEvent[];
   /**

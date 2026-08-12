@@ -154,6 +154,35 @@ export function moneyShort(n: number): string {
   return `${sign}$${Math.round(abs)}`;
 }
 
+/**
+ * A week's net margin as the player reads it, or a dash where there is no
+ * denominator — a week that sold nothing has no percentage, and inventing one
+ * would be reporting a division by zero as -100%.
+ *
+ * A decimal under ten points and none above it: the difference between 6.4% and
+ * 6% matters at a Valmont store, where the whole business runs on six, and the
+ * difference between 22% and 21.6% at a curbstone is noise on the readout.
+ */
+export function formatMargin(margin: number | null): string {
+  if (margin === null) return '—';
+  const points = margin * 100;
+  return `${Math.abs(points) < 9.95 ? points.toFixed(1) : points.toFixed(0)}%`;
+}
+
+/**
+ * What a margin reads as at a glance: green if the business kept anything, red
+ * if it did not.
+ *
+ * Deliberately no "thin but positive" band. Six percent is a bad week at a
+ * curbstone and an ordinary one at a premium franchise, so any threshold would
+ * be wrong at one end of a thousandfold ladder — and the one thing that means
+ * the same at every rung is the sign.
+ */
+export function marginColor(margin: number | null): string {
+  if (margin === null) return theme.colors.textDim;
+  return margin < 0 ? theme.colors.danger : theme.colors.money;
+}
+
 export function duration(ms: number): string {
   if (ms <= 0) return 'now';
   const s = Math.ceil(ms / 1000);

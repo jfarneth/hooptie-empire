@@ -492,6 +492,27 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       prospects: [],
     };
   },
+
+  /**
+   * v18 -> v19: the business started keeping weekly books.
+   *
+   * No history is invented. A returning save has never closed a week, so it
+   * starts with an empty chart that fills a week at a time — which is the honest
+   * thing and also the only possible one: the ledger is a sixty-entry ring
+   * buffer and `lifetimeProfit` is a single cumulative number, so there is
+   * nothing in an old save to reconstruct a trend from.
+   *
+   * `weekProfitAt` is stamped at the save's CURRENT lifetime profit rather than
+   * at zero. Zero would make the first week the business closes report every
+   * dollar it has ever earned as that week's profit, which on a mature save is a
+   * margin in the thousands of percent.
+   */
+  18: (s) => ({
+    ...s,
+    weeks: [],
+    weekRevenue: 0,
+    weekProfitAt: Number(s.stats?.lifetimeProfit) || 0,
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

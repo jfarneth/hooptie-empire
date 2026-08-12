@@ -23,6 +23,15 @@ export const BALANCE = {
   eventLogSize: 60,
   /** Paid-off and defaulted notes kept for the ledger history tab. */
   closedNoteHistory: 30,
+  /**
+   * Closed trading weeks kept for the trend readout.
+   *
+   * Twelve, to show eight. The spare four are so the chart is already full the
+   * first time a player opens it after a long absence rather than growing in
+   * front of them, and so a week can be dropped from the view without being
+   * dropped from the save.
+   */
+  weekHistory: 12,
 
   /** Offline catch-up cap, extended by the night-manager upgrade. */
   offlineCapMs: 8 * 60 * 60 * 1000,

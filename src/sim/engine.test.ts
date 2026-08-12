@@ -79,6 +79,10 @@ function fingerprint(s: GameState) {
     techs: s.shop.techs.map((t) => `${t.id}:${t.grade}:${t.xp.toFixed(2)}:${t.jobId ?? '-'}`),
     jobs: s.shop.jobs.map((j) => `${j.id}:${j.remainingMs}:${j.techId ?? '-'}:${j.rework}`),
     shopWeek: `${s.shop.weekJobs}:${s.shop.weekRevenue}`,
+    // The weekly books are written by the tick on the bill beat, so a slice-size
+    // bug that split a week across two bills shows up right here.
+    books: `${s.weekRevenue.toFixed(2)}:${s.weekProfitAt.toFixed(2)}`,
+    weeks: s.weeks.map((w) => `${w.endedAt}:${w.revenue}:${w.profit}`),
     stats: s.stats,
   };
 }

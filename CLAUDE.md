@@ -341,14 +341,16 @@ Consequences to respect:
   that means prospects (`negotiation`, `financeTerms`), `business`, and `skills`,
   which is a record of objects and needs `cloneSkills`, not a spread. The
   tick-invariance test is the guard; keep its fingerprint covering new fields.
-  `promotions` is in the fingerprint because the tick expires them, and
-  `serviceContracts` and `shop` are in it because the tick writes both.
+  `promotions` is in the fingerprint because the tick expires them,
+  `serviceContracts` and `shop` are in it because the tick writes both, and
+  `weeks` is in it because the bill beat files one.
   **THE FINGERPRINT IS NOT WHAT CATCHES A MISSED CLONE**, and the comment there
   used to claim it was. Mutation-tested: sharing the tech roster in `cloneState`
   leaves it green, because both runs discard their history and a mutation that
   leaks backwards has nothing left to leak into. What actually bites is the
   clone-isolation test — one per nested block, in `business.test.ts`,
-  `shop.test.ts` and `service.test.ts`. Anything new in that shape needs one.
+  `shop.test.ts`, `service.test.ts` and `books.test.ts`. Anything new in that
+  shape needs one.
 
 ## Promotions
 
@@ -634,6 +636,52 @@ The HUD floats over the screens rather than sitting above them, so every scroll
 view pads its content by `HUD_HEIGHT`. A new screen that forgets starts under the
 cash readout.
 
+## The weekly books
+
+**CASH IS A LEVEL AND THE BUSINESS IS A RATE, and until now the HUD only ever
+showed the level.** That is a real blind spot rather than a missing feature: a
+week that bought six cars and sold none reads as a catastrophe on the cash line
+and is just inventory, and a week that dumped the lot to a wholesaler reads as a
+triumph. `NET` beside cash is last week's net operating margin, and tapping it
+opens `BooksSheet` — eight closed weeks as bars off a zero line, the part-week in
+progress drawn hollow beside them, and the dollars underneath.
+
+`src/sim/books.ts` is the whole read side and it is pure. The filing is one
+function, `closeTheWeek`, called **last in `stepBills`** so a week owns the rent
+it was charged; `BALANCE.weekHistory` (12) is what the save keeps and
+`WEEKS_IN_VIEW` (8) is what the chart shows. Four rules carry it:
+
+- **Profit is a SUBTRACTION off `lifetimeProfit`, never a second running total.**
+  Two totals drift, and a trend chart summarising a number the ledger disagrees
+  with is worse than no chart. The load-bearing test in `books.test.ts` says so
+  in the only way that can fail: every filed week plus the part-week has to
+  reconstruct the lifetime figure exactly.
+- **Revenue is money IN, and it goes through `bookRevenue` rather than through
+  `s.cash += ...`.** That seam exists to keep the shark and the admin console out
+  of it — borrowing is not a good week, and revenue that could not tell a loan
+  from a customer would report the best week the business ever had every time it
+  took one. A wholesaler's cheque IS revenue; somebody paid for a car. Test that
+  mutation-fails, and note the first cut of it **could not fail** because it
+  poked `cash` by hand and exercised no code at all.
+- **A week with no revenue has no margin**, and `weekMargin` returns `null` for
+  it rather than 0% or -100%. A lot with nothing listed still pays rent; both of
+  those numbers would be inventing a denominator.
+- **A BAR FADES WITH HOW LITTLE CAME IN.** A quiet week that sold no metal and
+  only collected note payments runs at 70–80% net, because the cars behind those
+  payments were expensed the day they were financed. Without the fade the tallest
+  bar on the chart is routinely the smallest week — measured on a real small-lot
+  save, a $4.2k week at 77% towered over a $62k week at 24%. Scaled off the
+  median rather than the largest week, so an ordinary week is solid and only a
+  genuinely thin one goes pale.
+
+The headline is the last **closed** week and never the one in progress: a Tuesday
+margin over four sales swings wildly enough to be noise, and a number that jumped
+every time a car sold would read as the game being erratic rather than the sample
+being small. `npm run sim` prints the same figure (`net margin, last wk`) beside
+the end state, which is the guard that lives outside the UI — it is the only line
+in that report that is a rate rather than a level, and a rate is the only thing
+that can say whether the business above it is healthy or merely large.
+
 ## The desk works for a cut
 
 Rules that carry the mechanic, each with a test named for it in `desk.test.ts`:
@@ -856,7 +904,7 @@ change can actually move what they measure.
 | anything stage-, margin- or ladder-shaped | plus the whole ladder (~2m45s) |
 
 ```bash
-npm test        # 466 tests, ~9s
+npm test        # 485 tests, ~12s
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~3s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2m45s
@@ -1591,7 +1639,7 @@ Most have a guarding test; check before "simplifying" the code around them.
   internally consistent and simply described a different game. `shopLossRatio`
   is the measured outcome and `expectedLossRatio()` is the only place to get it.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v18**. Saves are long-lived and local to the device; "we wiped
+  Currently **v19**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4

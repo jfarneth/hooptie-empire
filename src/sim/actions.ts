@@ -5,6 +5,7 @@ import { createInitialState } from './engine';
 import {
   acceptCash,
   acceptFinance,
+  bookRevenue,
   buyListingInternal,
   cloneState,
   expectedFinanceValue,
@@ -119,6 +120,7 @@ export function sellToWholesaler(state: GameState, carId: string): GameState {
 
     const proceeds = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
     s.cash += proceeds;
+    bookRevenue(s, proceeds);
     s.stats.lifetimeProfit += proceeds - car.costBasis;
     s.prospects = s.prospects.filter((p) => p.carId !== carId);
     s.cars = s.cars.filter((c) => c.id !== carId);
@@ -597,6 +599,7 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
     if (sale.cars > 0) {
       const basis = s.cars.reduce((sum, c) => (c.status === 'sold' ? sum : sum + c.costBasis), 0);
       s.cash += sale.proceeds;
+      bookRevenue(s, sale.proceeds);
       // Counted as profit but NOT as a sale, and no XP: this is a wholesaler
       // taking the lot off your hands, not the desk closing anybody. Awarding
       // Closing XP for it would train the skill by moving house.
