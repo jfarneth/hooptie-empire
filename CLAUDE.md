@@ -1771,6 +1771,14 @@ were store-facing:
   false`) rather than in a web form before every submission. It is honest here:
   there is no `fetch` anywhere in `src`, which also makes App Privacy a single
   "Data Not Collected" rather than a questionnaire.
+- **The bundle identifier is the one field here that can never be changed
+  again**, so it names the game rather than a person: `com.hooptieempire.game`,
+  not `com.jfarneth.hooptieempire`. After the first release the only way to
+  change it is publishing a different app and abandoning its ratings and
+  installs. Apple handles "individual becomes a company" by transferring the
+  app between accounts, which updates the seller name and leaves the bundle ID
+  alone — so an ID with somebody's surname in it outlives every entity decision
+  made after it. `android.package` matches it.
 - **The build number is deliberately NOT in `app.json`.** `eas.json` sets
   `appVersionSource: "remote"` with `autoIncrement`, so EAS owns it and two
   builds of one version cannot collide. `version` is the only one you hand-edit.
