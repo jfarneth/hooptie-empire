@@ -20,8 +20,8 @@ export interface GeneratedAngle {
 
 export const SPRITE_ANGLES: Record<string, GeneratedAngle> = {
   side: {
-    width: 288,
-    height: 176,
+    width: 512,
+    height: 312,
     sources: {
       coupePremium: [require('./coupePremium-side_00.png'), require('./coupePremium-side_01.png'), require('./coupePremium-side_02.png'), require('./coupePremium-side_03.png'), require('./coupePremium-side_04.png'), require('./coupePremium-side_05.png'), require('./coupePremium-side_06.png'), require('./coupePremium-side_07.png'), require('./coupePremium-side_08.png')],
       hatchEconomy: [require('./hatchEconomy-side_00.png'), require('./hatchEconomy-side_01.png'), require('./hatchEconomy-side_02.png'), require('./hatchEconomy-side_03.png'), require('./hatchEconomy-side_04.png'), require('./hatchEconomy-side_05.png'), require('./hatchEconomy-side_06.png'), require('./hatchEconomy-side_07.png'), require('./hatchEconomy-side_08.png')],

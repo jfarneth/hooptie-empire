@@ -14,7 +14,8 @@
  *
  * This renders the same models through three.js in headless Chromium, which the
  * repo already keeps around for driving the app. No Blender, no Python, no
- * imaging stack: `npm i -D playwright three` and it runs. The frames it
+ * imaging stack beyond sharp's prebuilt binary: `npm i -D playwright three
+ * sharp` and it runs. The frames it
  * produces at the top-down angle land within a pixel of the ones Blender
  * produced — the footprints measured off both agree to three decimals — which
  * is what made replacing them a like-for-like swap rather than a re-art.
@@ -32,6 +33,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { chromium } = require('playwright');
+const sharp = require('sharp');
 
 const HERE = __dirname;
 const REPO = path.resolve(HERE, '..', '..');
@@ -106,8 +108,52 @@ function parseArgs() {
   return args;
 }
 
-function writePng(file, dataUrl) {
-  fs.writeFileSync(file, Buffer.from(dataUrl.split(',')[1], 'base64'));
+/**
+ * Palette size for the colour channels. These are flat-shaded low-poly renders
+ * with a few dozen distinct colours, so this costs nothing visible and takes
+ * about 80% off. Measured as almost irrelevant to file size next to the alpha
+ * channel, so it is set for quality rather than bytes.
+ */
+const PALETTE_COLORS = 96;
+
+/**
+ * Alpha below this is rounded to fully transparent. The shadow catcher picks up
+ * a wash of ambient occlusion across the whole frame at alpha 1-7, invisible on
+ * tarmac but expensive: it denies PNG a large flat region to compress. The
+ * shadow's real soft edge sits well above this, so nothing that reads on screen
+ * is clipped.
+ */
+const ALPHA_FLOOR = 12;
+
+/**
+ * Shrink a frame and write it.
+ *
+ * QUANTISE COLOUR ONLY, THEN RE-ATTACH THE 8-BIT ALPHA. Palettising RGBA
+ * together is smaller still — 9.8KB against 14.1KB — and it collapses the drop
+ * shadow's ramp from 248 alpha levels to SEVEN, which bands a soft shadow into
+ * contour rings on a dark background. The Blender pipeline split them for this
+ * reason and the first cut of this tool dropped the step entirely, which is why
+ * the frames shipped at three times the size they needed to be.
+ */
+async function writePng(file, dataUrl) {
+  const raw = Buffer.from(dataUrl.split(',')[1], 'base64');
+  const { width, height } = await sharp(raw).metadata();
+  const meta = { width, height, channels: 1 };
+
+  const alpha = await sharp(raw).extractChannel(3).raw().toBuffer();
+  const floored = Buffer.from(alpha.map((v) => (v < ALPHA_FLOOR ? 0 : v)));
+  const quantised = await sharp(raw)
+    .removeAlpha()
+    .png({ palette: true, colors: PALETTE_COLORS, effort: 10 })
+    .toBuffer();
+
+  await sharp(await sharp(quantised).raw().toBuffer(), {
+    raw: { width, height, channels: 3 },
+  })
+    .joinChannel(floored, { raw: meta })
+    .png({ compressionLevel: 9, effort: 10 })
+    .toFile(file);
+
   return fs.statSync(file).size;
 }
 
@@ -184,7 +230,7 @@ async function main() {
         );
 
         const file = `${archetype}${viewName === 'top' ? '' : `-${viewName}`}_${String(index).padStart(2, '0')}.png`;
-        bytes += writePng(path.join(args.out, file), shot.small.url);
+        bytes += await writePng(path.join(args.out, file), shot.small.url);
         frames.push({ archetype, index, file, width: shot.small.width, height: shot.small.height });
         // Pearl is the swatch the footprint is taken from: bright enough that
         // no pixel of the soft drop shadow can be mistaken for bodywork, which

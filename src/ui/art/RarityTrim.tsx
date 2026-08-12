@@ -252,9 +252,6 @@ function SideTrim({
         </G>
       ) : null}
 
-      {rank >= 3 ? (
-        <Rect x={12} y={sill - 0.9} width={76} height={0.9} rx={0.45} fill={NEON} opacity={0.85} />
-      ) : null}
     </G>,
   );
 }
@@ -275,6 +272,57 @@ const alongLength = (x: number) => 1 - x / 50;
 /** Vector artboard y to car space: 0 on the tarmac, 1 at the roof. */
 const upFromGround = (y: number, roofY: number) =>
   (VECTOR_GROUND - y) / (VECTOR_GROUND - roofY);
+
+/** Above this share of the car's height, the profile is on glass or roof. */
+const GLASS_LINE = 0.75;
+
+/**
+ * The height of the boot lid itself, over the span a wing bolts to.
+ *
+ * The minimum rather than a sample, because everything sticking up out of a
+ * rear deck — a lip, the base of a backlight — is above the lid and would only
+ * ever lift the wing off it.
+ */
+function deckLevel(profile: number[], run: [number, number]): number {
+  const n = profile.length;
+  const idx = (l: number) => Math.round(((1 - l) / 2) * (n - 1));
+  const from = Math.min(idx(run[0]), idx(run[1]));
+  const to = Math.max(idx(run[0]), idx(run[1]));
+  return Math.min(...profile.slice(from, to + 1));
+}
+
+/**
+ * Where a racing stripe is allowed to run: the bonnet, the roof and the boot,
+ * as spans of `l`, skipping the glass between them because a real one does.
+ *
+ * Found in the MEASURED roofline rather than taken from `SIDE_SHAPES`, which is
+ * where the cabin sits on the stylised elevation and not where it sits on the
+ * model — for a sedan the two disagree by 0.17 of half a car, enough to start
+ * the roof run partway up the windscreen. The roof is the flat top, the glass
+ * is the climb either side of it, and everything outside is bodywork.
+ */
+function stripeRuns(profile: number[]): [number, number][] {
+  const n = profile.length;
+  if (n < 4) return [[0.9, -0.9]];
+  const lAt = (i: number) => 1 - (2 * i) / (n - 1);
+
+  const roof = profile.map((u, i) => (u >= 0.985 ? i : -1)).filter((i) => i >= 0);
+  const roofFrom = roof[0] ?? 0;
+  const roofTo = roof[roof.length - 1] ?? n - 1;
+
+  let bonnetTo = 0;
+  for (let i = 0; i < roofFrom; i += 1) if (profile[i] <= GLASS_LINE) bonnetTo = i;
+  let bootFrom = n - 1;
+  for (let i = n - 1; i > roofTo; i -= 1) if (profile[i] <= GLASS_LINE) bootFrom = i;
+
+  // Index 0 and the last are the bumpers, which fall away steeply; a stripe
+  // that runs onto them reads as hanging off the end of the car.
+  return [
+    [lAt(1), lAt(bonnetTo)],
+    [lAt(roofFrom), lAt(roofTo)],
+    [lAt(bootFrom), lAt(n - 2)],
+  ];
+}
 
 /**
  * The feed and the sheets, over a rendered three-quarter frame.
@@ -309,20 +357,18 @@ function SideSpriteTrim({
   rank: number;
 }) {
   const shape = SIDE_SHAPES[bodyStyleOf(archetype)] ?? SIDE_SHAPES.sedan;
-  const { shoulder, sill, deck, roofY, roof, bolt } = shape.trim;
+  const { sill, roofY, roof, bolt } = shape.trim;
   const trim = shadeColor(paint, -0.34);
   const stripe = stripeColor(paint);
 
-  // Where the bodywork is on THIS body style, read off the same shape table the
-  // vector elevation draws itself from. A boot lid is at a different height on
-  // a hatch than on a sedan and a van's roof runs almost to the tailgate, so
-  // one set of constants puts a spoiler through the rear glass on half the
-  // catalogue — which is what the first cut of this did, and it took a
-  // screenshot to see. Deriving instead means the two overlays describe one
-  // car rather than two, and a change to a body shape drags both along.
-  const beltU = upFromGround(shoulder, roofY);
+  // WHERE things sit along the car comes from the shape table; HOW HIGH comes
+  // from the measured roofline. The table is a stylised elevation — 100 x 44
+  // makes a car nearly four times longer than it is tall where a real one is
+  // about three — so heights read off it land low on the model, which is what
+  // drew the racing stripe under the sills and through the wheel arches. What
+  // it is still the authority on is a wheelbase and a cabin, which a roofline
+  // cannot tell you.
   const sillU = upFromGround(sill, roofY);
-  const deckL = deck.map(alongLength);
   const roofL = roof.map(alongLength);
 
   // Percent-of-width units, so stroke widths and radii read the same at 96px in
@@ -345,6 +391,46 @@ function SideSpriteTrim({
   };
   const poly = (corners: (readonly [number, number])[]) =>
     corners.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
+
+  /** The car's own roofline at a station along its length. */
+  const roofline = (l: number) => {
+    const p = axes.profile;
+    if (!p || p.length === 0) return 1;
+    // `profile` is sampled nose to tail; `l` runs +1 nose to -1 tail.
+    const t = ((1 - l) / 2) * (p.length - 1);
+    const i = Math.max(0, Math.min(p.length - 2, Math.floor(t)));
+    return p[i] + (p[i + 1] - p[i]) * (t - i);
+  };
+
+  /**
+   * A band laid ALONG the top of the car, following its roofline.
+   *
+   * Walks the span in steps rather than drawing one quad, because the surface
+   * under it is not flat: a bonnet rises to a windscreen and a boot lid falls
+   * away from a backlight, and a single quad spanning either bridges the gap in
+   * mid-air. `centre` and `half` are across the car, in half-width units.
+   */
+  const overTheTop = (from: number, to: number, centre: number, half: number) => {
+    const STEPS = 6;
+    const near: (readonly [number, number])[] = [];
+    const far: (readonly [number, number])[] = [];
+    for (let i = 0; i <= STEPS; i += 1) {
+      const l = from + ((to - from) * i) / STEPS;
+      const u = roofline(l);
+      near.push(at(l, centre + half, u));
+      far.push(at(l, centre - half, u));
+    }
+    return [...near, ...far.reverse()];
+  };
+
+  // Bonnet / roof / boot, as spans of the car's own length. The last of them is
+  // the boot lid, which is also where a wing bolts on.
+  const runs = stripeRuns(axes.profile);
+  const bladeL = runs[2][1] + 0.06;
+  // The DECK, not the roofline at one station. A fastback's tail carries a lip
+  // that the ray finds at 0.82 where the lid it sits on is at 0.69, and a wing
+  // standing off the lip floats at roof height with daylight under it.
+  const deckU = deckLevel(axes.profile, runs[2]);
 
   const svg = (children: React.ReactNode) => (
     <Svg width={width} height={height} viewBox={`0 0 ${W} ${H}`}>
@@ -393,26 +479,28 @@ function SideSpriteTrim({
         // A wing standing off the back of the boot lid: a flat blade across the
         // car, on two uprights. Every corner is in car space, so the blade
         // shears exactly as the panel under it does instead of lying across the
-        // frame at an angle of its own.
+        // frame at an angle of its own — and it stands off the MEASURED boot,
+        // so it does not float on a body whose deck is not where the stylised
+        // elevation puts it.
         <G>
           {[-0.4, 0.4].map((w) => (
             <Polygon
               key={w}
               points={poly([
-                at(deckL[1] + 0.03, w - 0.05, beltU + 0.11),
-                at(deckL[1] + 0.03, w + 0.05, beltU + 0.11),
-                at(deckL[1] + 0.03, w + 0.05, beltU - 0.03),
-                at(deckL[1] + 0.03, w - 0.05, beltU - 0.03),
+                at(bladeL + 0.05, w - 0.05, deckU + 0.11),
+                at(bladeL + 0.05, w + 0.05, deckU + 0.11),
+                at(bladeL + 0.05, w + 0.05, deckU - 0.02),
+                at(bladeL + 0.05, w - 0.05, deckU - 0.02),
               ])}
               fill={trim}
             />
           ))}
           <Polygon
             points={poly([
-              at(deckL[1] - 0.03, -0.7, beltU + 0.13),
-              at(deckL[1] - 0.03, 0.7, beltU + 0.13),
-              at(deckL[1] + 0.1, 0.7, beltU + 0.13),
-              at(deckL[1] + 0.1, -0.7, beltU + 0.13),
+              at(bladeL, -0.62, deckU + 0.13),
+              at(bladeL, 0.62, deckU + 0.13),
+              at(bladeL + 0.11, 0.62, deckU + 0.13),
+              at(bladeL + 0.11, -0.62, deckU + 0.13),
             ])}
             fill={trim}
           />
@@ -481,46 +569,33 @@ function SideSpriteTrim({
       ) : null}
 
       {rank >= 2 ? (
-        // The rocker band, along the near flank between the belt line and the
-        // sills — at the same two fractions the vector elevation uses, so a car
-        // does not get a different stripe for having been rendered. This is the
-        // plan view's over-the-top stripe seen from where this camera stands:
-        // that one is edge-on here and would be invisible.
+        // The SAME stripe the plan view draws — twin runs over the bonnet, the
+        // roof and the boot lid, stopping at the glass because a real one does.
+        //
+        // It was a rocker band along the flank, on the reasoning the vector
+        // elevation used: an over-the-top stripe is edge-on in profile and
+        // would be invisible. That reasoning does not survive the camera
+        // moving. This shot shows the roof and the bonnet, so the stripe that
+        // reads is the one over them — and a band low on the flank renders
+        // through the wheel arches, which is where it was.
+        //
+        // Each run rides the MEASURED roofline rather than one guessed height,
+        // so it sits on the bonnet, climbs to the roof and comes back down to
+        // the boot on every body in the catalogue.
         <G>
-          {[
-            [0.44, 0.055],
-            [0.68, 0.028],
-          ].map(([down, thickness]) => {
-            const u = beltU + (sillU - beltU) * down;
-            return (
+          {[-1, 1].map((side) =>
+            runs.map(([from, to]) => (
               <Polygon
-                key={down}
-                points={poly([
-                  at(0.93, 1.02, u),
-                  at(-0.93, 1.02, u),
-                  at(-0.93, 1.02, u - thickness),
-                  at(0.93, 1.02, u - thickness),
-                ])}
+                key={`${side}_${from}`}
+                points={poly(overTheTop(from, to, side * 0.165, 0.075))}
                 fill={stripe}
-                opacity={0.85}
+                opacity={0.92}
               />
-            );
-          })}
+            )),
+          )}
         </G>
       ) : null}
 
-      {rank >= 3 ? (
-        <Polygon
-          points={poly([
-            at(0.86, 1.02, sillU + 0.03),
-            at(-0.86, 1.02, sillU + 0.03),
-            at(-0.86, 1.02, sillU),
-            at(0.86, 1.02, sillU),
-          ])}
-          fill={NEON}
-          opacity={0.9}
-        />
-      ) : null}
     </G>,
   );
 }

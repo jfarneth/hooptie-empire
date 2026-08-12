@@ -73,6 +73,17 @@ export interface FrameAxes {
   length: Vec2;
   width: Vec2;
   up: Vec2;
+  /**
+   * The car's roofline: how tall it is at each station along its length, as a
+   * fraction of its own height, sampled nose to tail.
+   *
+   * A racing stripe runs over the bonnet, the roof and the boot lid, and those
+   * are three different heights on every body in the catalogue. The plan view
+   * never had to care — from overhead a stripe is on the car wherever the car
+   * is — but on a three-quarter shot height is the whole of what puts it on the
+   * paintwork rather than in the air above it.
+   */
+  profile: number[];
 }
 
 /**

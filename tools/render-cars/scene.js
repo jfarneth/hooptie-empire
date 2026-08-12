@@ -207,9 +207,64 @@ export async function measureAxes(config, view, box) {
       length: minus(toArtboard(new THREE.Vector3(0, 0, nose)), anchor),
       width: minus(toArtboard(new THREE.Vector3(b.max.x, 0, 0)), anchor),
       up: minus(toArtboard(new THREE.Vector3(0, b.max.y, 0)), anchor),
+      profile: topProfile(model, b, view.faceLeft),
     };
   }
   return out;
+}
+
+/** How many slabs the roofline is sampled into. */
+const PROFILE_SLABS = 24;
+
+/**
+ * The car's own roofline: how tall it is at each station along its length,
+ * as a fraction of its total height, sampled nose to tail.
+ *
+ * A racing stripe runs over the bonnet, the roof and the boot lid, and those
+ * are three different heights on every body in the catalogue — so a stripe
+ * drawn at one height either floats over the bonnet or sits above the roof.
+ * The plan view never had to care, because from overhead a stripe is on the
+ * car wherever the car is. On a three-quarter shot height is what puts it on
+ * the paintwork.
+ *
+ * Measured rather than taken from the vector shape table, because that
+ * artboard is a stylised elevation — 100 x 44 makes a car nearly four times
+ * longer than it is tall, where a real one is about three — so heights read
+ * off it land low on a real model. That is what put the first cut of the
+ * stripe under the sills and through the wheels.
+ */
+function topProfile(model, bounds, faceLeft) {
+  const z0 = bounds.min.z;
+  const span = bounds.max.z - z0 || 1;
+  const height = bounds.max.y || 1;
+  const above = bounds.max.y + span;
+
+  // RAYCAST THE SURFACE, DO NOT SAMPLE VERTICES. A roof on a low-poly car is
+  // one big quad with vertices only at its corners, so a slab taken through the
+  // middle of it contains no roof vertices at all and records whatever lower
+  // geometry it happens to catch — a door top, a wheel arch. Measured that way
+  // the profile came out oscillating between 1.0 and 0.45 along a flat roof,
+  // and the stripe drawn from it zigzagged across the car.
+  const raycaster = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  const slabs = new Array(PROFILE_SLABS).fill(0);
+  for (let i = 0; i < PROFILE_SLABS; i += 1) {
+    const z = z0 + (span * (i + 0.5)) / PROFILE_SLABS;
+    // Straight down the car's centreline, which is where a stripe runs.
+    raycaster.set(new THREE.Vector3(0, above, z), down);
+    const hit = raycaster.intersectObject(model, true)[0];
+    slabs[i] = hit ? hit.point.y / height : 0;
+  }
+
+  // A station that hit nothing — a gap between bumper and body — would read as
+  // ground level and drop the stripe through the floor, so it takes a neighbour.
+  for (let i = 1; i < slabs.length; i += 1) if (slabs[i] === 0) slabs[i] = slabs[i - 1];
+  for (let i = slabs.length - 2; i >= 0; i -= 1) if (slabs[i] === 0) slabs[i] = slabs[i + 1];
+
+  // Always nose first, whichever way the frame turned the car, so the overlay
+  // can index it without knowing which end it is looking at.
+  const ordered = faceLeft ? slabs : slabs.slice().reverse();
+  return ordered.map(round);
 }
 
 const round = (n) => Number(n.toFixed(4));
