@@ -5,7 +5,7 @@ import { generateCar } from './cars';
 import { generateProspect } from './customers';
 import { getModel } from './models';
 import { advance, cloneState, createInitialState, expectedCollections } from './engine';
-import { stateFinanceScale, stateMarginScale, zOfMargin } from './margins';
+import { dealFloorLadder, type DealSide } from './margins';
 import { activeNotes, overCapacityFactor } from './notes';
 import { haggleSkillFor } from './skills';
 import { migrate } from './save';
@@ -30,7 +30,7 @@ import type { CreditTier, GameState, StageId } from './types';
  */
 
 /** A curbstone lot with a hired partner, a listed car, and a fresh walk-up. */
-function lotWithWalkUp(over: { stage?: StageId; claim?: boolean } = {}) {
+function lotWithWalkUp(over: { stage?: StageId; claim?: boolean; costBasis?: number } = {}) {
   let s: GameState = cloneState(createInitialState(777, 0));
   if (over.stage && over.stage !== 'curbstone') {
     s = { ...s, cash: 400_000_000 };
@@ -55,7 +55,10 @@ function lotWithWalkUp(over: { stage?: StageId; claim?: boolean } = {}) {
   const car = {
     ...generateCar(s, s.rng, getModel('civet'), s.t),
     id: 'car_test',
-    costBasis: 4_000,
+    // $4,000 against a $7,000 buyer is a 43% deal, which clears every stop a
+    // curbstone lot has. The floor tests raise it so the fixture lands in the
+    // middle of the ladder and can exercise both sides of a refusal.
+    costBasis: over.costBasis ?? 4_000,
     status: 'listed' as const,
     askPrice: 8_000,
     condition: 0.7,
@@ -234,18 +237,21 @@ describe('the v11 save', () => {
  * what it says.
  */
 /**
- * The fixture's deal in σ. The car cost $4,000 and the buyer is standing at
- * $7,000, so this is a 42.9% margin — a good deal at a curbstone lot and about
- * +1.8σ on its scale. Derived rather than written down, because the scale moves
- * with any tuning pass on the ask band and a hard-coded 1.8 would rot into a
- * test that passes for the wrong reason.
+ * WHERE THE FIXTURE'S DEAL LANDS ON THE STORE'S LADDER.
+ *
+ * The floors are hard numbers per store now, so a test that wants "a floor just
+ * under this deal" has to go and find which stop that is rather than nudging a
+ * σ position by half. Derived rather than written down for the same reason it
+ * always was: retune the ladder and these follow, and a fixture that can no
+ * longer exercise a refusal says so out loud instead of passing for the wrong
+ * reason.
  */
-function cashZ(s: GameState, car: { costBasis: number }, price: number): number {
-  return zOfMargin(stateMarginScale(s, getStage(s.stage)), (price - car.costBasis) / price);
+function cashMargin(car: { costBasis: number }, price: number): number {
+  return (price - car.costBasis) / price;
 }
 
 /** The same deal as the finance desk prices it: expected collections, not sticker. */
-function financeZ(s: GameState, car: { costBasis: number }, prospect: any): number {
+function financeMargin(s: GameState, car: { costBasis: number }, prospect: any): number {
   const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
   const ev =
     prospect.downPayment +
@@ -255,18 +261,35 @@ function financeZ(s: GameState, car: { costBasis: number }, prospect: any): numb
       BALANCE.creditTiers[prospect.tier as CreditTier].missChance * capFactor,
       repoThreshold(s),
     ).expectedCollected;
-  // Measured against the FINANCE scale, not the cash one. A contract grosses the
-  // window price and then collects part of it, so the same σ position is a
-  // different margin on the two sides of the desk; reading paper off the cash
-  // scale is precisely the bug `financeMarginScale` exists to prevent.
-  const stage = getStage(s.stage);
-  return zOfMargin(stateFinanceScale(s, stage, stateMarginScale(s, stage)), (ev - car.costBasis) / ev);
+  // Measured as the engine measures it — against expected collections, not
+  // against the sticker. Reading paper off the cash number is precisely the bug
+  // the separate finance ladder exists to prevent.
+  return (ev - car.costBasis) / ev;
+}
+
+/** The strictest stop this margin still clears. 0 — "any deal" — when it clears none. */
+function levelClearing(s: GameState, side: DealSide, margin: number): number {
+  const ladder = dealFloorLadder(getStage(s.stage), side);
+  let level = 0;
+  for (let i = 0; i < ladder.length; i++) if (margin >= ladder[i]) level = i + 1;
+  return level;
+}
+
+/** The most lenient stop this margin fails. Throws rather than quietly passing. */
+function levelRefusing(s: GameState, side: DealSide, margin: number): number {
+  const ladder = dealFloorLadder(getStage(s.stage), side);
+  for (let i = 0; i < ladder.length; i++) if (margin < ladder[i]) return i + 1;
+  throw new Error(
+    `fixture deal (${(margin * 100).toFixed(1)}%) clears every ${side} stop at ${s.stage}; it cannot exercise a refusal`,
+  );
 }
 
 describe('the house minimum on a sale', () => {
   it('signs a deal that clears the floor', () => {
     const { s, car, prospect } = lotWithWalkUp();
-    s.business = { ...businessDefaults(), minCashMarginZ: cashZ(s, car, 7_000) - 0.5 };
+    const cashFloorLevel = levelClearing(s, 'cash', cashMargin(car, 7_000));
+    expect(cashFloorLevel).toBeGreaterThan(0);
+    s.business = { ...businessDefaults(), cashFloorLevel };
 
     const after = advance(s, BALANCE.desk.graceMs + TICK_MS);
     expect(after.stats.carsSold).toBe(s.stats.carsSold + 1);
@@ -281,8 +304,15 @@ describe('the house minimum on a sale', () => {
    * quietly poison the walk-away rate the harness reports.
    */
   it('leaves a deal under the floor alone, without walking the buyer', () => {
-    const { s, car, prospect } = lotWithWalkUp();
-    s.business = { ...businessDefaults(), minCashMarginZ: cashZ(s, car, 7_000) + 0.5 };
+    // A thinner car, so the fixture's $7,000 deal lands mid-ladder and there is
+    // a stop above it to refuse with. At $4,000 it clears everything a
+    // curbstone lot has, which is the fixture being generous rather than the
+    // rule being weak.
+    const { s, car, prospect } = lotWithWalkUp({ costBasis: 5_500 });
+    s.business = {
+      ...businessDefaults(),
+      cashFloorLevel: levelRefusing(s, 'cash', cashMargin(car, 7_000)),
+    };
 
     const after = advance(s, BALANCE.desk.graceMs * 4);
     expect(after.stats.carsSold).toBe(s.stats.carsSold);
@@ -291,8 +321,11 @@ describe('the house minimum on a sale', () => {
   });
 
   it('still lets the player close by hand what the desk refused', () => {
-    const { s, car, prospect } = lotWithWalkUp();
-    s.business = { ...businessDefaults(), minCashMarginZ: BALANCE.business.marginZMax };
+    const { s, car, prospect } = lotWithWalkUp({ costBasis: 5_500 });
+    s.business = {
+      ...businessDefaults(),
+      cashFloorLevel: levelRefusing(s, 'cash', cashMargin(car, 7_000)),
+    };
 
     // The desk has had four windows to take it and has not.
     const waited = advance(s, BALANCE.desk.graceMs * 4);
@@ -304,41 +337,58 @@ describe('the house minimum on a sale', () => {
     expect(sold.cash).toBe(waited.cash + 7_000);
     // And nobody took a cut, because nobody at the desk closed it.
     expect(sold.stats.commissionPaid).toBe(waited.stats.commissionPaid);
-    expect(car.costBasis).toBe(4_000);
+    expect(car.costBasis).toBe(5_500);
   });
 
   /**
-   * A floor nothing can reach must not turn the desk into a machine for losing
-   * customers. It counters to try to LIFT a deal over the line, so a deal that
-   * could never clear is one it should not engage with at all — no counter, no
-   * walk-away, over a run long enough for hundreds of walk-ups.
+   * A FLOOR IT COULD NEVER REACH MUST NOT MAKE THE DESK A MACHINE FOR LOSING
+   * CUSTOMERS. Countering is what costs walk-aways, and it buys nothing when
+   * even the asking price falls short — so a deal the rule could never sign is
+   * one the desk should not open its mouth on at all.
+   *
+   * Pinned on the fixture rather than measured over a long run, and that is the
+   * sharper test: the ladder's top stop is deliberately inside what a curbstone
+   * lot can produce, so "nobody ever clears it" is no longer a thing any
+   * setting means, and an aggregate assertion would be measuring the ask band.
    */
-  it('does not counter on deals it could never sign', () => {
-    const run = (z: number) => {
-      let s = cloneState(createInitialState(4242, 0));
-      s.upgrades = { salesDesk: 1, autoList: 1, autoBuy: 1, driveway: 3, advertising: 3 };
-      s.cash = 200_000;
-      s.business = { ...businessDefaults(), minCashMarginZ: z };
-      s = setDealPolicy(s, 'cash');
-      return advance(s, 45 * 60_000).stats;
+  it('does not counter on a deal it could never sign', () => {
+    const setup = (cashFloorLevel: number) => {
+      const { s, car, prospect } = lotWithWalkUp({ costBasis: 5_500 });
+      // Undo the fixture's pin: the buyer is lowballing and the desk has not had
+      // its turn, so the counter path is live.
+      const live = s.prospects.find((p) => p.id === prospect.id)!;
+      live.negotiation.currentOffer = 5_000;
+      live.negotiation.countersMade = 0;
+      s.business = { ...businessDefaults(), cashFloorLevel };
+      const after = advance(s, BALANCE.desk.graceMs * 4);
+      return { after, car, id: prospect.id };
     };
 
-    const open = run(BALANCE.business.marginZOff);
-    const shut = run(BALANCE.business.marginZMax);
+    const margin = cashMargin({ costBasis: 5_500 }, 7_000);
+    const { s: probe } = lotWithWalkUp({ costBasis: 5_500 });
+    const shut = setup(levelRefusing(probe, 'cash', margin));
+    const open = setup(levelClearing(probe, 'cash', margin));
 
-    expect(open.walkaways).toBeGreaterThan(0);
-    expect(open.carsSold).toBeGreaterThan(0);
-    // Nothing at a curbstone lot clears +3σ, so the desk never opened its mouth.
-    expect(shut.walkaways).toBe(0);
-    expect(shut.carsSold).toBe(0);
+    // Out of reach even at the ask: no counter, no walk-away, no sale, and the
+    // buyer still standing there.
+    expect(shut.after.prospects.find((p) => p.id === shut.id)?.negotiation.countersMade).toBe(0);
+    expect(shut.after.stats.walkaways).toBe(0);
+    expect(shut.after.stats.carsSold).toBe(0);
+
+    // And the same deal one stop down: the desk engages. Whether the counter
+    // then lands is the negotiation's business — what this pins is that the
+    // silence above is the rule and not a desk that never works.
+    expect(
+      open.after.prospects.find((p) => p.id === open.id)?.negotiation.countersMade ?? 0,
+    ).toBeGreaterThan(0);
   });
 
   it('gets steadily pickier as the floor rises, rather than switching off at some step', () => {
-    const sold = [BALANCE.business.marginZOff, -1, 0, 1, 2].map((z) => {
+    const sold = [0, 1, 3, 4, 5, 6].map((cashFloorLevel) => {
       let s = cloneState(createInitialState(808, 0));
       s.upgrades = { salesDesk: 1, autoList: 1, autoBuy: 1, driveway: 3, advertising: 3 };
       s.cash = 200_000;
-      s.business = { ...businessDefaults(), minCashMarginZ: z };
+      s.business = { ...businessDefaults(), cashFloorLevel };
       s = setDealPolicy(s, 'cash');
       return advance(s, 45 * 60_000).stats.carsSold;
     });
@@ -358,20 +408,25 @@ describe('the house minimum on paper', () => {
   it('writes the contract when the expected value clears the floor', () => {
     const { s, car, prospect } = lotWithWalkUp({ stage: 'smallUsed' });
     s.dealPolicy = 'finance';
-    s.business = { ...businessDefaults(), minFinanceMarginZ: financeZ(s, car, prospect) - 0.5 };
+    const financeFloorLevel = levelClearing(s, 'finance', financeMargin(s, car, prospect));
+    expect(financeFloorLevel).toBeGreaterThan(0);
+    s.business = { ...businessDefaults(), financeFloorLevel };
 
     const after = advance(s, BALANCE.desk.graceMs + TICK_MS);
     expect(after.stats.financeDeals).toBe(s.stats.financeDeals + 1);
   });
 
   it('refuses paper it will not collect on, and sells the car instead', () => {
-    const { s, car, prospect } = lotWithWalkUp({ stage: 'smallUsed' });
+    // Thin enough that the store has a finance stop above the contract — at
+    // $4,000 this fixture's paper clears every one of them, which is the car
+    // being a steal rather than the rule being weak.
+    const { s, car, prospect } = lotWithWalkUp({ stage: 'smallUsed', costBasis: 5_500 });
     s.dealPolicy = 'finance';
     // Paper is out of reach; cash is not.
     s.business = {
       ...businessDefaults(),
-      minFinanceMarginZ: financeZ(s, car, prospect) + 0.5,
-      minCashMarginZ: BALANCE.business.marginZOff,
+      financeFloorLevel: levelRefusing(s, 'finance', financeMargin(s, car, prospect)),
+      cashFloorLevel: 0,
     };
 
     const after = advance(s, BALANCE.desk.graceMs + TICK_MS);
@@ -381,17 +436,16 @@ describe('the house minimum on paper', () => {
   });
 
   it('holds the deal when neither side of it clears', () => {
-    const { s, car, prospect } = lotWithWalkUp({ stage: 'smallUsed' });
+    const { s, car, prospect } = lotWithWalkUp({ stage: 'smallUsed', costBasis: 5_500 });
     s.dealPolicy = 'auto';
-    // Both floors set just above what THIS deal delivers, rather than at the top
-    // of the scale. The fixture's car is deliberately cheap against its retail,
-    // so a nominal +3σ is a floor it can clear on paper — which is the finance
-    // scale behaving correctly and would make a top-of-scale assertion a test of
-    // the fixture rather than of the rule.
+    // Both floors set to the first stop THIS deal fails, rather than to the top
+    // of each ladder. The two sides sit at different heights — the same car is
+    // a 21% cash deal and a 48% contract — so a top-of-ladder assertion would
+    // be testing the fixture rather than the rule.
     s.business = {
       ...businessDefaults(),
-      minCashMarginZ: cashZ(s, car, 7_000) + 0.5,
-      minFinanceMarginZ: financeZ(s, car, prospect) + 0.5,
+      cashFloorLevel: levelRefusing(s, 'cash', cashMargin(car, 7_000)),
+      financeFloorLevel: levelRefusing(s, 'finance', financeMargin(s, car, prospect)),
     };
 
     // One window exactly. Longer and a SECOND walk-up can arrive at the same

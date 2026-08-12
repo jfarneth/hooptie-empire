@@ -248,8 +248,8 @@ export function setBusinessPolicy(state: GameState, patch: Partial<BusinessPolic
       next.minWorkingCapital === current.minWorkingCapital &&
       next.repoAfterMissedPayments === current.repoAfterMissedPayments &&
       next.minBuyMargin === current.minBuyMargin &&
-      next.minCashMarginZ === current.minCashMarginZ &&
-      next.minFinanceMarginZ === current.minFinanceMarginZ;
+      next.cashFloorLevel === current.cashFloorLevel &&
+      next.financeFloorLevel === current.financeFloorLevel;
     if (unchanged) return false;
     s.business = next;
     return true;

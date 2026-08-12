@@ -7,14 +7,19 @@ import { businessPolicy, repoDamageMultiplier } from '../../sim/business';
 import {
   buyMarginRange,
   dealFloorIsOff,
-  marginAtZ,
+  dealFloorLadder,
   stateFinanceScale,
   stateMarginScale,
   zOfMargin,
   type MarginScale,
 } from '../../sim/margins';
 import { activeNotes } from '../../sim/notes';
-import { getStage, typicalCarPrice, typicalRetailPrice } from '../../sim/stages';
+import {
+  DEAL_FLOOR_NAMES,
+  getStage,
+  typicalCarPrice,
+  typicalRetailPrice,
+} from '../../sim/stages';
 import { carCapacity, collectionsCapacity, level } from '../../sim/upgrades';
 import type { DealPolicy, GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
@@ -36,10 +41,18 @@ import { Slider, SliderAnchor } from './Slider';
  * and a dial is not. What that missed is that the limits are not the same size
  * at every store: the ladder moves a thousandfold from a curbstone driveway to a
  * Valmont franchise, and any fixed set of stops is either uselessly coarse at
- * one end or absurd at the other. A slider whose ENDS are derived per store
- * keeps the "set it once" property while letting the setting mean the same thing
- * at every rung — which is exactly the argument margins.ts makes for putting the
- * sales floors in standard deviations rather than in percent.
+ * one end or absurd at the other. A slider whose ends are per store keeps the
+ * "set it once" property while letting the setting mean the same thing at every
+ * rung.
+ *
+ * WHAT A STOP MEANS IS FIXED, AND THAT IS THE POINT. The two sales floors ran
+ * on standard deviations off a distribution derived from the store's ask band,
+ * which meant the number behind a setting moved every time the economy was
+ * retuned. They are levels on a hard-coded per-store ladder now — see
+ * `dealFloors` in stages.ts — so a rule set today reads the same next month.
+ * The derived distribution has not gone anywhere; it is what every readout on
+ * this panel quotes a setting AGAINST, which is how a fixed number can still
+ * tell you it is a good one for this lot right now.
  */
 
 const POLICY_LABEL: Record<DealPolicy, string> = {
@@ -80,7 +93,7 @@ export function BusinessPanel({ state }: { state: GameState }) {
   const repoLoss = BALANCE.repoConditionLoss * repoDamageMultiplier(policy.repoAfterMissedPayments);
 
   const capitalMax = workingCapitalMax(bill.total, typicalCarPrice(stage) * carCapacity(state));
-  const buyRange = buyMarginRange(scale);
+  const buyRange = buyMarginRange(stage);
 
   return (
     <View style={{ gap: 14 }}>
@@ -184,25 +197,27 @@ export function BusinessPanel({ state }: { state: GameState }) {
 
           <MarginRule
             name={`${stage.desk.title}: cash deals`}
-            z={policy.minCashMarginZ}
+            level={policy.cashFloorLevel}
+            ladder={dealFloorLadder(stage, 'cash')}
             scale={scale}
             gross={gross}
             hint="The least your staff will take on a cash sale, judged against what the car cost you. They will still counter to try to get there — this is what they refuse to sign, not what they open with."
-            onChange={(z) => apply((s) => setBusinessPolicy(s, { minCashMarginZ: z }))}
+            onChange={(next) => apply((s) => setBusinessPolicy(s, { cashFloorLevel: next }))}
           />
 
           {stage.financing ? (
             <MarginRule
               name={`${stage.desk.title}: financing`}
-              z={policy.minFinanceMarginZ}
-              // Paper has its own yardstick: it grosses the window price and then
+              level={policy.financeFloorLevel}
+              // Paper has its own ladder: it grosses the window price and then
               // collects only part of it, so an average contract is worth well
-              // over an average cash deal and a shared scale would leave the
-              // bottom two thirds of this slider doing nothing.
+              // over an average cash deal and a shared set of stops would leave
+              // the bottom two thirds of this slider doing nothing.
+              ladder={dealFloorLadder(stage, 'finance')}
               scale={stateFinanceScale(state, stage, scale)}
               gross={gross}
               hint="The same rule for paper, judged on what the contract is expected to COLLECT rather than on what it says. Raise it and the desk stops writing deep subprime — it is an underwriting standard, not a price."
-              onChange={(z) => apply((s) => setBusinessPolicy(s, { minFinanceMarginZ: z }))}
+              onChange={(next) => apply((s) => setBusinessPolicy(s, { financeFloorLevel: next }))}
             />
           ) : null}
 
@@ -274,35 +289,38 @@ export function BusinessPanel({ state }: { state: GameState }) {
 /**
  * One sales floor.
  *
- * The slider runs in STANDARD DEVIATIONS, with one stop below the scale that
- * means no floor at all — the position the rule ships in, and the one thing on
- * this panel that has to be a distinct stop rather than the bottom of a range.
- * At a franchise σ is under two margin points, so even the bottom of the scale
- * is a real rule there; "take anything" cannot be spelled as a small number.
+ * The slider runs over the store's own ladder: level 0 is "any deal", and each
+ * stop above it is one hard number out of `STAGES[].dealFloors`. The rule ships
+ * at 0, and that has to be a distinct position rather than the bottom of the
+ * range — the bottom stop is break-even at a curbstone and 5% at a Halvorsen
+ * store, both of which are real rules that refuse real deals. "Take anything"
+ * cannot be spelled as a small number.
+ *
+ * What the card shows is the fixed percentage AND what it is worth against the
+ * store's live distribution, because those are two different questions: the
+ * first is what you are setting and the second is how picky it makes you today,
+ * with your reach and your prestige edge in it.
  */
 function MarginRule({
   name,
-  z,
+  level,
+  ladder,
   scale,
   gross,
   hint,
   onChange,
 }: {
   name: string;
-  z: number;
+  level: number;
+  ladder: readonly number[];
   scale: MarginScale;
   gross: number;
   hint: string;
-  onChange: (z: number) => void;
+  onChange: (level: number) => void;
 }) {
-  const { marginZMin, marginZMax, marginZStep } = BALANCE.business;
-  const off = dealFloorIsOff(z);
-  // One stop to the left of the scale is the "any deal" position. Anything the
-  // slider emits below the scale is clamped onto the stored off value by
-  // `clampBusinessPolicy`, so the two ends of this only have to agree on which
-  // side of `marginZMin` they are.
-  const sliderMin = marginZMin - marginZStep;
-  const margin = marginAtZ(scale, z);
+  const off = dealFloorIsOff(level);
+  const top = ladder[ladder.length - 1] ?? 0;
+  const margin = off ? 0 : (ladder[Math.min(level, ladder.length) - 1] ?? 0);
 
   return (
     <Card style={{ gap: 8 }}>
@@ -314,13 +332,15 @@ function MarginRule({
       </Row>
       <Text style={styles.hint}>{hint}</Text>
       <Slider
-        min={sliderMin}
-        max={marginZMax}
-        step={marginZStep}
-        value={off ? sliderMin : z}
+        min={0}
+        max={ladder.length}
+        step={1}
+        value={Math.min(level, ladder.length)}
         onChange={onChange}
         minLabel={<SliderAnchor value="Any deal" label="move the metal" />}
-        maxLabel={<SliderAnchor value={`+${marginZMax}σ`} label="steals only" align="flex-end" />}
+        maxLabel={
+          <SliderAnchor value={formatMargin(top)} label="steals only" align="flex-end" />
+        }
       />
       {off ? (
         <Text style={styles.footnote}>
@@ -328,29 +348,39 @@ function MarginRule({
           before this rule existed.
         </Text>
       ) : (
-        <ScaleNote margin={margin} scale={scale} gross={gross} />
+        <ScaleNote
+          margin={margin}
+          scale={scale}
+          gross={gross}
+          lead={DEAL_FLOOR_NAMES[Math.min(level, ladder.length) - 1]}
+        />
       )}
     </Card>
   );
 }
 
 /**
- * Where a margin sits against the store's own deals, in σ and in dollars.
+ * What a margin is worth here — against the store's own deals, and in dollars.
  *
- * Both halves earn their place. The σ figure is the only thing that makes two
- * stores comparable; the dollar figure is the only thing that makes either of
- * them mean anything on a Tuesday.
+ * Both halves earn their place. The comparison against the store's average is
+ * the only thing that says whether 15% is a shrug or a wall; the dollar figure
+ * is the only thing that makes either of them mean anything on a Tuesday. This
+ * is where the derived distribution still does its job now that the rules
+ * themselves are tabulated: the numbers do not move, so this is how the panel
+ * tells you what today's economy makes of them.
  */
 function ScaleNote({
   margin,
   scale,
   gross,
+  lead,
 }: {
   margin: number;
   scale: MarginScale;
   gross: number;
+  /** The stop's name, where it has one. The buy slider is a plain margin. */
+  lead?: string;
 }) {
-  const z = zOfMargin(scale, margin);
   const unreachable = margin > scale.best;
   // A financed deal grosses the window price and collects part of it, so the
   // dollars behind the same percentage are not the same dollars. The scale
@@ -359,7 +389,8 @@ function ScaleNote({
   return (
     <View style={{ gap: 2 }}>
       <Text style={styles.footnote}>
-        {describeZ(z)} — the average deal here is {formatMargin(scale.mean)}, and this one keeps{' '}
+        {lead ? `${lead} — ${describeAgainst(margin, scale)}` : sentenceCase(describeAgainst(margin, scale))}
+        , at a store averaging {formatMargin(scale.mean)}. Keeps{' '}
         {money(Math.round(margin * deal))} of a typical {money(Math.round(deal))} deal.
       </Text>
       {unreachable ? (
@@ -372,14 +403,25 @@ function ScaleNote({
   );
 }
 
-/** Plain English for a z-score, because "+1.75σ" is not a sentence. */
-function describeZ(z: number): string {
-  const tag = `${z >= 0 ? '+' : ''}${z.toFixed(1)}σ`;
-  if (z <= -2) return `${tag}, a deal nobody would take twice`;
-  if (z <= -0.75) return `${tag}, well under an average deal`;
-  if (z < 0.75) return `${tag}, about an average deal`;
-  if (z < 1.75) return `${tag}, a good deal`;
-  return `${tag}, a steal`;
+/**
+ * Plain English for where a fixed margin lands on this store's live spread.
+ *
+ * Deliberately not "+1.75σ". The player is setting a percentage now, and the
+ * only thing they need from the distribution is how much of the lot it lets
+ * through — a sentence, not a statistic.
+ */
+function describeAgainst(margin: number, scale: MarginScale): string {
+  const z = zOfMargin(scale, margin);
+  if (z <= -2) return 'a floor almost anything clears';
+  if (z <= -0.75) return 'well under an average deal';
+  if (z < 0.75) return 'about an average deal';
+  if (z < 1.75) return 'a good deal';
+  return 'a steal, and rare';
+}
+
+/** The verdict leads the sentence when there is no stop name in front of it. */
+function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** Margins are quoted as whole points; a slider stop that reads 5% must not store 5.4%. */

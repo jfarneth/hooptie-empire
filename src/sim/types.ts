@@ -305,22 +305,25 @@ export interface BusinessPolicy {
    */
   minBuyMargin: number;
   /**
-   * The margin the sales desk insists on before it closes a CASH deal, in
-   * standard deviations off the average deal at the store you are standing in.
-   * Anything below `marginZMin` means no floor at all.
+   * How strict the sales desk is on a CASH deal, as a position on the store's
+   * own floor ladder. 0 is no floor at all; 1 to `DEAL_FLOOR_LEVELS` are the
+   * hard margins tabulated in `STAGES[].dealFloors`.
    *
-   * In σ rather than percent because the same manager has to keep meaning the
-   * same thing at a curbstone and at a Valmont store, where an identical
-   * percentage is respectively a bad day and an impossibility. See margins.ts.
+   * A LEVEL rather than a margin, because the same manager has to keep meaning
+   * the same thing at a curbstone and at a Valmont store, where an identical
+   * percentage is respectively a bad day and an impossibility. A level rather
+   * than a σ position, because the σ scale moved under the player's feet every
+   * time the economy was retuned — see the header on `dealFloors` in stages.ts.
    */
-  minCashMarginZ: number;
+  cashFloorLevel: number;
   /**
    * The same rule for PAPER, and it is a genuinely different question: a
    * financed deal is judged on the expected value of the contract, not on the
    * sticker, so raising this makes the desk write safer paper rather than
-   * simply less of it.
+   * simply less of it. It reads off the store's finance ladder, which sits well
+   * above the cash one at every store but the last.
    */
-  minFinanceMarginZ: number;
+  financeFloorLevel: number;
 }
 
 export interface Stats {

@@ -30,11 +30,18 @@ import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
 import { acquisitionCeiling, advance, createInitialState, expectedCollections, weeklyExpenses } from '../sim/engine';
 import { activeNotes, canWriteNote, overCapacityFactor } from '../sim/notes';
 import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level, upgradeCost } from '../sim/upgrades';
-import { STAGES, getStage, nextStage, stageRank, typicalCarPrice } from '../sim/stages';
+import {
+  DEAL_FLOOR_NAMES,
+  STAGES,
+  getStage,
+  nextStage,
+  stageRank,
+  typicalCarPrice,
+} from '../sim/stages';
 import { RARITIES, RARITY_ORDER } from '../sim/rarity';
 import os from 'node:os';
 import { landedCost } from '../sim/market';
-import { freightMoments, marginScale } from '../sim/margins';
+import { dealFloorLadder, freightMoments, marginScale } from '../sim/margins';
 import { applyTuning, getTunable } from '../sim/tuning';
 import type { GameState, Rarity } from '../sim/types';
 
@@ -886,6 +893,36 @@ async function main() {
             `    ${(mean * 100).toFixed(1).padStart(5)}% ±${(Math.sqrt(variance) * 100).toFixed(1)}` +
             `      ${(model.mean * 100).toFixed(1).padStart(5)}% ±${(model.sd * 100).toFixed(1)}`,
         );
+      }
+
+      /**
+       * WHAT EACH STOP ON THE CASH SLIDER ACTUALLY REFUSES, measured.
+       *
+       * The sales floors are hard numbers per store rather than σ positions, so
+       * they no longer follow a retune on their own — and this is where that
+       * shows up. Every column is the share of the store's own feed that clears
+       * that stop, judged on the same margin the desk judges a deal on. A
+       * column at 0% is a slider position that means "stop selling cars", a
+       * first column at 100% is a stop that does nothing, and a row that has
+       * gone flat is a ladder the economy has moved out from under. There is a
+       * unit test asserting the same three shapes; this is the version that
+       * reads them off listings the game really spawned.
+       *
+       * Cash only. The finance ladder is denominated in expected collections
+       * per contract, which is a property of a walk-up's credit rather than of
+       * a listing, so the feed cannot measure it.
+       */
+      console.log(`\nCash sales floor, by store — each stop, and the share of the feed it lets through`);
+      console.log('-'.repeat(76));
+      console.log(
+        `  store        ${DEAL_FLOOR_NAMES.map((n) => n.split(' ')[0].padStart(10)).join('')}`,
+      );
+      for (const { def, xs } of rows) {
+        const cells = dealFloorLadder(def, 'cash').map((floor) => {
+          const share = xs.filter((m) => m >= floor).length / xs.length;
+          return `${(floor * 100).toFixed(0)}%:${(share * 100).toFixed(0)}%`.padStart(10);
+        });
+        console.log(`  ${def.shortName.padEnd(11)} ${cells.join('')}`);
       }
     }
   }

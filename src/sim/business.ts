@@ -1,5 +1,6 @@
 import { BALANCE } from './balance';
 import { clamp } from './economy';
+import { DEAL_FLOOR_LEVELS } from './stages';
 import type { BusinessPolicy, GameState } from './types';
 
 /**
@@ -10,9 +11,10 @@ import type { BusinessPolicy, GameState } from './types';
  * which is what lets every reader be tolerant of a save that predates a rule
  * without scattering `??` through the engine.
  *
- * It imports nothing but balance and economy on purpose: `upgrades.ts` needs the
- * repo trigger to price repo damage, and anything here that reached back into
- * upgrades would close a cycle.
+ * It imports nothing but balance, economy and the stage table on purpose:
+ * `upgrades.ts` needs the repo trigger to price repo damage, and anything here
+ * that reached back into upgrades would close a cycle. The stage table is safe
+ * because it depends on none of them, and it is where the sales floors live.
  */
 
 export function businessDefaults(): BusinessPolicy {
@@ -32,8 +34,8 @@ export function businessPolicy(state: Pick<GameState, 'business'>): BusinessPoli
     minWorkingCapital: set?.minWorkingCapital ?? defaults.minWorkingCapital,
     repoAfterMissedPayments: set?.repoAfterMissedPayments ?? defaults.repoAfterMissedPayments,
     minBuyMargin: set?.minBuyMargin ?? defaults.minBuyMargin,
-    minCashMarginZ: set?.minCashMarginZ ?? defaults.minCashMarginZ,
-    minFinanceMarginZ: set?.minFinanceMarginZ ?? defaults.minFinanceMarginZ,
+    cashFloorLevel: set?.cashFloorLevel ?? defaults.cashFloorLevel,
+    financeFloorLevel: set?.financeFloorLevel ?? defaults.financeFloorLevel,
   };
 }
 
@@ -53,16 +55,16 @@ export function minBuyMargin(state: Pick<GameState, 'business'>): number {
 }
 
 /**
- * The desk's floors, in σ off the store's average deal. Resolved to dollars by
- * `dealMarginFloor` in margins.ts, which is the only place that knows what a
- * standard deviation is worth here.
+ * The desk's floors, as positions on the store's ladder. Resolved to a margin
+ * by `dealMarginFloor` in margins.ts, which is the only place that reads the
+ * table those positions index into.
  */
-export function minCashMarginZ(state: Pick<GameState, 'business'>): number {
-  return businessPolicy(state).minCashMarginZ;
+export function cashFloorLevel(state: Pick<GameState, 'business'>): number {
+  return businessPolicy(state).cashFloorLevel;
 }
 
-export function minFinanceMarginZ(state: Pick<GameState, 'business'>): number {
-  return businessPolicy(state).minFinanceMarginZ;
+export function financeFloorLevel(state: Pick<GameState, 'business'>): number {
+  return businessPolicy(state).financeFloorLevel;
 }
 
 /**
@@ -104,23 +106,22 @@ export function clampBusinessPolicy(patch: Partial<BusinessPolicy>, base: Busine
       repoTriggerMax,
     ),
     minBuyMargin: clamp(finite(merged.minBuyMargin, base.minBuyMargin), buyMarginMin, buyMarginMax),
-    minCashMarginZ: clampMarginZ(merged.minCashMarginZ, base.minCashMarginZ),
-    minFinanceMarginZ: clampMarginZ(merged.minFinanceMarginZ, base.minFinanceMarginZ),
+    cashFloorLevel: clampFloorLevel(merged.cashFloorLevel, base.cashFloorLevel),
+    financeFloorLevel: clampFloorLevel(merged.financeFloorLevel, base.financeFloorLevel),
   };
 }
 
 /**
- * A σ floor, or the "any deal" stop.
+ * A position on a sales floor's ladder, or 0 for the "any deal" stop.
  *
- * Everything under the bottom of the scale collapses onto one stored value
- * rather than being clamped up onto it, because those are different rules and a
- * clamp would silently turn "take anything" into "take anything above -3σ" — a
- * real floor, at the store where σ is smallest and it bites hardest.
+ * A whole number, because every level indexes a hard-coded margin and half a
+ * stop indexes nothing. Clamped to the ladder's length rather than to the store
+ * you happen to be standing in: the levels are the same count everywhere, so a
+ * setting survives a move, which is the whole reason this is a level and not a
+ * percentage.
  */
-function clampMarginZ(value: number, fallback: number): number {
-  const { marginZMin, marginZMax, marginZOff } = BALANCE.business;
-  const v = finite(value, fallback);
-  return v < marginZMin ? marginZOff : clamp(v, marginZMin, marginZMax);
+function clampFloorLevel(value: number, fallback: number): number {
+  return clamp(Math.round(finite(value, fallback)), 0, DEAL_FLOOR_LEVELS);
 }
 
 function finite(value: number, fallback: number): number {

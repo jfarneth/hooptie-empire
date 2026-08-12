@@ -324,6 +324,45 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       minFinanceMarginZ: -4,
     },
   }),
+
+  /**
+   * v14 -> v15: the sales floors stop being standard deviations.
+   *
+   * A σ position was a rule whose meaning moved every time the economy did —
+   * the whole argument is on `dealFloors` in stages.ts. The floors are now a
+   * level from 0 to 6 indexing a hard number per store, so every old save has
+   * to be re-read onto the new ladder.
+   *
+   * The mapping is written out longhand, and it does not consult a single live
+   * constant, for the usual reason: a migration has to keep meaning what it
+   * meant the day it shipped, and one that read today's scale would re-grade
+   * every old save after the next balance pass — which is the exact failure
+   * this change exists to end.
+   *
+   * The v14 scale ran -3σ to +3σ with anything below it meaning NO FLOOR, so
+   * that band maps linearly onto levels 1 to 6 and everything under it lands on
+   * level 0. Two properties are worth stating because they are what makes this
+   * safe: the shipped default (-4, off) lands on 0, off, which is the vast
+   * majority of saves in existence; and the middle of the old scale (0σ, the
+   * store's average deal) lands on level 4, which is the store's average deal
+   * on the new ladder as well.
+   */
+  14: (s) => {
+    const level = (z: any): number => {
+      if (typeof z !== 'number' || !Number.isFinite(z) || z < -3) return 0;
+      const span = Math.min(1, (z + 3) / 6);
+      return Math.min(6, Math.max(1, Math.round(span * 5) + 1));
+    };
+    const { minCashMarginZ, minFinanceMarginZ, ...rest } = s.business ?? {};
+    return {
+      ...s,
+      business: {
+        ...rest,
+        cashFloorLevel: level(minCashMarginZ),
+        financeFloorLevel: level(minFinanceMarginZ),
+      },
+    };
+  },
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

@@ -13,18 +13,21 @@ import type { GameState, Rarity } from './types';
 /**
  * WHAT A DEAL AT THIS STORE IS WORTH, AS A DISTRIBUTION.
  *
- * The house rules that say "only take a deal worth taking" need a yardstick, and
- * a percentage is the wrong one on its own: 20% of the gross is a mediocre car
- * at a curbstone lot and more than a Valmont store can produce on any car it
- * will ever be sold. A rule denominated in flat percent is the same mistake as a
- * gate denominated in a flat car count — wrong at both ends of a 1000x ladder,
- * and wrong in a way the player only discovers eight hours later.
+ * This is the YARDSTICK, not the rules. The sales floors themselves are six
+ * hard numbers per store, tabulated in `STAGES[].dealFloors` — see the comment
+ * there for why they stopped being derived from this distribution and started
+ * being written down. What lives here is everything that has to answer "and how
+ * good is that, for this store?": the panel quotes a stop against the store's
+ * average deal, the buy slider takes its ends from the ladder and its grain
+ * from this spread, the harness prints measured against predicted, and the
+ * guard test that keeps the tabulated ladder honest measures it against this.
  *
- * So the sales floors are set in STANDARD DEVIATIONS off the average deal at the
- * store you are standing in. Zero is "an average car for this lot". +1 is a good
- * one. +3 is a deal that essentially has to be a mispriced unicorn, which is the
- * point of the top of the slider: at that setting the manager is not selling
- * cars, they are waiting for one.
+ * A percentage is the wrong unit for a rule on its own: 20% of the gross is a
+ * mediocre car at a curbstone lot and more than a Valmont store can produce on
+ * any car it will ever sell. That is why the ladder is per store — the mistake
+ * a flat percentage makes is the same one a flat car count makes, wrong at both
+ * ends of a 1000x ladder and wrong in a way the player only discovers eight
+ * hours later.
  *
  * THE DISTRIBUTION IS DERIVED, NOT TABULATED. Everything below comes out of the
  * two constants that actually define a store's economics — its ask band and how
@@ -62,10 +65,6 @@ export interface MarginScale {
   mean: number;
   /** One standard deviation of that, in margin points. */
   sd: number;
-  /** Margin at the bottom of the σ scale (`marginZMin`). */
-  floor: number;
-  /** Margin at the top of the σ scale (`marginZMax`). */
-  ceiling: number;
   /** Best margin this store's own feed can produce: cheapest ask, rarest trim. */
   best: number;
   /** Worst it can produce: dearest ask, stock trim. Negative on the used stages. */
@@ -150,12 +149,9 @@ export function marginScale(stage: StageDef, inputs: MarginInputs = {}): MarginS
   // the seller pitched the ask — so the variances simply add.
   const sd = Math.sqrt(w * w * Math.max(0, xVar) + freight.sd * freight.sd);
 
-  const { marginZMin, marginZMax } = BALANCE.business;
   return {
     mean,
     sd,
-    floor: mean + marginZMin * sd,
-    ceiling: mean + marginZMax * sd,
     // The extremes of the band itself. `C/R` is never above 1 — a seller cannot
     // charge more than the trim is worth — so the worst car is a stock one at
     // the top of the ask band. Quoted against average freight: the best car on
@@ -304,14 +300,11 @@ export function financeGrossMultiple(
 export function financeMarginScale(cash: MarginScale, grossMultiple: number): MarginScale {
   const g = grossMultiple > 0 ? grossMultiple : 1;
   const lift = (margin: number) => 1 - (1 - margin) / g;
-  const { marginZMin, marginZMax } = BALANCE.business;
   const mean = lift(cash.mean);
   const sd = cash.sd / g;
   return {
     mean,
     sd,
-    floor: mean + marginZMin * sd,
-    ceiling: mean + marginZMax * sd,
     best: lift(cash.best),
     worst: lift(cash.worst),
     grossOfRetail: cash.grossOfRetail * g,
@@ -338,58 +331,86 @@ export function stateFinanceScale(s: GameState, stage: StageDef, cash: MarginSca
   );
 }
 
-/** Margin implied by a position on the σ scale. */
-export function marginAtZ(scale: MarginScale, z: number): number {
-  return scale.mean + z * scale.sd;
-}
-
-/** Where a margin sits on the σ scale. Zero sd (an invoice with no band) reads as 0. */
+/**
+ * How far off an ordinary deal a margin is, in standard deviations.
+ *
+ * The one thing the derived distribution is still asked for at runtime: it is
+ * what lets the panel say whether a fixed 15% is a shrug or a wall AT THIS
+ * STORE, without putting a statistic in front of the player. Zero sd (an
+ * invoice with no band at all) reads as 0 rather than dividing by zero.
+ */
 export function zOfMargin(scale: MarginScale, margin: number): number {
   return scale.sd > 0 ? (margin - scale.mean) / scale.sd : 0;
+}
+
+/** Which side of the desk a floor governs. Each has its own ladder per store. */
+export type DealSide = 'cash' | 'finance';
+
+/**
+ * The stops on one of this store's sales floors, ascending.
+ *
+ * Empty where the store has no finance desk, which is the same answer as "no
+ * rule to set" and is what stops the panel drawing a slider nobody can use.
+ */
+export function dealFloorLadder(stage: StageDef, side: DealSide): readonly number[] {
+  return (side === 'cash' ? stage.dealFloors.cash : stage.dealFloors.finance) ?? [];
 }
 
 /**
  * Is this setting the "any deal" stop?
  *
- * The bottom of every sales slider is one position BELOW the σ scale, and it
- * means no floor at all rather than a very low one. That distinction is load
- * bearing: σ shrinks as you climb, so at a Valmont store even -3σ is a 2.4%
- * margin and a desk held to it would refuse the ordinary bad day. "Take
- * anything" has to be its own position, and it is the default, because taking
- * anything is exactly what the desk did before these rules existed.
+ * Level 0 is not a very low floor, it is the ABSENCE of one, and that
+ * distinction is load bearing at both ends of the ladder. At a curbstone the
+ * bottom stop is break-even, which really does refuse the ordinary bad car; at
+ * a franchise it is 3-5%, which is inside the band the store sources. Either
+ * way, backfilling a save onto the bottom of the ladder would hand it a rule it
+ * never agreed to. Taking anything has to be its own position, and it is the
+ * default, because taking anything is exactly what the desk did before these
+ * rules existed.
+ *
+ * Written as a negated comparison so a NaN out of a hand-edited save reads as
+ * "no rule" rather than as a floor nothing can clear.
  */
-export function dealFloorIsOff(z: number): boolean {
-  return !(z >= BALANCE.business.marginZMin);
+export function dealFloorIsOff(level: number): boolean {
+  return !(level >= 1);
 }
 
 /**
  * The margin the desk insists on, in the same units a deal is measured in.
- * `-Infinity` when the rule is off, so every caller is one comparison.
+ *
+ * `-Infinity` when the rule is off, so every caller is one comparison — and
+ * likewise when the store has no ladder for that side, because a stage with no
+ * finance desk cannot have a finance rule. A level past the end of the ladder
+ * (a save from a build with more stops, or a hand-edited one) reads as the top
+ * stop rather than as undefined.
  */
-export function dealMarginFloor(scale: MarginScale, z: number): number {
-  return dealFloorIsOff(z) ? -Infinity : marginAtZ(scale, z);
+export function dealMarginFloor(stage: StageDef, side: DealSide, level: number): number {
+  if (dealFloorIsOff(level)) return -Infinity;
+  const ladder = dealFloorLadder(stage, side);
+  if (ladder.length === 0) return -Infinity;
+  return ladder[Math.min(Math.round(level), ladder.length) - 1];
 }
 
 /**
  * What the buyer's slider spans.
  *
- * The buy rule is stored as a PLAIN MARGIN and not as a σ position, and the
- * reason is worth keeping: there is no single σ position that means what the
- * buyer's default has always meant. "Pay no more than the worst case is worth"
- * is z = -1.4 at a curbstone and z = -4.6 at a premium franchise — the current
- * default is not stage-relative, and converting it would either starve a
- * franchise lot or hand a curbstone buyer a 42% overpay allowance. A buyer's
- * rule is a PRICE ("do not pay more than it is worth"); a manager's floor is a
- * STANDARD ("better than average for this lot"). Those are different questions
- * and they store differently.
+ * The buy rule is stored as a PLAIN MARGIN rather than as a level on a ladder,
+ * and the reason survived the ladder replacing the σ scale: a buyer's rule is a
+ * PRICE ("do not pay more than it is worth") where a manager's floor is a
+ * STANDARD ("better than average for this lot"). The default has always been
+ * break-even against the worst case, which is a specific number and not a
+ * position — so it stores as one, and it keeps meaning the same thing when the
+ * player moves store.
  *
- * The σ scale still sets the ENDS of the slider, so the range means something at
- * every store, and the bottom is pulled below cost wherever the band alone would
- * not reach — at a franchise, mean - 3σ is still a positive margin.
+ * The ends still come from the store's own ladder, so the range means something
+ * at every rung, and the bottom is pulled below cost because at a franchise
+ * every car the store can source is profitable and "pay a little over the odds
+ * to keep the stalls full" would otherwise be unsayable.
  */
-export function buyMarginRange(scale: MarginScale): { min: number; max: number } {
+export function buyMarginRange(stage: StageDef): { min: number; max: number } {
+  const ladder = dealFloorLadder(stage, 'cash');
   return {
-    min: Math.min(scale.floor, -BALANCE.business.buyMarginBelowCost),
-    max: scale.ceiling,
+    min: -BALANCE.business.buyMarginBelowCost,
+    max: ladder[ladder.length - 1] ?? BALANCE.business.buyMarginMax,
   };
 }
