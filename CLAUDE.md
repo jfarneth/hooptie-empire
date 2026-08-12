@@ -707,6 +707,40 @@ the near side would be nearer than the cars and would have to occlude them — a
 cars are pressables in a layer *above* the ground svg, so it could not. That rule
 has a test, and it is the one that goes red if someone adds a fourth strip.
 
+**`src/ui/lot/environment.ts` is what each of the six stores looks like, and the
+buildings are the ladder's argument made visible.** Curbstoning is a HOUSE —
+pitched roof, shingle courses, lap siding, a garage lined up on the driveway the
+cars are parked in, a lit window, and the store's name on a board staked in the
+lawn rather than painted across the front, because a curbstoner's whole position
+is that this is not a dealership. Above it: an office trailer with skirting and a
+window air conditioner, then painted block with a sign band, then three
+franchises that climb almost entirely on **glass** (`glazing`, 0.44 → 0.6 →
+0.78) and on what is over the front door (`entrance`: a canopy on two posts, then
+a portico on four columns with the fascia uplit).
+
+- **Service bays are the STORE's fact, never the artwork's.** `LotGround` takes
+  `hasShop` from `STAGES[].shop` and draws no doors without it; `env.bays` only
+  says how many once there are any. A lot that advertises a department the sim
+  will not open is the same class of lie as the empty-lot copy that told a new
+  player to look for cars priced under wholesale — confident, player-facing, and
+  describing a different game. `environment.test.ts` holds the line.
+- **`quad(cam, corners)` is what let the buildings stop being boxes.**
+  `planeMatrix` covers horizontal planes and `wall` covers vertical ones, which
+  between them cannot draw a pitched roof, a canopy soffit or a gable end. An
+  orthographic camera maps EVERY plane affinely — the same property the ground
+  plate leans on — so a planar quad projects to a quad and four `project` calls
+  are the whole of it. `Box3D` is three of those and covers chimneys, roof
+  plant, columns, canopy slabs and kerb blocks.
+- **Everything this file draws is UNDER the car layer**, because cars are
+  pressables in a layer above the ground svg. That is why the bunting runs along
+  the street frontage rather than across the lot, and why the air dancer stands
+  at the kerb: a wire strung over the stalls would have sixty cars drawn on top
+  of it.
+- **`tools/screenshots/lots.js` is how any of this gets reviewed.** It dumps a
+  save per stage through `dumpsave.ts` and photographs the Lot screen at all six
+  rungs. None of it can be checked by a test — what a test can check is that the
+  art does not contradict the sim, and that the progression progresses.
+
 **`src/ui/lot/layout.ts` is pure and tested, and it is where the 5-to-62 car
 range is solved.** Give it a capacity and a width and it returns painted stalls;
 column count and car scale come out of a table, so the camera pulls back as the
