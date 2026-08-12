@@ -20,13 +20,13 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.jfarneth.hooptieempire",
+      "bundleIdentifier": "com.hooptieempire.game",
       "config": {
         "usesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.jfarneth.hooptieempire",
+      "package": "com.hooptieempire.game",
       "adaptiveIcon": {
         "backgroundColor": "#101219",
         "foregroundImage": "./assets/android-icon-foreground.png",

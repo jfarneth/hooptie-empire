@@ -75,8 +75,17 @@ eas build --profile production --platform ios # signed archive for App Store Con
 eas submit --profile production --platform ios
 ```
 
-Three things in `app.json` exist only for the store and are easy to knock out:
+Four things in `app.json` exist only for the store and are easy to knock out:
 
+- **The bundle identifier is permanent, and it is deliberately impersonal.** It
+  was `com.jfarneth.hooptieempire` and is now `com.hooptieempire.game`, because
+  an ID cannot be changed once an app has shipped — the only way out is
+  publishing a *different* app and abandoning its ratings and installs. Naming
+  it after the game rather than after a person means it reads the same whether
+  the seller is an individual or a company, and Apple's way of making that
+  change (transfer the app between accounts) does not touch it. Free to get
+  right before the first release and impossible afterwards. `android.package`
+  is the same string for the same reason.
 - **`version` is what reviewers and customers see** (`CFBundleShortVersionString`).
   The build number underneath it is *not* in this file — `eas.json` sets
   `appVersionSource: "remote"` with `autoIncrement`, so EAS owns it and two
