@@ -1,3 +1,9 @@
+import { repoCarryingValue } from './notes';
+import { createInitialState } from './engine';
+import { generateCar } from './cars';
+import { getModel } from './models';
+import { createRng } from './rng';
+import { repoFee } from './upgrades';
 import { BALANCE, MS_PER_GAME_WEEK } from './balance';
 import { totalOfPayments, weeklyPayment } from './economy';
 import { expectedCollections } from './engine';
@@ -15,6 +21,7 @@ function makeNote(over: Partial<Note> = {}): Note {
     customerName: 'Test Customer',
     customerTier: 'C',
     originalPrincipal: principal,
+    downPayment: 0,
     principal,
     apr,
     paymentAmount: weeklyPayment(principal, apr, weeks),
@@ -180,3 +187,72 @@ describe('deal structuring', () => {
     expect(long.weeklyPayment).toBeLessThan(short.weeklyPayment);
   });
 });
+
+/**
+ * What a recovered car is still worth to the business.
+ *
+ * The arithmetic on its own, away from the engine, because it is the sort of
+ * formula that is easy to get subtly wrong and easy to state exactly.
+ */
+describe('the carrying value of a repossessed car', () => {
+  const note = (downPayment: number, collected: number) =>
+    ({ downPayment, collected }) as any;
+
+  it('is what it cost, plus the recovery, less everything the customer paid', () => {
+    // Bought and reconditioned for $5,000, $250 to get it back, $1,000 down and
+    // $1,200 of weekly payments already collected.
+    expect(repoCarryingValue(5_000, 250, note(1_000, 1_200))).toBe(3_050);
+  });
+
+  it('credits the down payment as well as the weekly money', () => {
+    const withDown = repoCarryingValue(5_000, 250, note(1_000, 0));
+    const without = repoCarryingValue(5_000, 250, note(0, 0));
+    // Half the point of the fix: a borrower who put $1,000 down and then never
+    // paid again has still returned $1,000 of the investment.
+    expect(without - withDown).toBe(1_000);
+  });
+
+  it('adds the recovery fee to the unit that cost it', () => {
+    expect(repoCarryingValue(5_000, 900, note(0, 0)) - repoCarryingValue(5_000, 250, note(0, 0))).toBe(
+      650,
+    );
+  });
+
+  it('floors at zero rather than going negative', () => {
+    // This contract returned more than the car ever cost. The business has
+    // nothing left in the unit — but a negative basis would pay it floorplan
+    // interest and inflate the profit on the resale past the cash it produced.
+    expect(repoCarryingValue(5_000, 250, note(2_000, 9_000))).toBe(0);
+  });
+
+  it('tolerates a contract written before down payments were stored', () => {
+    expect(repoCarryingValue(5_000, 250, { collected: 500 } as any)).toBe(4_750);
+  });
+});
+
+describe('what it costs to get the car back', () => {
+  it('scales with the car, and never drops under the flat floor', () => {
+    const s = createInitialState(5, 0);
+    const cheap = { ...carFixture(), modelId: 'comet', mileage: 240_000 };
+    const dear = { ...carFixture(), modelId: 'norwood', mileage: 5_000 };
+
+    // A beater bottoms out on the floor; a big car costs a multiple of it.
+    expect(repoFee(s, cheap)).toBe(BALANCE.repoFee);
+    expect(repoFee(s, dear)).toBeGreaterThan(BALANCE.repoFee * 3);
+    // No car to price — a contract whose unit has already gone still gets
+    // chased, at the floor.
+    expect(repoFee(s)).toBe(BALANCE.repoFee);
+  });
+
+  it('is still discounted by the recovery agent', () => {
+    const bare = createInitialState(5, 0);
+    const staffed = { ...bare, upgrades: { repoMan: 3 } };
+    const car = { ...carFixture(), modelId: 'norwood', mileage: 5_000 };
+    expect(repoFee(staffed, car)).toBeLessThan(repoFee(bare, car));
+  });
+});
+
+/** A plain car to price a recovery against. */
+function carFixture() {
+  return generateCar({ nextId: 1 }, createRng(3), getModel('comet'), 0);
+}

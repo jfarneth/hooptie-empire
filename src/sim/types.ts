@@ -123,6 +123,15 @@ export interface Note {
   customerTier: CreditTier;
   /** Amount financed at origination. */
   originalPrincipal: number;
+  /**
+   * What the customer put down at signing.
+   *
+   * Stored rather than derived, because it is money this car has already
+   * returned and a repossession has to be able to credit it. Deriving it from
+   * the tier's shipped down share would be wrong by the jitter, and would
+   * silently re-derive every old contract after the next balance pass.
+   */
+  downPayment: number;
   /** Outstanding principal right now. */
   principal: number;
   /** Annual percentage rate, e.g. 0.229 for 22.9%. */

@@ -165,6 +165,72 @@ describe('advance() tick-size invariance', () => {
   });
 });
 
+/**
+ * THE ACCOUNTING INVARIANT, and the test that would have caught the repossession
+ * bug on the day it shipped.
+ *
+ * `lifetimeProfit` is matched, not cash: buying a car moves no profit, and the
+ * basis is expensed against the sale that finally pays for it. So over any run
+ * from a known start, profit must equal the cash that moved plus the cost of
+ * whatever is still sitting on the lot unsold — money spent on stock has left
+ * the till without being expensed yet, and that is the only legitimate gap
+ * between the two numbers.
+ *
+ * A repossession is the one event that can break it, because the car's basis was
+ * already expensed in full at the finance sale and the unit then comes BACK.
+ * Before `repoCarryingValue`, the resale charged that basis a second time: 25
+ * repossessions over three game hours put the books $200,678 out, all of it
+ * understating profit, on the single number CLAUDE.md tells you to read for the
+ * health of the economy.
+ */
+describe('the books balance', () => {
+  it('keeps profit equal to cash moved plus stock at cost, across repossessions', () => {
+    let s = createInitialState(31, 0);
+    s.stage = 'smallUsed';
+    s.cash = 200_000;
+    s.upgrades = { autoBuy: 1, autoList: 1, autoRecon: 1, salesDesk: 1, collections: 3 };
+    s.dealPolicy = 'finance';
+    s.listings = [];
+
+    const startCash = s.cash;
+    const startProfit = s.stats.lifetimeProfit;
+    s = advance(s, 3 * 60 * 60 * 1000);
+
+    // The fixture has to have actually repossessed things, or this is an
+    // invariant about a run where nothing interesting happened.
+    expect(s.stats.reposCompleted).toBeGreaterThan(10);
+
+    const stockAtCost = s.cars.reduce((n, c) => (c.status === 'sold' ? n : n + c.costBasis), 0);
+    const profit = s.stats.lifetimeProfit - startProfit;
+    const cash = s.cash - startCash;
+    // To the dollar rather than exactly: weekly payments carry cents, so a run
+    // this long accumulates a few tenths of float. The bug this guards was
+    // $200,678 out, so a dollar of slack costs the test nothing.
+    expect(Math.abs(profit - (cash + stockAtCost))).toBeLessThan(1);
+  });
+
+  it('brings a repossessed car back at what is left in it, not at what it cost', () => {
+    let s = createInitialState(31, 0);
+    s.stage = 'smallUsed';
+    s.cash = 200_000;
+    s.upgrades = { autoBuy: 1, autoList: 1, autoRecon: 1, salesDesk: 1, collections: 3 };
+    s.dealPolicy = 'finance';
+    s.listings = [];
+    s = advance(s, 3 * 60 * 60 * 1000);
+
+    const recovered = s.cars.filter((c) => c.repoCount > 0);
+    expect(recovered.length).toBeGreaterThan(0);
+    for (const car of recovered) {
+      // Never negative — a car that paid for itself sits at zero, and a negative
+      // basis would pay the player floorplan interest.
+      expect(car.costBasis).toBeGreaterThanOrEqual(0);
+      // And genuinely written down: these cost thousands to buy, and every one
+      // of them has had a down payment and some weeks of payments against it.
+      expect(car.costBasis).toBeLessThan(4_000);
+    }
+  });
+});
+
 describe('advance() purity', () => {
   it('does not mutate the state it was given', () => {
     const s0 = createInitialState(42, 0);

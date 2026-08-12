@@ -43,6 +43,7 @@ import {
   missChance,
   openNote,
   overCapacityFactor,
+  repoCarryingValue,
 } from './notes';
 import { prestigeEdge } from './prestige';
 import { baseTrim, rarityAskMult } from './rarity';
@@ -79,9 +80,9 @@ import {
 } from './upgrades';
 import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
-import type { Car, GameState, Listing, Millis, Prospect, SimEvent, SkillId } from './types';
+import type { Car, GameState, Listing, Millis, Note, Prospect, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 16;
+export const SAVE_VERSION = 17;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -599,7 +600,7 @@ function stepNotes(s: GameState): void {
       logEvent(s, { t: s.t, kind: 'note-paid', label: `${note.customerName} paid off ${note.carLabel}` });
     } else if (result.defaulted) {
       s.stats.notesDefaulted += 1;
-      repossess(s, note.carId, note.customerName, note.carLabel);
+      repossess(s, note.carId, note.customerName, note, note.carLabel);
     }
   }
 
@@ -630,8 +631,11 @@ function pruneClosedNotes(s: GameState): void {
  * the unit back to sell again — which is why a defaulted note is frequently
  * worth more than the cash sale the player passed on.
  */
-function repossess(s: GameState, carId: string, customer: string, label: string): void {
-  const fee = repoFeeFor(s);
+function repossess(s: GameState, carId: string, customer: string, note: Note, label: string): void {
+  const car = s.cars.find((c) => c.id === carId);
+  // Priced off the car where there is one to price — see `repoFee`. A contract
+  // whose car has already left the books still costs something to chase.
+  const fee = repoFeeFor(s, car);
   s.cash -= fee;
   s.stats.lifetimeProfit -= fee;
   s.stats.reposCompleted += 1;
@@ -651,7 +655,6 @@ function repossess(s: GameState, carId: string, customer: string, label: string)
     });
   }
 
-  const car = s.cars.find((c) => c.id === carId);
   if (!car) {
     logEvent(s, { t: s.t, kind: 'repo', label: `Repo: ${label} (${customer})`, amount: -fee });
     return;
@@ -660,6 +663,22 @@ function repossess(s: GameState, carId: string, customer: string, label: string)
   // The car was marked sold at delivery; this brings it back to inventory,
   // damaged by however hard it had to be taken.
   applyRepoDamage(car, repoConditionLossFor(s));
+
+  // AND IT COMES BACK ON THE BOOKS AT WHAT IS LEFT IN IT, not at what it
+  // originally cost. See `repoCarryingValue`: the customer's down payment and
+  // every weekly payment they made have already come back, and the recovery fee
+  // has just gone out. Carrying the original basis made a car that had paid for
+  // itself twice still read as a thin deal on the sheet.
+  //
+  // The write-back on the same line is what keeps the books straight rather than
+  // merely less wrong. `acceptFinance` expensed the WHOLE basis against
+  // lifetimeProfit at signing, so an asset returning to inventory has to reverse
+  // that expense to the extent of what it is worth — otherwise the resale
+  // charges the basis a second time. Measured before this: 25 repossessions over
+  // three game hours understated profit by $200,678.
+  const carrying = repoCarryingValue(car.costBasis, fee, note);
+  car.costBasis = carrying;
+  s.stats.lifetimeProfit += carrying;
 
   // ...but only if there is a stall for it. THE LOT IS A HARD LIMIT: every
   // buying path is gated on capacity, and a repo is the one event that can add

@@ -27,6 +27,7 @@ export function openNote(
     customerName: prospect.name,
     customerTier: prospect.tier,
     originalPrincipal: amountFinanced,
+    downPayment: prospect.downPayment,
     principal: amountFinanced,
     apr,
     paymentAmount: payment,
@@ -146,6 +147,41 @@ export function applyDuePayment(
   }
 
   return { paid: true, amount: payment, closed, defaulted: false };
+}
+
+/**
+ * WHAT A REPOSSESSED CAR IS STILL WORTH TO THE BUSINESS, and therefore what it
+ * goes back on the books at.
+ *
+ * A car that comes back is not the car that left. It left carrying what it cost
+ * to buy and recondition; it comes back having already returned a down payment
+ * and however many weekly payments the customer made, and having cost a recovery
+ * fee to get. The carrying value is what is left of the investment:
+ *
+ *     purchase + recon + recovery fee − down payment − payments collected
+ *
+ * Using the ORIGINAL basis instead — which is what this did until it was found
+ * in playtesting — is wrong twice over, and the second way is worse than the
+ * first. It makes the deal sheet's margin read against money the customer has
+ * already handed over, so a car that has paid for itself twice still looks like
+ * a thin deal. And because `acceptFinance` already expensed the whole basis
+ * against `lifetimeProfit` at signing, charging it again on the resale
+ * double-counts it: measured over a 3h run with 25 repossessions, the books
+ * understated profit by $200,678, about $8k a repo.
+ *
+ * FLOORED AT ZERO, and that floor is load-bearing rather than defensive. A note
+ * that collected more than the car cost genuinely leaves a negative investment,
+ * and a negative basis would pay the player floorplan interest on a car they
+ * are holding. Zero says the true thing — the business has nothing left in this
+ * unit, and every dollar it now sells for is profit.
+ */
+export function repoCarryingValue(
+  costBasis: number,
+  fee: number,
+  note: Pick<Note, 'downPayment' | 'collected'>,
+): number {
+  const returned = (note.downPayment ?? 0) + (note.collected ?? 0);
+  return Math.max(0, Math.round(costBasis + fee - returned));
 }
 
 /** What the player would collect if this note ran to term from here. */

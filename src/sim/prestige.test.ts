@@ -33,7 +33,8 @@ describe('retirement value', () => {
     s.cars = advance({ ...s, upgrades: { autoBuy: 1 } }, 30 * 60_000).cars;
     s.notes = [{
       id: 'n1', carId: 'c1', carLabel: 'x', customerName: 'y', customerTier: 'C',
-      originalPrincipal: 10_000, principal: 8_000, apr: 0.239, paymentAmount: 400,
+      originalPrincipal: 10_000,
+      downPayment: 0, principal: 8_000, apr: 0.239, paymentAmount: 400,
       paymentsTotal: 24, paymentsRemaining: 20, nextDueAt: 999_999_999_999,
       missedPayments: 0, collected: 0, status: 'current', openedAt: 0,
     }];
@@ -49,7 +50,8 @@ describe('retirement value', () => {
     const s = richRun();
     s.cash = 40_000;
     s.loan = {
-      originalPrincipal: 90_000, apr: 0.32, paymentAmount: 4_500,
+      originalPrincipal: 90_000,
+      apr: 0.32, paymentAmount: 4_500,
       paymentsRemaining: 24, nextDueAt: 0, openedAt: 0,
     };
     const p = retirementPreview(s);
@@ -85,7 +87,8 @@ describe('retire()', () => {
     const s = cloneState(createInitialState(7, 0));
     s.cash = -12_000;
     s.loan = {
-      originalPrincipal: 20_000, apr: 0.32, paymentAmount: 1_000,
+      originalPrincipal: 20_000,
+      apr: 0.32, paymentAmount: 1_000,
       paymentsRemaining: 18, nextDueAt: 0, openedAt: 0,
     };
     const after = retire(s);
@@ -190,7 +193,8 @@ describe('clone isolation', () => {
   it('does not share the prestige history or the loan between a state and its clone', () => {
     const s = richRun();
     s.loan = {
-      originalPrincipal: 10_000, apr: 0.32, paymentAmount: 500,
+      originalPrincipal: 10_000,
+      apr: 0.32, paymentAmount: 500,
       paymentsRemaining: 24, nextDueAt: 0, openedAt: 0,
     };
     const c = cloneState(s);

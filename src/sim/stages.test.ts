@@ -271,7 +271,8 @@ describe('taking on the next dealership', () => {
     before.notes = [
       {
         id: 'n1', carId: 'c1', carLabel: 'x', customerName: 'y', customerTier: 'C',
-        originalPrincipal: 5_000, principal: 5_000, apr: 0.239, paymentAmount: 260,
+        originalPrincipal: 5_000,
+        downPayment: 0, principal: 5_000, apr: 0.239, paymentAmount: 260,
         paymentsTotal: 24, paymentsRemaining: 24, nextDueAt: 999_999_999,
         missedPayments: 0, collected: 0, status: 'current', openedAt: 0,
       },
@@ -445,7 +446,8 @@ describe('jumping rungs and walking back down', () => {
     before.notes = [
       {
         id: 'n1', carId: 'c1', carLabel: 'x', customerName: 'y', customerTier: 'C',
-        originalPrincipal: 5_000, principal: 5_000, apr: 0.239, paymentAmount: 260,
+        originalPrincipal: 5_000,
+        downPayment: 0, principal: 5_000, apr: 0.239, paymentAmount: 260,
         paymentsTotal: 24, paymentsRemaining: 24, nextDueAt: 999_999_999,
         missedPayments: 0, collected: 0, status: 'current', openedAt: 0,
       },

@@ -444,6 +444,34 @@ describe('migration chain', () => {
     expect(() => advance(migrated, 10 * 60 * 1000)).not.toThrow();
   });
 
+  /**
+   * v16 -> v17.
+   *
+   * A repossession credits what the customer has already paid, and half of that
+   * was never stored. The backfill reconstructs it from the tier's shipped down
+   * share — an estimate, and the honest one: zero would put every old repo back
+   * on the books too dear, and dropping the notes would delete the portfolio.
+   */
+  it('reconstructs a down payment for contracts written before one was stored', () => {
+    const v16: any = JSON.parse(JSON.stringify(createInitialState(90, 0)));
+    v16.version = 16;
+    v16.notes = [
+      { id: 'n1', customerTier: 'C', originalPrincipal: 7_600, collected: 0, status: 'current' },
+      { id: 'n2', customerTier: 'A', originalPrincipal: 8_600, collected: 0, status: 'current' },
+      // One that already has the field must be left exactly as it is.
+      { id: 'n3', customerTier: 'D', originalPrincipal: 5_000, downPayment: 1_234, status: 'current' },
+    ];
+
+    const migrated = migrate(v16, 16);
+
+    // C tier puts 24% down, so $7,600 financed implies $2,400 down.
+    expect(migrated.notes[0].downPayment).toBe(2_400);
+    // A tier puts 14% down: $8,600 financed implies $1,400.
+    expect(migrated.notes[1].downPayment).toBe(1_400);
+    expect(migrated.notes[2].downPayment).toBe(1_234);
+    expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+  });
+
   it('gives a v9 save no promotions rather than a back-dated one', () => {
     const v9: any = JSON.parse(JSON.stringify(createInitialState(92, 0)));
     v9.version = 9;

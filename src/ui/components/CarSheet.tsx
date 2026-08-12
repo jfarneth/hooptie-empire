@@ -91,6 +91,17 @@ export function CarSheet({
         />
       </View>
 
+      {car.repoCount > 0 ? (
+        <Row gap={8} style={styles.grade}>
+          <Chip text="BACK ON THE LOT" color={theme.colors.warn} filled />
+          <Text style={styles.gradeNote}>
+            {car.costBasis <= 0
+              ? 'This one has already paid for itself. Whatever it sells for now is all profit.'
+              : `Carrying ${money(car.costBasis)} — what it cost and what it took to get back, less everything the customer paid.`}
+          </Text>
+        </Row>
+      ) : null}
+
       {badge ? (
         <Row gap={8} style={styles.grade}>
           <Chip text={badge.toUpperCase()} color={RARITY_COLOR[car.rarity]} filled />
@@ -102,7 +113,15 @@ export function CarSheet({
       ) : null}
 
       <View style={styles.figures}>
-        <Figure label="You paid" value={money(car.costBasis)} />
+        {/* "You paid" stops being true the moment a car comes back. A
+            repossessed unit carries what is LEFT in it — what it cost, plus the
+            recovery, less every dollar the customer already handed over — and
+            labelling that as the purchase price would misreport the one number
+            the whole sheet's margin is measured against. */}
+        <Figure
+          label={car.repoCount > 0 ? 'Still in it' : 'You paid'}
+          value={money(car.costBasis)}
+        />
         <Figure label="Cash retail" value={money(retail)} accent />
         {getStage(state.stage).financing ? (
           // What somebody who needs financing pays for the same car. The premium

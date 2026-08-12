@@ -836,7 +836,7 @@ change can actually move what they measure.
 | anything stage-, margin- or ladder-shaped | plus the whole ladder (~2m45s) |
 
 ```bash
-npm test        # 447 tests, ~10s
+npm test        # 458 tests, ~9s
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~3s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2m45s
@@ -905,6 +905,10 @@ columns are the same machine and the same afternoon:
 | Premium franchise | 210h13m | **230h58m** |
 | end cash | $101.4M | **$110.7M** |
 | lifetime profit | $124.2M | **$159.0M** |
+
+(Both profit figures above predate the repossession fix and are understated by
+the double-counted basis — see the note under the 4h targets. The shipped ladder
+re-measured after it reads $113.3M cash and $274.7M profit at the same pacing.)
 
 **The first three rungs are identical to the minute, and that is the guard, not
 a coincidence**: neither feature exists below the big lot, and a 4h 16-seed run
@@ -1067,15 +1071,27 @@ compare against for everything below the franchise:
 | $100k cash | ~2h19m |
 | $50k portfolio | ~2h35m |
 | walk-away rate | ~60.5% |
-| bad-buy rate (true loss: `price > retailValue`) | ~1.1% |
-| appraisal error | ~7.0% |
+| bad-buy rate (true loss: `price > retailValue`) | ~1.2% |
+| appraisal error | ~7.1% |
 | Buying / Closing / Wrenching to level 5 | 38m / 31m / 33m |
-| end cash at 4h | ~$40k |
-| end portfolio at 4h | ~$260k |
-| lifetime profit at 4h | ~$548k |
-| cars sold at 4h | ~301 |
+| end cash at 4h | ~$39k |
+| end portfolio at 4h | ~$278k |
+| lifetime profit at 4h | ~$590k |
+| cars sold at 4h | ~318 |
 | days on the lot (curbstone / small lot) | 6.1d / 7.3d |
 | lot at capacity | ~79% of the run |
+
+**`lifetime profit` IS NOT COMPARABLE TO ANY FIGURE THIS FILE QUOTED BEFORE THE
+REPOSSESSION FIX**, and that is a change to the definition rather than to the
+economy — the same footing as the bad-buy rate when the buyer's ceiling moved to
+retail. Every repossessed car used to have its cost basis expensed twice, once
+at signing and again on the resale, so the number was understated by roughly one
+car's basis per repo. On the ladder it read $159.0M and it now reads **$274.7M**
+across 2,228 repossessions — about $52k a repo, which is what a franchise car
+costs. **Pacing did not move**: the milestones either side of the fix are 42h12m
+vs 42h20m and 230h58m vs 229h24m, both inside the noise. Read it as the meter
+being repaired, not the engine being retuned, and do not diff a profit figure
+across this commit.
 
 Cars sold and lifetime profit are DOWN by about a quarter and a third against
 the pre-dwell build (419 → 301, $800k → $548k) and that is the feature, not a
@@ -1507,6 +1523,30 @@ Most have a guarding test; check before "simplifying" the code around them.
   migration has to keep meaning what it meant the day it shipped, and reading
   the live constants would silently re-grade every old save after the next
   balance pass.
+- **A REPOSSESSED CAR COMES BACK ON THE BOOKS AT WHAT IS LEFT IN IT, and for a
+  long time it did not.** `applyRepoDamage` moved the condition and left
+  `costBasis` at the original purchase-plus-recon figure, so a car that had
+  returned a down payment and four months of weekly payments still read as
+  costing what it cost the day it was bought. That is wrong on the sheet — a car
+  that has paid for itself twice looked like a thin deal — and wrong in the
+  books, which is worse: `acceptFinance` already expenses the WHOLE basis against
+  `lifetimeProfit` at signing, so charging it again on the resale double-counts
+  it. **Measured: 25 repossessions over three game hours put the books $200,678
+  out**, every dollar of it understating profit, on the one number this file
+  tells you to read for the health of the economy. `repoCarryingValue` is the
+  fix — purchase + recon + recovery fee − down payment − payments collected,
+  floored at zero — and the write-back on the same line is what makes it exact
+  rather than merely closer. `engine.test.ts` now asserts the invariant
+  continuously: **profit must equal cash moved plus stock at cost**, which is a
+  property no single line could have been read wrong. The floor is load-bearing;
+  a negative basis would pay the player floorplan interest on a car they hold.
+- **A flat repo fee is wrong at both ends of a 1000x ladder**, same as the
+  reopening float was. $250 to recover a $2,000 beater is a real cost and $250 to
+  recover a $90,000 Valmont is a rounding error. It is 3% of the car's
+  condition-free value now, floored at the old flat figure — which lands within
+  $40 of the old number at the small lot, where repossessions actually happen
+  most, so the early game barely moves. Indexed to `conditionFreeValue` rather
+  than retail because a recovery agent does not charge less for a dented wing.
 - **A CAP THAT CAN BE EXCEEDED IS NOT A CAP.** The service plan's 150% ceiling
   rounded its last payment instead of flooring it, so a plan priced at $667 paid
   out $1,001 against a $1,000.50 limit. One dollar, and it makes the number the

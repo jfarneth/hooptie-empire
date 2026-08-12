@@ -77,6 +77,7 @@ function makeNote(over: Partial<Note> = {}): Note {
     customerName: 'Test Customer',
     customerTier: 'C',
     originalPrincipal: 5_000,
+    downPayment: 0,
     principal: 5_000,
     apr: 0.239,
     paymentAmount: 260,

@@ -268,7 +268,20 @@ export const BALANCE = {
   delinquencyMissMultiplier: 1.5,
   /** Default repo trigger. The player can move it; see `business` below. */
   repoAfterMissedPayments: 3,
+  /**
+   * Floor on the recovery fee. The real charge is a share of the car — see
+   * `repoFeeOfValue` — and this is what a very cheap one costs regardless.
+   */
   repoFee: 250,
+  /**
+   * Recovery fee as a share of the car's condition-free value.
+   *
+   * 3%, which lands within $40 of the old flat fee at the small lot (where most
+   * repossessions actually happen) and scales honestly from there. It is charged
+   * in cash AND added to the recovered car's cost basis, the same way recon
+   * spend is: you paid for it, and the cost belongs to that unit.
+   */
+  repoFeeOfValue: 0.03,
   /** Condition lost when a car comes back on the hook, at the default trigger. */
   repoConditionLoss: 0.18,
   /**

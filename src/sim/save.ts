@@ -409,6 +409,40 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       shopTurnedAway: 0,
     },
   }),
+
+  /**
+   * v16 -> v17: a repossessed car comes back at what is left in it.
+   *
+   * The carrying value needs to know what the customer has already handed over,
+   * and half of that — the down payment — was never stored: `openNote` kept the
+   * amount financed and nothing else. So every existing contract gets one
+   * backfilled from the tier's shipped down share.
+   *
+   * That is an ESTIMATE and it is worth being honest about which way it errs.
+   * The real figure carried a +/-15% jitter that is gone for good, so an old
+   * note's backfill is within about a sixth of the truth. Reconstructing it is
+   * strictly better than the alternatives: zero would credit the customer with
+   * nothing they paid at signing and put every old repo back on the books too
+   * dear, and dropping the notes to avoid guessing would delete the portfolio.
+   *
+   * The tier table is written out longhand and reads no live constant, for the
+   * reason every migration here does: `BALANCE.creditTiers` is free to move in
+   * the next balance pass, and a migration that followed it would re-grade every
+   * old contract differently each time.
+   */
+  16: (s) => {
+    const DOWN_SHARE: Record<string, number> = { A: 0.14, B: 0.18, C: 0.24, D: 0.31 };
+    return {
+      ...s,
+      notes: (s.notes ?? []).map((n: any) => {
+        if (typeof n.downPayment === 'number') return n;
+        const share = DOWN_SHARE[n.customerTier] ?? 0.24;
+        // financed = price x (1 - share), so down = financed x share/(1 - share).
+        const financed = Math.max(0, Number(n.originalPrincipal) || 0);
+        return { ...n, downPayment: Math.round((financed * share) / (1 - share)) };
+      }),
+    };
+  },
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

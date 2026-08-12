@@ -1,8 +1,9 @@
 import { BALANCE } from './balance';
 import { repoDamageMultiplier, repoThreshold } from './business';
+import { conditionFreeValue } from './economy';
 import { getStage, hasReached } from './stages';
 import { MARKET_TIERS } from './market';
-import type { GameState, StageId } from './types';
+import type { Car, GameState, StageId } from './types';
 
 export type UpgradeCategory = 'capacity' | 'speed' | 'automation' | 'finance';
 
@@ -391,8 +392,28 @@ export function offlineCapMs(state: GameState): number {
   return BALANCE.offlineCapMs + level(state, 'nightManager') * BALANCE.offlineCapPerNightManagerMs;
 }
 
-export function repoFee(state: GameState): number {
-  return Math.round(BALANCE.repoFee * Math.pow(0.75, level(state, 'repoMan')));
+/**
+ * What it costs to get the car back.
+ *
+ * A SHARE OF THE CAR, with the old flat fee as a floor. Recovering a $90,000
+ * Valmont is not the same job as recovering a $2,000 beater — different truck,
+ * different insurance, and a lawyer somewhere in it — and a flat $250 said it
+ * was. That is the same "a flat count is wrong at both ends of a 1000x ladder"
+ * mistake the reopening float already paid for. At the small lot, where repos
+ * actually happen most, 3% of a typical car is about $290 against the old $250,
+ * so the early game barely moves; at the top it is ten times the old number.
+ *
+ * Indexed to `conditionFreeValue` rather than to retail, because a recovery
+ * agent does not charge less for a car with a dented wing — the fee scales with
+ * how much car there is, not with what condition it is in. Same basis recon
+ * cost uses, for the same reason.
+ *
+ * `car` is optional: a repossession whose car has already left `state.cars` can
+ * still be charged for, and falls back to the flat fee.
+ */
+export function repoFee(state: GameState, car?: Car): number {
+  const share = car ? conditionFreeValue(car) * BALANCE.repoFeeOfValue : 0;
+  return Math.round(Math.max(BALANCE.repoFee, share) * Math.pow(0.75, level(state, 'repoMan')));
 }
 
 /**
