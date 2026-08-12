@@ -299,48 +299,22 @@ export const BALANCE = {
       minWorkingCapital: 500,
       repoAfterMissedPayments: 3,
       minBuyMargin: 0,
-      // Both sales floors open one stop BELOW the σ scale, which is the "take
-      // any deal" position — exactly what the desk did before these existed.
-      minCashMarginZ: -4,
-      minFinanceMarginZ: -4,
+      // Both sales floors open at level 0, which is the "take any deal"
+      // position — exactly what the desk did before these existed.
+      cashFloorLevel: 0,
+      financeFloorLevel: 0,
     },
     repoTriggerMin: 1,
     repoTriggerMax: 6,
 
     /**
-     * The σ scale the sales floors are set on. See margins.ts for what a
-     * standard deviation of deal margin is and why the floors are denominated
-     * in them rather than in percent.
-     *
-     * ±3 because three standard deviations is where "only take a killer deal"
-     * lands honestly: the ask band alone can reach about +1.7σ, so everything
-     * above that needs a rare trim, a car somebody pays over sticker for, or
-     * both. A floor set at the top is not a strict manager, it is a manager who
-     * has stopped selling cars — which is the position the top of a slider
-     * should mean.
-     */
-    marginZMin: -3,
-    marginZMax: 3,
-    /** Slider resolution, in σ. Quarter steps are ~3 margin points at a
-     *  curbstone and ~0.4 at a premium franchise, which is the right grain at
-     *  both ends. */
-    marginZStep: 0.25,
-    /**
-     * Anything below `marginZMin` is stored as this and means NO FLOOR. It is a
-     * plain number rather than a null so nothing downstream has to unwrap it,
-     * and it is the default for both sales floors.
-     */
-    marginZOff: -4,
-
-    /**
-     * How far below cost the BUYER's slider reaches wherever the σ scale alone
-     * would not get there.
+     * How far below cost the BUYER's slider reaches.
      *
      * The buy rule is a plain margin (see `buyMarginRange`), and at a franchise
-     * the whole ±3σ band sits above break-even — mean 7%, σ 1.5% — so a range
-     * derived from σ alone could not express "pay a little over the odds to
-     * keep the lot full", which at a store that spends most of its life short
-     * of stock is a real strategy rather than a mistake.
+     * every deal the store can source is profitable — so a range that stopped at
+     * break-even could not express "pay a little over the odds to keep the lot
+     * full", which at a store that spends most of its life short of stock is a
+     * real strategy rather than a mistake.
      */
     buyMarginBelowCost: 0.05,
     /** Hard bounds on the stored buy margin, for a hand-edited save. */

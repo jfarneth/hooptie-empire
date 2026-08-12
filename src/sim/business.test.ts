@@ -524,15 +524,15 @@ describe('setting the house rules', () => {
       minWorkingCapital: 500,
       repoAfterMissedPayments: BALANCE.repoAfterMissedPayments,
       minBuyMargin: 0,
-      minCashMarginZ: -4,
-      minFinanceMarginZ: -4,
+      cashFloorLevel: 0,
+      financeFloorLevel: 0,
     });
     expect(repoThreshold(s)).toBe(BALANCE.repoAfterMissedPayments);
     // Stated as a property rather than as a number: what the two sales floors
-    // have to be is OFF, and a later retune of the scale must not be able to
+    // have to be is OFF, and a later retune of the ladder must not be able to
     // turn them on by moving a constant this assertion happens to quote.
-    expect(dealFloorIsOff(s.business.minCashMarginZ)).toBe(true);
-    expect(dealFloorIsOff(s.business.minFinanceMarginZ)).toBe(true);
+    expect(dealFloorIsOff(s.business.cashFloorLevel)).toBe(true);
+    expect(dealFloorIsOff(s.business.financeFloorLevel)).toBe(true);
   });
 
   it('changes one rule without disturbing the others', () => {

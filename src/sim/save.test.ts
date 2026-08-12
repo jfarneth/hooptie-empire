@@ -4,7 +4,8 @@ import { activeNotes, bookRoom } from './notes';
 import { deserialize, migrate, serialize } from './save';
 import { SKILL_IDS } from './skills';
 import { landedCost, reachLevel } from './market';
-import { STAGE_ORDER, getStage } from './stages';
+import { dealFloorIsOff } from './margins';
+import { DEAL_FLOOR_LEVELS, STAGE_ORDER, getStage } from './stages';
 
 /**
  * Save compatibility is not a nice-to-have in this genre. A player can be hours
@@ -161,8 +162,8 @@ describe('migration chain', () => {
       // did: it signed whatever was in front of it. Stated in the literal
       // number rather than read off BALANCE, because the requirement is "the
       // rule is off", not "the rule matches today's default".
-      minCashMarginZ: -4,
-      minFinanceMarginZ: -4,
+      cashFloorLevel: 0,
+      financeFloorLevel: 0,
     });
     expect(migrated.cash).toBe(412_000);
     expect(migrated.upgrades).toEqual({ lot: 3, collections: 2 });
@@ -322,6 +323,67 @@ describe('migration chain', () => {
     // is local-only, which is exactly what the old build did.
     expect(reachLevel(migrated)).toBe(0);
     expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+  });
+
+  /**
+   * THE MIGRATION THAT DECIDES WHETHER A RETURNING PLAYER'S DESK CHANGES ITS
+   * MIND. A v14 save carries its sales floors as σ positions off a distribution
+   * that no longer sets any rule; v15 reads them as levels on a hard ladder.
+   * Two properties matter and they pull in opposite directions: a save that had
+   * no floor must still have none (the overwhelming majority — it is the
+   * shipped default), and a save that had a real one must land on a comparable
+   * rung rather than silently opening the desk up.
+   */
+  it('re-reads a v14 save\'s sales floors onto the hard ladder', () => {
+    const from = (cash: number, finance: number) => {
+      const v14: any = JSON.parse(JSON.stringify(createInitialState(77, 0)));
+      v14.version = 14;
+      v14.business = {
+        minWorkingCapital: 2_500,
+        repoAfterMissedPayments: 4,
+        minBuyMargin: 0.05,
+        minCashMarginZ: cash,
+        minFinanceMarginZ: finance,
+      };
+      const migrated = migrate(v14, 14);
+      expect(migrated.version).toBe(SAVE_VERSION);
+      return migrated.business as any;
+    };
+
+    // The shipped default: off stays off. Anything else would hand a lot that
+    // has been signing whatever walks up a floor it never agreed to.
+    const untouched = from(-4, -4);
+    expect(untouched.cashFloorLevel).toBe(0);
+    expect(untouched.financeFloorLevel).toBe(0);
+    expect(dealFloorIsOff(untouched.cashFloorLevel)).toBe(true);
+    // The rules the player DID set come across unharmed.
+    expect(untouched.minWorkingCapital).toBe(2_500);
+    expect(untouched.repoAfterMissedPayments).toBe(4);
+    expect(untouched.minBuyMargin).toBe(0.05);
+    // And the dead fields do not ride along as a second, silent copy.
+    expect('minCashMarginZ' in untouched).toBe(false);
+    expect('minFinanceMarginZ' in untouched).toBe(false);
+
+    // The ends and the middle of the old scale, in order. 0σ was the store's
+    // average deal and level 4 is the store's average deal, which is the one
+    // correspondence this mapping has to get right.
+    expect(from(-3, -3).cashFloorLevel).toBe(1);
+    expect(from(0, 0).cashFloorLevel).toBe(4);
+    expect(from(3, 3).cashFloorLevel).toBe(6);
+    expect(from(3, -4).financeFloorLevel).toBe(0);
+
+    // A hand-edited save cannot produce a level the ladder does not have.
+    for (const z of [NaN, -99, 99, undefined as any]) {
+      const level = from(z, z).cashFloorLevel;
+      expect(Number.isInteger(level)).toBe(true);
+      expect(level).toBeGreaterThanOrEqual(0);
+      expect(level).toBeLessThanOrEqual(DEAL_FLOOR_LEVELS);
+    }
+
+    const live: any = JSON.parse(JSON.stringify(createInitialState(77, 0)));
+    live.version = 14;
+    live.business = { ...live.business, minCashMarginZ: 1, minFinanceMarginZ: -4 };
+    expect(() => advance(migrate(live, 14), 5 * 60 * 1000)).not.toThrow();
   });
 
   /**

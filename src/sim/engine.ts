@@ -11,13 +11,13 @@ import {
 import { appraisalError, estimatedRetail, pessimisticRetail } from './appraisal';
 import {
   businessDefaults,
+  cashFloorLevel,
+  financeFloorLevel,
   minBuyMargin,
-  minCashMarginZ,
-  minFinanceMarginZ,
   minWorkingCapital,
   repoThreshold,
 } from './business';
-import { dealFloorIsOff, dealMarginFloor, stateFinanceScale, stateMarginScale } from './margins';
+import { dealMarginFloor } from './margins';
 import { generateProspect } from './customers';
 import { deskCounter, resolveCounter } from './haggle';
 import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
@@ -71,7 +71,7 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 14;
+export const SAVE_VERSION = 15;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -716,13 +716,19 @@ function stepAutomation(s: GameState): void {
 /**
  * WHAT THE DESK WILL AND WILL NOT SIGN, in margin points.
  *
- * The player's two house rules, resolved against the store they are standing in.
- * `-Infinity` is the "any deal" stop and is the default on both, which is what
- * makes this whole feature inert until somebody moves a slider.
+ * The player's two house rules, resolved against the store they are standing
+ * in. `-Infinity` is the "any deal" stop and is the default on both, which is
+ * what makes this whole feature inert until somebody moves a slider.
  *
- * Resolved once per step rather than per prospect, and skipped entirely when
- * both rules are off: `stateMarginScale` walks the store's model list, and this
- * runs on every tick of a 350-hour catch-up.
+ * Two table lookups. It used to derive the store's whole margin distribution
+ * here — walking the model list on every tick of a 350-hour catch-up, with an
+ * early-out for the common case where both rules were off to keep it
+ * affordable. The floors being tabulated per store retires that cost along with
+ * the drift it was paying for.
+ *
+ * Paper reads its own ladder, for the reason `financeGrossMultiple` gives: a
+ * contract grosses the window price and then collects only part of it, so the
+ * same LEVEL is a different margin on the two sides of the desk.
  */
 interface DealFloors {
   cash: number;
@@ -730,22 +736,10 @@ interface DealFloors {
 }
 
 function dealFloors(s: GameState): DealFloors {
-  const cashZ = minCashMarginZ(s);
-  const financeZ = minFinanceMarginZ(s);
-  if (dealFloorIsOff(cashZ) && dealFloorIsOff(financeZ)) {
-    return { cash: -Infinity, finance: -Infinity };
-  }
   const stage = getStage(s.stage);
-  const cash = stateMarginScale(s, stage);
   return {
-    cash: dealMarginFloor(cash, cashZ),
-    // Paper is measured on its own scale. A contract grosses the window price
-    // rather than cash retail and then collects only part of it, so the same σ
-    // position is a different margin on the two sides of the desk — see
-    // `financeMarginScale`.
-    finance: dealFloorIsOff(financeZ)
-      ? -Infinity
-      : dealMarginFloor(stateFinanceScale(s, stage, cash), financeZ),
+    cash: dealMarginFloor(stage, 'cash', cashFloorLevel(s)),
+    finance: dealMarginFloor(stage, 'finance', financeFloorLevel(s)),
   };
 }
 

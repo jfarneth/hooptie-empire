@@ -11,26 +11,29 @@ import { landedCost } from './market';
 import {
   buyMarginRange,
   dealFloorIsOff,
+  dealFloorLadder,
   dealMarginFloor,
   freightMoments,
   financeGrossMultiple,
   financeMarginScale,
-  marginAtZ,
   marginScale,
   stateMarginScale,
   zOfMargin,
 } from './margins';
-import { STAGES, getStage } from './stages';
+import { DEAL_FLOOR_LEVELS, DEAL_FLOOR_NAMES, STAGES, getStage, stageRank } from './stages';
+import type { StageId } from './types';
 
 /**
- * The yardstick.
+ * The yardstick, and the ladder it keeps honest.
  *
- * `marginScale` claims to describe the margin distribution of a store's feed,
- * and the sales floors are denominated in its standard deviations — so if the
- * claim is wrong, every rule set through it means something other than what the
- * panel says it means. The load-bearing test here is the last one: it runs the
- * real engine, collects the listings it actually spawns, and checks the model
- * against them. Everything above it is shape.
+ * `marginScale` claims to describe the margin distribution of a store's feed.
+ * The sales floors are no longer denominated in its standard deviations — they
+ * are hard numbers per store — but this is still what the panel quotes them
+ * against, what sets the ends of the buy slider, and what the ladder's guard
+ * test measures. If the claim is wrong, a stop the panel calls "about an
+ * average deal" is nothing of the sort. The load-bearing test here is the one
+ * that runs the real engine, collects the listings it actually spawns, and
+ * checks the model against them. Everything above it is shape.
  */
 
 describe('the deal-margin scale', () => {
@@ -39,8 +42,8 @@ describe('the deal-margin scale', () => {
     const franchise = ['lowCostFranchise', 'midsizeFranchise', 'premiumFranchise'] as const;
 
     // Judgement stores are wide; invoice stores are narrow. That difference is
-    // the character of the two halves of the ladder and it is what makes a
-    // σ-denominated rule mean the same thing at both.
+    // the character of the two halves of the ladder, and it is why the sales
+    // floors have to be tabulated per store rather than shared.
     for (const id of used) {
       expect(marginScale(getStage(id)).sd).toBeGreaterThan(0.08);
     }
@@ -61,46 +64,36 @@ describe('the deal-margin scale', () => {
       // achievable range, or the whole scale is describing another game.
       expect(scale.worst).toBeLessThan(scale.mean);
       expect(scale.best).toBeGreaterThan(scale.mean);
-      expect(scale.floor).toBeLessThan(scale.mean);
-      expect(scale.ceiling).toBeGreaterThan(scale.mean);
-    }
-  });
-
-  /**
-   * The top of the slider has to be a position worth having, which means it must
-   * be well past what an ordinary car at that store delivers. The ask band alone
-   * reaches about +1.7σ (a uniform distribution is only √3 σ wide), so +3σ can
-   * only be met by a trim grade or by a buyer paying over sticker — which is
-   * exactly the "unless a really killer deal came across" the top stop promises.
-   */
-  it('puts +3σ out of reach of an ordinary car at every store', () => {
-    for (const stage of STAGES) {
-      const scale = marginScale(stage);
-      const ordinary = 1 - BALANCE.wholesaleOfRetail * stage.sourcing.askMin;
-      expect(scale.ceiling).toBeGreaterThan(ordinary);
     }
   });
 
   it('reaches below cost on the buy slider at every store, including the invoice ones', () => {
     for (const stage of STAGES) {
-      const range = buyMarginRange(marginScale(stage));
+      const range = buyMarginRange(stage);
       // Negative at the bottom — the overpay allowance the buyer is allowed to
       // be given — and zero, the default, always inside it.
       expect(range.min).toBeLessThan(0);
       expect(range.max).toBeGreaterThan(0);
     }
-    // At a franchise the whole ±3σ band sits above break-even, so this range
-    // exists only because `buyMarginBelowCost` pulls the bottom down. Without it
-    // the buyer could not be set to break-even, let alone below it.
-    expect(marginScale(getStage('premiumFranchise')).floor).toBeGreaterThan(0);
+    // At a franchise every car the store can source is profitable, so this range
+    // reaches below break-even only because `buyMarginBelowCost` pulls it there.
+    // Without it the buyer could not be set to break-even, let alone below it.
+    expect(marginScale(getStage('premiumFranchise')).worst).toBeGreaterThan(0);
   });
 
-  it('round-trips a margin through the σ scale', () => {
+  /**
+   * The panel's verdict on a stop ("about an average deal here") is this
+   * function and nothing else, so it has to measure from the store's own mean
+   * in the store's own spread.
+   */
+  it('reads a margin as a distance from an ordinary deal at that store', () => {
     const scale = marginScale(getStage('smallUsed'));
-    for (const z of [-3, -1.25, 0, 0.5, 3]) {
-      expect(zOfMargin(scale, marginAtZ(scale, z))).toBeCloseTo(z, 10);
-    }
-    expect(marginAtZ(scale, 0)).toBe(scale.mean);
+    expect(zOfMargin(scale, scale.mean)).toBe(0);
+    expect(zOfMargin(scale, scale.mean + scale.sd)).toBeCloseTo(1, 10);
+    expect(zOfMargin(scale, scale.mean - 2 * scale.sd)).toBeCloseTo(-2, 10);
+    // The same margin is a different verdict at a different store, which is the
+    // whole reason the ladder behind it is per store.
+    expect(zOfMargin(marginScale(getStage('premiumFranchise')), scale.mean)).toBeGreaterThan(3);
   });
 
   it('reads a store with no spread as z = 0 rather than dividing by zero', () => {
@@ -112,34 +105,162 @@ describe('the deal-margin scale', () => {
   });
 });
 
-describe('the "any deal" stop', () => {
-  it('is a distinct position, not a very low floor', () => {
-    const { marginZMin, marginZOff } = BALANCE.business;
-    expect(dealFloorIsOff(marginZOff)).toBe(true);
-    expect(dealFloorIsOff(marginZMin)).toBe(false);
-    expect(dealMarginFloor(marginScale(getStage('curbstone')), marginZOff)).toBe(-Infinity);
+/** Reach is sold from the large lot up, so nothing below it ever pays freight. */
+function canEverReach(id: StageId): boolean {
+  return stageRank(id) >= stageRank('largeUsed');
+}
+
+describe('the sales-floor ladder', () => {
+  /**
+   * THE PRICE OF TABULATING THE FLOORS IS THIS TEST. The stops no longer follow
+   * a retune on their own, so something has to shout when the economy has moved
+   * out from under them — otherwise a slider that reads "Fair" quietly becomes
+   * a wall, which is the failure the derived scale had in the other direction.
+   *
+   * Three properties, and each one is a different way for the table to rot:
+   * an out-of-order ladder is a slider that gets more lenient as you push it
+   * right; a bottom stop above the store's average is a "Scraping by" setting
+   * that refuses most of the lot; and a top stop above what the store's own
+   * feed can produce is a position that means "stop selling cars" rather than
+   * "hold out for a good one".
+   */
+  it('stays monotonic, lenient at the bottom and reachable at the top, at every store', () => {
+    for (const stage of STAGES) {
+      const cash = marginScale(stage);
+      const paper = financeMarginScale(cash, financeGrossMultiple(stage));
+
+      for (const [side, scale] of [
+        ['cash', cash],
+        ['finance', paper],
+      ] as const) {
+        const ladder = dealFloorLadder(stage, side);
+        // A store with no finance desk has no finance ladder, and that is the
+        // only legitimate empty one.
+        if (side === 'finance' && !stage.financing) {
+          expect(ladder).toEqual([]);
+          continue;
+        }
+        expect(ladder.length).toBe(DEAL_FLOOR_LEVELS);
+        for (let i = 1; i < ladder.length; i++) {
+          expect(ladder[i]).toBeGreaterThan(ladder[i - 1]);
+        }
+        expect(ladder[0]).toBeLessThan(scale.mean);
+        expect(ladder[ladder.length - 1]).toBeLessThan(scale.best);
+        expect(ladder[ladder.length - 1]).toBeGreaterThan(scale.mean);
+      }
+    }
   });
 
   /**
-   * WHY IT CANNOT JUST BE THE BOTTOM OF THE SCALE. σ shrinks by an order of
-   * magnitude up the ladder, so -3σ at a premium franchise is a positive margin
-   * — a desk held to it would refuse an ordinary bad day. "Take anything" has to
-   * be its own stop or the rule turns itself on when the player moves store.
+   * THE LADDER HAS TO SPAN THE STORE, not sit to one side of it. Stated as
+   * "stops on both sides of an ordinary deal, at least two each way" rather
+   * than as "level 3 is under the mean and level 4 is over it", because the
+   * mean is not one number: a Halvorsen store averages 11.5% buying locally and
+   * 9.4% once the transporters are running, and a ladder pinned to either one
+   * exactly would have half its stops bunched on the far side of the other.
+   *
+   * NOTE WHAT THIS DOES NOT CATCH, because the first cut of the table proved
+   * it: three franchise ladders whose top two stops let 1% and 0% of the feed
+   * through — two slider positions that both meant "stop selling cars" — passed
+   * every assertion in this file. The share of a real feed above a threshold is
+   * not something a closed form over the ask band can see, and it is why the
+   * harness prints the ladder against measured listings. Read that column after
+   * any margin work; it is the half of this guard that lives outside the suite.
+   */
+  it('puts stops either side of an ordinary deal, at every store and any reach', () => {
+    expect(DEAL_FLOOR_NAMES.length).toBe(DEAL_FLOOR_LEVELS);
+    for (const stage of STAGES) {
+      const cash = marginScale(stage);
+      const paper = financeMarginScale(cash, financeGrossMultiple(stage));
+      for (const [side, scale] of [
+        ['cash', cash],
+        ['finance', paper],
+      ] as const) {
+        const ladder = dealFloorLadder(stage, side);
+        if (ladder.length === 0) continue;
+        // The freighted store as well as the local one: reach moves the average
+        // by a third at a big lot, and a ladder that only spans one of them is
+        // a slider that goes dead when the player buys a transporter. Only
+        // where reach is actually for sale — a curbstone driveway cannot have a
+        // transporter, and pricing its ladder as if it could would be measuring
+        // a business that does not exist.
+        const reached = canEverReach(stage.id)
+          ? scale.mean - freightMoments({ upgrades: { reach: 2 } }, stage).mean
+          : scale.mean;
+        for (const mean of [scale.mean, reached]) {
+          expect(ladder.filter((m) => m < mean).length).toBeGreaterThanOrEqual(2);
+          expect(ladder.filter((m) => m > mean).length).toBeGreaterThanOrEqual(2);
+        }
+      }
+    }
+  });
+
+  /**
+   * A FLAT PERCENTAGE WOULD BE WRONG AT BOTH ENDS, which is the whole reason
+   * this is a table rather than one list of numbers. Stated as an assertion so
+   * nobody tidies six ladders into one: the curbstone's "Good" is above
+   * anything a Valmont store can ever produce.
+   */
+  it('cannot be collapsed into one ladder shared by every store', () => {
+    const curbstone = dealMarginFloor(getStage('curbstone'), 'cash', 4);
+    expect(curbstone).toBeGreaterThan(marginScale(getStage('premiumFranchise')).best);
+  });
+
+  /**
+   * And the same name has to mean the same posture at every store, which is the
+   * property the σ scale was originally chosen for and the one thing a table
+   * could plausibly lose. "Fair" is 15% at a small lot and 6% at a Valmont
+   * store, and this is the assertion that those are the same setting: the two
+   * middle stops land within a standard deviation and a half of an ordinary
+   * deal wherever you stand. That is the honest tolerance rather than a tighter
+   * one, because the stores' spreads differ by eight times and each ladder also
+   * has to span its own store at any reach level — see above.
+   */
+  it('keeps a level meaning the same posture at every store', () => {
+    for (const level of [3, 4]) {
+      for (const stage of STAGES) {
+        const scale = marginScale(stage);
+        expect(Math.abs(zOfMargin(scale, dealMarginFloor(stage, 'cash', level)))).toBeLessThan(1.5);
+      }
+    }
+  });
+});
+
+describe('the "any deal" stop', () => {
+  it('is a distinct position, not the bottom of the ladder', () => {
+    expect(dealFloorIsOff(0)).toBe(true);
+    expect(dealFloorIsOff(1)).toBe(false);
+    expect(dealMarginFloor(getStage('curbstone'), 'cash', 0)).toBe(-Infinity);
+  });
+
+  /**
+   * WHY IT CANNOT JUST BE LEVEL 1. The bottom stop is a real rule at every
+   * store — break-even at a curbstone, 5% at a Halvorsen — so a save backfilled
+   * onto it would arrive holding a floor it never agreed to and start refusing
+   * its ordinary bad days. "Take anything" has to be its own position.
    */
   it('is what the game ships with, on both sales floors', () => {
     const defaults = businessDefaults();
-    expect(dealFloorIsOff(defaults.minCashMarginZ)).toBe(true);
-    expect(dealFloorIsOff(defaults.minFinanceMarginZ)).toBe(true);
+    expect(dealFloorIsOff(defaults.cashFloorLevel)).toBe(true);
+    expect(dealFloorIsOff(defaults.financeFloorLevel)).toBe(true);
 
-    const bottomOfScale = dealMarginFloor(
-      marginScale(getStage('premiumFranchise')),
-      BALANCE.business.marginZMin,
-    );
-    expect(bottomOfScale).toBeGreaterThan(0);
+    for (const stage of STAGES) {
+      expect(dealMarginFloor(stage, 'cash', 1)).toBeGreaterThanOrEqual(0);
+    }
   });
 
   it('handles a NaN out of a hand-edited save as "off" rather than as a floor', () => {
     expect(dealFloorIsOff(NaN)).toBe(true);
+  });
+
+  it('reads a level past the end of the ladder as the top stop', () => {
+    const stage = getStage('smallUsed');
+    const ladder = dealFloorLadder(stage, 'cash');
+    expect(dealMarginFloor(stage, 'cash', 99)).toBe(ladder[ladder.length - 1]);
+  });
+
+  it('has no finance floor to enforce at a store with no finance desk', () => {
+    expect(dealMarginFloor(getStage('curbstone'), 'finance', 6)).toBe(-Infinity);
   });
 });
 
