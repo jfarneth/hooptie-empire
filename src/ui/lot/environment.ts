@@ -12,9 +12,9 @@ import type { StageId } from '../../sim/types';
  *
  *   ground      cracked slab -> gravel -> asphalt -> sealed -> polished concrete
  *   stall paint none -> crooked and faded -> worn -> crisp -> thin white on a grid
- *   building    a house -> a portable shack -> brick + service bay -> showroom
+ *   building    a house -> an office trailer -> painted block -> showroom -> flagship
  *   light       porch bulb -> one bad floodlight -> sodium -> LED -> uplighting
- *   perimeter   lawn -> chain-link and weeds -> kerb and flags -> planting
+ *   perimeter   lawn -> chain-link and bunting -> kerb -> planting
  *
  * Decoration is derived from a fixed seed per stage rather than drawn at
  * random, for the same reason parking is hashed from `car.id`: a crack that
@@ -42,6 +42,27 @@ export const PYLON_RESERVE = 46;
 export type BuildingKind = 'house' | 'shack' | 'brick' | 'showroom' | 'showroomWide' | 'flagship';
 export type PerimeterKind = 'lawn' | 'chainlink' | 'kerb' | 'planting' | 'planters' | 'manicured';
 export type LightKind = 'porch' | 'flood' | 'sodium' | 'led' | 'uplight';
+
+/**
+ * What is on top of the building.
+ *
+ * A pitched roof is the single strongest signal that a thing is a HOUSE rather
+ * than a small commercial shed, and the curbstone stage lives or dies on
+ * reading as somebody's home. `parapet` is the opposite tell: a flat roof with
+ * a raised edge and a coping band is what a built-to-suit dealership has.
+ */
+export type RoofKind = 'gable' | 'flat' | 'parapet';
+
+/**
+ * How the front door presents itself, which is most of how expensive a
+ * building looks.
+ *
+ * `stoop` is a slab and a step. `canopy` is a flat roof over the doors on two
+ * posts — the standard franchise entrance. `portico` is the same idea built
+ * properly: full-height columns, a deep soffit, and the glass set back behind
+ * it.
+ */
+export type EntranceKind = 'porch' | 'stoop' | 'canopy' | 'portico';
 
 export interface EnvironmentDef {
   /** Base colour of everything the cars park on. */
@@ -84,6 +105,38 @@ export interface EnvironmentDef {
   /** Marque colour on the sign. Undefined falls back to the theme accent. */
   signColor?: string;
 
+  roof: RoofKind;
+  /** How far the ridge rises above the eaves. Only a gable uses it. */
+  ridge: number;
+  /** Roof colour. A house gets shingles; everything else gets its wall, darker. */
+  roofColor?: string;
+
+  entrance: EntranceKind;
+  /**
+   * Share of the elevation given over to glass.
+   *
+   * The one number that carries "cheap franchise" to "premium franchise" on its
+   * own: a dealership gets more expensive almost entirely by replacing wall
+   * with window, which is why this climbs the whole way up the ladder and the
+   * wall colours barely move. `environment.test.ts` holds it monotonic.
+   */
+  glazing: number;
+
+  /**
+   * Service bay doors to draw on the elevation.
+   *
+   * Only ever drawn when the STORE ACTUALLY HAS A SHOP — `LotGround` takes that
+   * from `STAGES[].shop`, never from this number, so a lot cannot advertise a
+   * service department the sim will not let the player open. This is how many
+   * doors it shows once it does, and there is a test on the difference.
+   */
+  bays: number;
+
+  /** Cheap flare: pennants on wires along the street frontage. */
+  bunting: boolean;
+  /** The inflatable tube man. Exactly one store gets one, and it earns it. */
+  airDancer: boolean;
+
   light: LightKind;
   lightColor: string;
   /** Roughly how far apart the pole lights sit, in lot pixels. */
@@ -93,7 +146,6 @@ export interface EnvironmentDef {
 
   perimeter: PerimeterKind;
   plantColor: string;
-  flags: boolean;
 
   /** Kerb, verge and road, bottom of the lot. */
   road: string;
@@ -118,13 +170,20 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     edgePad: 62,
     wall: '#3f362f',
     trim: '#6b5d51',
+    roof: 'gable',
+    ridge: 78,
+    roofColor: '#4a3f36',
+    entrance: 'porch',
+    glazing: 0,
+    bays: 0,
+    bunting: false,
+    airDancer: false,
     light: 'porch',
     lightColor: '#ffe0a8',
     lightSpacing: 999, // one bulb over the door, and that is the lighting plan
     lightHeight: 0,
     perimeter: 'lawn',
     plantColor: '#3f5b39',
-    flags: false,
     road: '#16181c',
     verge: '#43464b',
     laneMark: '#c9c3a8',
@@ -146,13 +205,19 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     edgePad: 16,
     wall: '#4a453c',
     trim: '#5b544a',
+    roof: 'flat',
+    ridge: 0,
+    entrance: 'stoop',
+    glazing: 0.18,
+    bays: 0,
+    bunting: true,
+    airDancer: false,
     light: 'flood',
     lightColor: '#ffd89a',
     lightSpacing: 420,
     lightHeight: 210,
     perimeter: 'chainlink',
     plantColor: '#3f5b39',
-    flags: false,
     road: '#191b1e',
     verge: '#3a362f',
     laneMark: '#c9c3a8',
@@ -174,13 +239,19 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     edgePad: 12,
     wall: '#4a3b35',
     trim: '#6a5a50',
+    roof: 'flat',
+    ridge: 0,
+    entrance: 'stoop',
+    glazing: 0.3,
+    bays: 0,
+    bunting: true,
+    airDancer: true,
     light: 'sodium',
     lightColor: '#ffd89a',
     lightSpacing: 300,
     lightHeight: 250,
     perimeter: 'kerb',
     plantColor: '#3f5b39',
-    flags: true,
     road: '#15171c',
     verge: '#3a3f47',
     laneMark: '#c9c3a8',
@@ -203,13 +274,19 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     wall: '#39424f',
     trim: '#7c8797',
     signColor: '#5fbf6a',
+    roof: 'parapet',
+    ridge: 0,
+    entrance: 'canopy',
+    glazing: 0.44,
+    bays: 2,
+    bunting: false,
+    airDancer: false,
     light: 'led',
     lightColor: '#e8f0ff',
     lightSpacing: 290,
     lightHeight: 265,
     perimeter: 'planting',
     plantColor: '#4a6b45',
-    flags: true,
     road: '#14161b',
     verge: '#3d434c',
     laneMark: '#e4dfc8',
@@ -232,13 +309,19 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     wall: '#3b4552',
     trim: '#93a0b2',
     signColor: '#6ea8e8',
+    roof: 'parapet',
+    ridge: 0,
+    entrance: 'canopy',
+    glazing: 0.6,
+    bays: 3,
+    bunting: false,
+    airDancer: false,
     light: 'led',
     lightColor: '#dceaff',
     lightSpacing: 280,
     lightHeight: 280,
     perimeter: 'planters',
     plantColor: '#31513f',
-    flags: false,
     road: '#13151a',
     verge: '#414852',
     laneMark: '#eee9d2',
@@ -258,16 +341,22 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     buildingDepth: 164,
     buildingHeight: 294,
     edgePad: 10,
-    wall: '#38414e',
-    trim: '#a9b8cb',
+    wall: '#55606f',
+    trim: '#d3dde9',
     signColor: '#e8e2d2',
+    roof: 'parapet',
+    ridge: 0,
+    entrance: 'portico',
+    glazing: 0.78,
+    bays: 3,
+    bunting: false,
+    airDancer: false,
     light: 'uplight',
     lightColor: '#cfe6ff',
     lightSpacing: 260,
     lightHeight: 150,
     perimeter: 'manicured',
     plantColor: '#33553f',
-    flags: false,
     road: '#12141a',
     verge: '#464d58',
     laneMark: '#f4efd8',

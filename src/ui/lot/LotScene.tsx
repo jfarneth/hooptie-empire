@@ -207,6 +207,7 @@ export function LotScene({ state, capacity, onSelectCar, onSelectProspect, onPre
         stage={state.stage}
         signText={stage.shortName}
         financing={stage.financing}
+        hasShop={stage.shop !== undefined}
       />
 
       <LadderPylon

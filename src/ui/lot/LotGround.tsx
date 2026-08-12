@@ -5,6 +5,7 @@ import Svg, {
   Ellipse,
   G,
   Path,
+  Polygon,
   RadialGradient,
   Rect,
   Stop,
@@ -56,6 +57,14 @@ interface Props {
   signText: string;
   /** Only a lot that carries its own paper gets the second line. */
   financing: boolean;
+  /**
+   * Whether this store can open a service department at all — `STAGES[].shop`.
+   *
+   * Passed in rather than read off `environment.ts`, so the lot can never
+   * advertise a department the sim will not let the player have. The
+   * environment says how many doors to draw; this says whether there are any.
+   */
+  hasShop: boolean;
 }
 
 /** Something that stands up, with the depth it sorts on. */
@@ -64,7 +73,7 @@ interface Upright {
   node: React.ReactNode;
 }
 
-function LotGroundBase({ layout, camera, world, stage, signText, financing }: Props) {
+function LotGroundBase({ layout, camera, world, stage, signText, financing, hasShop }: Props) {
   const { width, showroomDepth, frontageY, carScale } = layout;
   const env = environmentFor(stage);
   const neigh = neighbourhoodFor(stage);
@@ -116,6 +125,7 @@ function LotGroundBase({ layout, camera, world, stage, signText, financing }: Pr
         cam={camera}
         signText={signText}
         financing={financing}
+        hasShop={hasShop}
       />
     ),
   });
@@ -124,6 +134,17 @@ function LotGroundBase({ layout, camera, world, stage, signText, financing }: Pr
     uprights.push({
       depth: camera.depth(light.x, light.y),
       node: <PoleLight key={`l_${i}`} env={env} cam={camera} at={light} />,
+    });
+  }
+
+  if (env.airDancer) {
+    // Hard against the kerb, which is where they actually stand, and clear of
+    // the first stall column. Everything this file draws sits UNDER the car
+    // layer, so a tube man in among the stalls has cars drawn over it.
+    const at = { u: width * 0.11, v: frontageY - 16 };
+    uprights.push({
+      depth: camera.depth(at.u, at.v),
+      node: <AirDancer key="dancer" cam={camera} at={at} height={300} />,
     });
   }
 
@@ -434,18 +455,100 @@ function Surface({ env, layout }: { env: EnvironmentDef; layout: LotLayout }) {
  * matrix puts it back on the wall. That is the whole reason the yaw did not cost
  * the six storefronts a rewrite.
  */
+/**
+ * Any planar quad in lot space, as svg polygon points.
+ *
+ * This is the seam that lets the buildings be more than boxes. `planeMatrix`
+ * covers horizontal planes and `wall` covers vertical ones, which between them
+ * cannot draw a pitched roof, a canopy soffit or the sloping face of anything.
+ * An ORTHOGRAPHIC camera maps every plane affinely — that is the same property
+ * the whole ground plate leans on — so a planar quad projects to a quad and
+ * four calls to `project` are the whole of it. Three corners give a triangle,
+ * which is what a gable end is.
+ */
+function quad(cam: Camera, corners: [number, number, number][]): string {
+  return corners
+    .map(([u, v, z]) => {
+      const p = cam.project(u, v, z);
+      return `${p.x.toFixed(2)},${p.y.toFixed(2)}`;
+    })
+    .join(' ');
+}
+
+/**
+ * A rectangular box standing on the ground, drawn as the three faces this
+ * camera can see: the top, the front, and the right-hand side the yaw turns
+ * toward us.
+ *
+ * Chimneys, roof plant, canopy slabs, columns, kerb blocks and sign bases are
+ * all this shape, and each of them was a bespoke pile of rects before.
+ */
+function Box3D({
+  cam,
+  u0,
+  v0,
+  u1,
+  v1,
+  z0,
+  z1,
+  color,
+}: {
+  cam: Camera;
+  u0: number;
+  v0: number;
+  u1: number;
+  v1: number;
+  z0: number;
+  z1: number;
+  color: string;
+}) {
+  return (
+    <G>
+      <Polygon
+        points={quad(cam, [
+          [u0, v0, z1],
+          [u1, v0, z1],
+          [u1, v1, z1],
+          [u0, v1, z1],
+        ])}
+        fill={shadeOf(color, 0.1)}
+      />
+      <Polygon
+        points={quad(cam, [
+          [u0, v1, z1],
+          [u1, v1, z1],
+          [u1, v1, z0],
+          [u0, v1, z0],
+        ])}
+        fill={color}
+      />
+      <Polygon
+        points={quad(cam, [
+          [u1, v0, z1],
+          [u1, v1, z1],
+          [u1, v1, z0],
+          [u1, v0, z0],
+        ])}
+        fill={shadeOf(color, -0.28)}
+      />
+    </G>
+  );
+}
+
 function Building({
   env,
   layout,
   cam,
   signText,
   financing,
+  hasShop,
 }: {
   env: EnvironmentDef;
   layout: LotLayout;
   cam: Camera;
   signText: string;
   financing: boolean;
+  hasShop: boolean;
 }) {
   const { width, showroomDepth: d } = layout;
   const sign = env.signColor ?? theme.colors.accent;
@@ -457,42 +560,30 @@ function Building({
   const side = cam.wall(x1, 0, x1, d, h);
   /** Where the facade has to stop so it does not run under the pylon. */
   const usable = front.length - PYLON_RESERVE;
-  const roofFill = env.building === 'house' ? '#4b4139' : shadeOf(env.wall, -0.18);
 
   return (
     <G>
-      {/* roof plate, at height, still drawn in flat lot coordinates */}
-      <G transform={cam.planeMatrix(h)}>
-        <Rect x={x0} y={0} width={x1 - x0} height={d} fill={roofFill} />
-        {env.building === 'house' ? (
-          <>
-            <Rect x={x0} y={d * 0.46} width={x1 - x0} height={d * 0.08} fill="#5d5147" />
-            <Rect x={width * 0.62} y={d * 0.12} width={26} height={20} fill="#4d423a" />
-          </>
-        ) : (
-          <>
-            {[0.2, 0.52, 0.78].map((f, i) => (
-              <Rect
-                key={i}
-                x={f * width - 16}
-                y={d * 0.3}
-                width={32}
-                height={d * 0.26}
-                rx={2}
-                fill={shadeOf(env.wall, -0.34)}
-              />
-            ))}
-            {Array.from({ length: 4 }, (_, i) => (
-              <Rect key={`seam${i}`} x={x0 + ((i + 1) * (x1 - x0)) / 5} y={0} width={1.2} height={d} fill="#000" opacity={0.13} />
-            ))}
-          </>
-        )}
-      </G>
+      <Roof env={env} cam={cam} x0={x0} x1={x1} d={d} h={h} />
 
       {/* the side the yaw turned toward us */}
       <G transform={side.matrix}>
         <Rect width={side.length} height={side.height} fill={shadeOf(env.wall, -0.32)} />
         <Rect width={side.length} height={2} fill={env.trim} opacity={0.5} />
+        {env.building === 'house' ? (
+          // Siding wraps the corner. Without it the gable end reads as a flat
+          // card stood on edge rather than as the end of a house.
+          <G opacity={0.3}>
+            {Array.from({ length: 9 }, (_, i) => (
+              <Rect
+                key={i}
+                y={side.height * (0.12 + i * 0.09)}
+                width={side.length}
+                height={1}
+                fill="#000"
+              />
+            ))}
+          </G>
+        ) : null}
       </G>
 
       {/* the front elevation */}
@@ -509,12 +600,211 @@ function Building({
           signText={signText}
           financing={financing}
           sign={sign}
+          hasShop={hasShop}
         />
       </G>
 
-      {env.building === 'shack' ? <Board cam={cam} layout={layout} signText={signText} financing={financing} /> : null}
+      {/* Anything that stands FORWARD of the elevation, on the tarmac. */}
+      <Entrance env={env} layout={layout} cam={cam} h={h} sign={sign} />
+
+      {env.building === 'shack' ? (
+        <Board cam={cam} layout={layout} signText={signText} financing={financing} />
+      ) : null}
+      {env.building === 'house' ? (
+        <YardSign cam={cam} layout={layout} signText={signText} />
+      ) : null}
     </G>
   );
+}
+
+/**
+ * What is on top.
+ *
+ * The gable is the whole reason `quad` exists. A pitched roof is the strongest
+ * single signal that a building is somebody's HOUSE — a flat-roofed box with a
+ * garage door reads as a small warehouse no matter what colour it is painted,
+ * which is exactly what the curbstone stage looked like — and it is two sloped
+ * planes, a triangle and a ridge board.
+ */
+function Roof({
+  env,
+  cam,
+  x0,
+  x1,
+  d,
+  h,
+}: {
+  env: EnvironmentDef;
+  cam: Camera;
+  x0: number;
+  x1: number;
+  d: number;
+  h: number;
+}) {
+  const fill = env.roofColor ?? shadeOf(env.wall, -0.18);
+
+  if (env.roof === 'gable') {
+    const r = env.ridge;
+    // Eaves overhang the walls. A roof flush with its walls is a model of a
+    // house; the overhang and the shadow under it are what make it a house.
+    const a0 = x0 - 11;
+    const a1 = x1 + 11;
+    const vb = -10;
+    const vf = d + 10;
+    const mid = d / 2;
+    const courses = 7;
+
+    return (
+      <G>
+        {/* Back slope first: it is the far side of the ridge. */}
+        <Polygon
+          points={quad(cam, [
+            [a0, vb, h],
+            [a1, vb, h],
+            [a1, mid, h + r],
+            [a0, mid, h + r],
+          ])}
+          fill={shadeOf(fill, -0.26)}
+        />
+        <Polygon
+          points={quad(cam, [
+            [a0, vf, h],
+            [a1, vf, h],
+            [a1, mid, h + r],
+            [a0, mid, h + r],
+          ])}
+          fill={fill}
+        />
+        {/* Shingle courses, running along the eave. */}
+        {Array.from({ length: courses }, (_, i) => {
+          const t = (i + 1) / (courses + 1);
+          const v = vf + (mid - vf) * t;
+          const z = h + r * t;
+          return (
+            <Polygon
+              key={i}
+              points={quad(cam, [
+                [a0, v, z],
+                [a1, v, z],
+                [a1, v - 2.4, z],
+                [a0, v - 2.4, z],
+              ])}
+              fill="#000"
+              opacity={0.16}
+            />
+          );
+        })}
+        {/* The gable end the yaw turns toward us. */}
+        <Polygon
+          points={quad(cam, [
+            [a1 - 11, vb + 10, h],
+            [a1 - 11, vf - 10, h],
+            [a1 - 11, mid, h + r],
+          ])}
+          fill={shadeOf(env.wall, -0.24)}
+        />
+        {/* A vent in the gable, which is a detail every house in America has. */}
+        <Polygon
+          points={quad(cam, [
+            [a1 - 10, mid - 9, h + r * 0.34],
+            [a1 - 10, mid + 9, h + r * 0.34],
+            [a1 - 10, mid, h + r * 0.72],
+          ])}
+          fill="#22201d"
+        />
+        {/* Ridge board. */}
+        <Polygon
+          points={quad(cam, [
+            [a0, mid - 2.5, h + r],
+            [a1, mid - 2.5, h + r],
+            [a1, mid + 2.5, h + r],
+            [a0, mid + 2.5, h + r],
+          ])}
+          fill={shadeOf(fill, 0.16)}
+        />
+        <Box3D
+          cam={cam}
+          u0={x0 + 26}
+          v0={mid - 12}
+          u1={x0 + 48}
+          v1={mid + 12}
+          z0={h}
+          z1={h + r + 42}
+          color="#4a4038"
+        />
+      </G>
+    );
+  }
+
+  return (
+    <G>
+      <G transform={cam.planeMatrix(h)}>
+        <Rect x={x0} y={0} width={x1 - x0} height={d} fill={fill} />
+        {/* Roof plant. Every flat commercial roof has some. */}
+        {[0.2, 0.52, 0.78].map((f, i) => (
+          <Rect
+            key={i}
+            x={x0 + (x1 - x0) * f - 16}
+            y={d * 0.3}
+            width={32}
+            height={d * 0.26}
+            rx={2}
+            fill={shadeOf(env.wall, -0.34)}
+          />
+        ))}
+        {Array.from({ length: 4 }, (_, i) => (
+          <Rect
+            key={`seam${i}`}
+            x={x0 + ((i + 1) * (x1 - x0)) / 5}
+            y={0}
+            width={1.2}
+            height={d}
+            fill="#000"
+            opacity={0.13}
+          />
+        ))}
+      </G>
+
+      {/* A parapet: the roof edge carried up past the deck, with a coping band
+          along the top. It is what separates a built-to-suit dealership from a
+          shed with a flat roof, and it costs two quads. */}
+      {env.roof === 'parapet' ? (
+        <G>
+          <Box3D cam={cam} u0={x0} v0={d - 5} u1={x1} v1={d} z0={h} z1={h + 26} color={shadeOf(env.wall, 0.1)} />
+          <Box3D cam={cam} u0={x1 - 5} v0={0} u1={x1} v1={d} z0={h} z1={h + 26} color={shadeOf(env.wall, -0.1)} />
+          <Polygon
+            points={quad(cam, [
+              [x0, d - 5, h + 26],
+              [x1, d - 5, h + 26],
+              [x1, d, h + 26],
+              [x0, d, h + 26],
+            ])}
+            fill={env.trim}
+            opacity={0.85}
+          />
+        </G>
+      ) : null}
+    </G>
+  );
+}
+
+/**
+ * Where a house's garage and front door sit, in the wall's own coordinates.
+ *
+ * Shared by the elevation and by the stoop that stands in front of it. The
+ * garage lines up on the driveway it opens onto, which is the same strip of
+ * tarmac the cars are parked in, so it moves with the lot.
+ */
+function houseOpenings(layout: LotLayout, wallLength: number) {
+  const driveL = layout.slots.length ? Math.min(...layout.slots.map((s) => s.x)) - 8 : 60;
+  const driveR = layout.slots.length
+    ? Math.max(...layout.slots.map((s) => s.x + s.width)) + 8
+    : wallLength - 60;
+  const garageW = Math.min(driveR - driveL, wallLength * 0.5);
+  const garageX = driveL + (driveR - driveL - garageW) / 2;
+  const doorW = wallLength * 0.075;
+  const doorX = garageX + garageW + Math.max(12, (wallLength - garageX - garageW) * 0.18);
+  return { garageX, garageW, doorX, doorW };
 }
 
 /** What is on the front wall, in the wall's own flat coordinates. */
@@ -527,6 +817,7 @@ function Facade({
   signText,
   financing,
   sign,
+  hasShop,
 }: {
   env: EnvironmentDef;
   layout: LotLayout;
@@ -536,96 +827,238 @@ function Facade({
   signText: string;
   financing: boolean;
   sign: string;
+  hasShop: boolean;
 }) {
   if (env.building === 'house') {
-    // The garage door lines up with the driveway it opens onto.
-    const driveL = layout.slots.length ? Math.min(...layout.slots.map((s) => s.x)) - 8 : 60;
-    const driveR = layout.slots.length
-      ? Math.max(...layout.slots.map((s) => s.x + s.width)) + 8
-      : wallLength - 60;
-    const garageW = Math.min(driveR - driveL, wallLength * 0.5);
-    const garageX = driveL + (driveR - driveL - garageW) / 2;
+    const { garageX, garageW, doorX, doorW } = houseOpenings(layout, wallLength);
+
+    // A HOUSE, and nothing on it says otherwise. The store's name used to be
+    // painted across the front in letters a foot high, which is the one thing
+    // guaranteed to stop a building reading as somebody's home — a curbstoner's
+    // whole business model is that this is NOT a dealership. It is on a
+    // hand-lettered board staked in the lawn instead, which is where it goes.
+    const doorY = wallHeight * 0.34;
 
     return (
       <G>
-        <Rect x={garageX} y={wallHeight * 0.22} width={garageW} height={wallHeight * 0.72} fill="#2f2823" />
+        {/* Lap siding. Horizontal shadow lines are most of what says "house". */}
+        <G opacity={0.26}>
+          {Array.from({ length: 11 }, (_, i) => (
+            <Rect
+              key={`sid${i}`}
+              y={wallHeight * (0.06 + i * 0.085)}
+              width={wallLength}
+              height={1.2}
+              fill="#000"
+            />
+          ))}
+        </G>
+
+        {/* The garage, lined up on the driveway the cars are parked in. */}
+        <Rect
+          x={garageX}
+          y={wallHeight * 0.3}
+          width={garageW}
+          height={wallHeight * 0.64}
+          fill="#2f2823"
+          stroke={shadeOf(env.trim, 0.1)}
+          strokeWidth={2.5}
+        />
         {Array.from({ length: 4 }, (_, i) => (
-          <Rect key={i} x={garageX} y={wallHeight * (0.34 + i * 0.14)} width={garageW} height={1.4} fill="#1d1815" />
+          <Rect
+            key={i}
+            x={garageX + 2}
+            y={wallHeight * (0.42 + i * 0.13)}
+            width={garageW - 4}
+            height={1.6}
+            fill="#171310"
+          />
         ))}
-        <Rect x={wallLength * 0.79} y={wallHeight * 0.26} width={wallHeight * 0.34} height={wallHeight * 0.7} fill="#33302a" />
-        <Circle cx={wallLength * 0.79 - 8} cy={wallHeight * 0.38} r={3} fill={env.lightColor} />
-        <Rect x={wallLength * 0.06} y={wallHeight * 0.28} width={wallHeight * 0.42} height={wallHeight * 0.3} fill="#2b3a46" />
-        <SvgText
-          x={wallLength * 0.2}
-          y={wallHeight * 0.86}
-          fontSize={wallHeight * 0.16}
-          fontWeight="800"
-          fill={theme.colors.textFaint}
-          textAnchor="middle"
-          letterSpacing={1.6}
-        >
-          {signText.toUpperCase()}
-        </SvgText>
+
+        {/* Front door, with a light over it and a number beside it. */}
+        <Rect x={doorX} y={doorY} width={doorW} height={wallHeight * 0.6} fill="#3d2f24" stroke={env.trim} strokeWidth={2} />
+        <Circle cx={doorX + doorW * 0.78} cy={doorY + wallHeight * 0.3} r={1.8} fill="#c9b380" />
+        <Rect x={doorX - 7} y={doorY - 9} width={5} height={7} rx={2.5} fill={env.lightColor} opacity={0.85} />
+        <Circle cx={doorX - 4.5} cy={doorY + wallHeight * 0.16} r={wallHeight * 0.2} fill={env.lightColor} opacity={0.08} />
+
+        {/* Two windows, lit. A dark house at night reads as abandoned. */}
+        {[wallLength * 0.05, wallLength * 0.05 + wallHeight * 0.34].map((x, i) => (
+          <G key={`win${i}`}>
+            <Rect x={x} y={wallHeight * 0.3} width={wallHeight * 0.26} height={wallHeight * 0.3} fill="#3a3d2c" stroke={shadeOf(env.trim, 0.16)} strokeWidth={2.5} />
+            <Rect x={x + wallHeight * 0.125} y={wallHeight * 0.3} width={1.6} height={wallHeight * 0.3} fill={shadeOf(env.trim, 0.16)} />
+            <Rect x={x} y={wallHeight * 0.44} width={wallHeight * 0.26} height={1.6} fill={shadeOf(env.trim, 0.16)} />
+            {/* Sill. */}
+            <Rect x={x - 3} y={wallHeight * 0.6} width={wallHeight * 0.26 + 6} height={3} fill={shadeOf(env.trim, 0.2)} />
+          </G>
+        ))}
       </G>
     );
   }
 
   if (env.building === 'shack') {
-    // The board out front carries the name, so the office itself is just an
-    // office: two windows and a door.
+    // A SINGLE-WIDE OFFICE TRAILER, which is what a roadside buy-here-pay-here
+    // lot actually operates out of. The board out front carries the name, so
+    // this is just the office: skirting to the ground, a door up three steps,
+    // two windows and a window air conditioner.
+    const skirt = wallHeight * 0.78;
     return (
       <G>
-        <Rect x={wallLength * 0.08} y={wallHeight * 0.24} width={wallLength * 0.1} height={wallHeight * 0.36} fill="#2b3a46" stroke={env.trim} strokeWidth={1.5} />
-        <Rect x={wallLength * 0.24} y={wallHeight * 0.24} width={wallLength * 0.1} height={wallHeight * 0.36} fill="#2b3a46" stroke={env.trim} strokeWidth={1.5} />
-        <Rect x={wallLength * 0.42} y={wallHeight * 0.28} width={wallLength * 0.06} height={wallHeight * 0.68} fill="#33302a" stroke={env.trim} strokeWidth={1.5} />
+        {/* Ribbed metal siding. */}
+        <G opacity={0.22}>
+          {Array.from({ length: 22 }, (_, i) => (
+            <Rect key={`rib${i}`} x={(wallLength * (i + 0.5)) / 22} y={0} width={1.4} height={skirt} fill="#000" />
+          ))}
+        </G>
+        {/* Skirting: the trailer does not reach the ground, it is boxed in. */}
+        <Rect y={skirt} width={wallLength} height={wallHeight - skirt} fill={shadeOf(env.wall, -0.34)} />
+        <Rect y={skirt} width={wallLength} height={2} fill="#000" opacity={0.4} />
+
+        {[wallLength * 0.08, wallLength * 0.24].map((x, i) => (
+          <G key={`w${i}`}>
+            <Rect x={x} y={wallHeight * 0.22} width={wallLength * 0.11} height={wallHeight * 0.34} fill="#33414b" stroke={env.trim} strokeWidth={1.5} />
+            <Rect x={x} y={wallHeight * 0.22} width={wallLength * 0.11} height={wallHeight * 0.34} fill={env.lightColor} opacity={0.1} />
+          </G>
+        ))}
+        <Rect x={wallLength * 0.42} y={wallHeight * 0.2} width={wallLength * 0.07} height={wallHeight * 0.58} fill="#2a2620" stroke={env.trim} strokeWidth={1.5} />
+        {/* The window unit, dripping onto the tarmac since 1994. */}
+        <Rect x={wallLength * 0.58} y={wallHeight * 0.3} width={wallLength * 0.07} height={wallHeight * 0.16} fill="#6b6b66" stroke="#2a2620" strokeWidth={1.5} />
       </G>
     );
   }
 
-  // Brick and up: a glazed front, a service bay, and the sign on the elevation.
-  // Glass belongs on a wall — putting a showroom window on the roof, which is
-  // what a pure plan view forced, never made sense.
+  if (env.building === 'brick') {
+    // A REAL BUILDING, and that is the whole step up from the trailer. Still
+    // cheap: painted block, a sign band screwed to the parapet, one showroom
+    // window. No service bays — the sim does not open a shop until the first
+    // franchise, and a lot must never advertise a department the player cannot
+    // have.
+    const bandH = wallHeight * 0.24;
+    const glassW = usable * 0.44;
+    return (
+      <G>
+        {/* Block courses. */}
+        <G opacity={0.18}>
+          {Array.from({ length: 9 }, (_, i) => (
+            <Rect key={`c${i}`} y={bandH + ((wallHeight - bandH) * (i + 1)) / 10} width={wallLength} height={1.2} fill="#000" />
+          ))}
+        </G>
+
+        {/* Sign band across the top, in the marque colour. */}
+        <Rect width={usable} height={bandH} fill={shadeOf(sign, -0.55)} />
+        <Rect y={bandH - 2} width={usable} height={2} fill={sign} opacity={0.5} />
+        <SvgText
+          x={usable / 2}
+          y={bandH * 0.68}
+          fontSize={bandH * 0.52}
+          fontWeight="800"
+          fill={sign}
+          textAnchor="middle"
+          letterSpacing={2.4}
+        >
+          {signText.toUpperCase()}
+        </SvgText>
+
+        <Rect x={14} y={bandH + wallHeight * 0.1} width={glassW} height={wallHeight * 0.4} fill="#2f4a63" stroke={env.trim} strokeWidth={1.5} />
+        {Array.from({ length: 3 }, (_, i) => (
+          <Rect key={i} x={14 + ((i + 1) * glassW) / 4} y={bandH + wallHeight * 0.1} width={1.4} height={wallHeight * 0.4} fill={env.trim} opacity={0.6} />
+        ))}
+        <Rect x={14} y={bandH + wallHeight * 0.1} width={glassW} height={wallHeight * 0.4} fill={env.lightColor} opacity={0.07} />
+
+        <Rect x={usable * 0.62} y={bandH + wallHeight * 0.12} width={wallLength * 0.06} height={wallHeight * 0.5} fill="#2a2620" stroke={env.trim} strokeWidth={1.5} />
+
+        {financing ? (
+          <SvgText x={14} y={wallHeight - 7} fontSize={8} fontWeight="700" fill={theme.colors.textDim} letterSpacing={1.8}>
+            BUY HERE · PAY HERE
+          </SvgText>
+        ) : null}
+      </G>
+    );
+  }
+
+  // The three franchises. THE ONE THING THAT CLIMBS IS GLASS: a dealership gets
+  // more expensive almost entirely by replacing wall with window, so `glazing`
+  // carries the whole progression and the wall colours barely move.
   const flagship = env.building === 'flagship';
-  const glassInset = flagship ? 6 : 14;
-  const bayW = flagship ? 0 : Math.min(96, wallLength * 0.24);
-  const bayX = usable - bayW - 4;
-  const glassW = Math.max(40, (bayW > 30 ? bayX - 10 : usable) - glassInset);
-  const glassTop = wallHeight * 0.2;
-  const glassH = wallHeight * (flagship ? 0.5 : 0.42);
-  const panes = flagship ? 8 : 5;
+  // Bays are the STORE's fact, never the artwork's — see `hasShop`.
+  const bayCount = hasShop ? env.bays : 0;
+  const bayW = bayCount ? Math.min(38, (usable * 0.34) / bayCount) : 0;
+  const bayBlock = bayCount * (bayW + 5);
+  const bayX = usable - bayBlock - 4;
+
+  const glassInset = flagship ? 8 : 14;
+  const glassW = Math.max(40, (bayCount ? bayX - 12 : usable) - glassInset);
+  const glassH = wallHeight * env.glazing;
+  const glassTop = wallHeight - glassH - wallHeight * (flagship ? 0.05 : 0.16);
+  const panes = Math.round(4 + env.glazing * 8);
 
   return (
     <G>
-      <Rect x={glassInset} y={glassTop} width={glassW} height={glassH} fill={flagship ? '#24455c' : '#2f4a63'} stroke={env.trim} strokeWidth={1.5} />
+      {/* Fascia band above the glass, where the name goes. */}
+      <Rect width={usable} height={glassTop - 4} fill={shadeOf(env.wall, flagship ? 0.14 : 0.02)} />
+      <Rect y={glassTop - 6} width={usable} height={2.5} fill={env.trim} opacity={0.7} />
+
+      {/* Uplighting: fans of light thrown UP the fascia from fittings in the
+          kerb. This is the difference between an expensive building and a big
+          one, and it is the reason `lightHeight` drops at the top of the ladder
+          rather than climbing — a flagship stops lighting its lot from masts
+          and starts lighting its own wall. */}
+      {env.light === 'uplight' ? (
+        <G>
+          {[0.1, 0.28, 0.46, 0.64, 0.82].map((f, i) => (
+            <Path
+              key={`up${i}`}
+              d={
+                `M${usable * f - 13},${glassTop - 6}` +
+                ` L${usable * f + 13},${glassTop - 6}` +
+                ` L${usable * f + 6},1 L${usable * f - 6},1 Z`
+              }
+              fill={env.lightColor}
+              opacity={0.08}
+            />
+          ))}
+        </G>
+      ) : null}
+
+      <Rect x={glassInset} y={glassTop} width={glassW} height={glassH} fill={flagship ? '#1d3a52' : '#2f4a63'} stroke={env.trim} strokeWidth={flagship ? 2 : 1.5} />
       {Array.from({ length: panes }, (_, i) => (
         <Rect
           key={i}
           x={glassInset + ((i + 1) * glassW) / (panes + 1)}
           y={glassTop}
-          width={1.4}
+          width={flagship ? 1.1 : 1.4}
           height={glassH}
           fill={env.trim}
-          opacity={0.6}
+          opacity={flagship ? 0.45 : 0.6}
         />
       ))}
-      {[0.25, 0.6, 0.85].map((f, i) => (
-        <Circle key={`glow${i}`} cx={glassInset + f * glassW} cy={glassTop + glassH * 0.55} r={glassH * 0.3} fill={env.lightColor} opacity={0.09} />
+      {/* Showroom light spilling out, and the floor visible through the glass.
+          A lit interior is what separates an open dealership from a closed one. */}
+      <Rect x={glassInset} y={glassTop + glassH * 0.72} width={glassW} height={glassH * 0.28} fill={env.lightColor} opacity={flagship ? 0.13 : 0.08} />
+      {[0.2, 0.5, 0.8].map((f, i) => (
+        <Circle key={`glow${i}`} cx={glassInset + f * glassW} cy={glassTop + glassH * 0.5} r={glassH * 0.34} fill={env.lightColor} opacity={flagship ? 0.11 : 0.08} />
       ))}
 
-      {bayW > 30 ? (
+      {bayCount ? (
         <G>
-          <Rect x={bayX} y={glassTop} width={bayW} height={glassH} fill="#1b1f26" stroke="#5a6270" strokeWidth={1.5} />
-          {Array.from({ length: 3 }, (_, i) => (
-            <Rect key={i} x={bayX + 2} y={glassTop + 4 + i * (glassH / 3.4)} width={bayW - 4} height={1.6} fill="#39404c" />
-          ))}
+          {Array.from({ length: bayCount }, (_, i) => {
+            const x = bayX + i * (bayW + 5);
+            return (
+              <G key={`bay${i}`}>
+                <Rect x={x} y={glassTop} width={bayW} height={glassH} fill="#191d24" stroke={shadeOf(env.trim, -0.2)} strokeWidth={1.5} />
+                {Array.from({ length: 5 }, (_, j) => (
+                  <Rect key={j} x={x + 2} y={glassTop + 3 + (j * (glassH - 6)) / 5} width={bayW - 4} height={1.4} fill="#39404c" />
+                ))}
+              </G>
+            );
+          })}
           <SvgText
-            x={bayX + bayW / 2}
-            y={glassTop + glassH / 2 + 3}
-            fontSize={8}
+            x={bayX + bayBlock / 2}
+            y={glassTop - 9}
+            fontSize={7.5}
             fontWeight="700"
             fill={theme.colors.textFaint}
             textAnchor="middle"
-            letterSpacing={1.2}
+            letterSpacing={1.4}
           >
             SERVICE
           </SvgText>
@@ -633,18 +1066,18 @@ function Facade({
       ) : null}
 
       <SvgText
-        x={flagship ? usable / 2 : glassInset + 6}
-        y={financing && !flagship ? wallHeight - 15 : wallHeight - 8}
-        fontSize={flagship ? 17 : 14}
+        x={flagship ? usable / 2 : glassInset + 4}
+        y={glassTop - (flagship ? 16 : 12)}
+        fontSize={flagship ? 18 : 14}
         fontWeight="800"
         fill={sign}
         textAnchor={flagship ? 'middle' : 'start'}
-        letterSpacing={flagship ? 5 : 1.6}
+        letterSpacing={flagship ? 6 : 1.8}
       >
         {signText.toUpperCase()}
       </SvgText>
       {financing && !flagship ? (
-        <SvgText x={glassInset + 6} y={wallHeight - 5} fontSize={7.5} fontWeight="700" fill={theme.colors.textDim} textAnchor="start" letterSpacing={1.6}>
+        <SvgText x={glassInset + 4} y={wallHeight - 6} fontSize={7.5} fontWeight="700" fill={theme.colors.textDim} letterSpacing={1.6}>
           BUY HERE · PAY HERE
         </SvgText>
       ) : null}
@@ -701,6 +1134,210 @@ function Board({
           </SvgText>
         ) : null}
       </G>
+    </G>
+  );
+}
+
+/**
+ * The bit of the building that stands forward of its own front wall.
+ *
+ * A canopy over the doors is the cheapest thing a building can do to stop
+ * reading as a box, and it is what actually separates the three franchises from
+ * the two used lots in a glance: none of them has one, all of them do.
+ */
+function Entrance({
+  env,
+  layout,
+  cam,
+  h,
+  sign,
+}: {
+  env: EnvironmentDef;
+  layout: LotLayout;
+  cam: Camera;
+  h: number;
+  sign: string;
+}) {
+  const { width, showroomDepth: d } = layout;
+  const x0 = 6;
+  const x1 = width - 6;
+
+  if (env.entrance === 'porch') {
+    // Three steps and a slab, UNDER THE FRONT DOOR. A wall's local x is its lot
+    // u less the building's inset — `cam.wall` measures its length in lot units
+    // — so the elevation and the tarmac can share one answer for where the door
+    // is. They did not, and the stoop sat half a house away from it.
+    const { doorX, doorW } = houseOpenings(layout, x1 - x0);
+    const u = x0 + doorX - 7;
+    return (
+      <G>
+        <Box3D cam={cam} u0={u} v0={d} u1={u + doorW + 14} v1={d + 24} z0={0} z1={16} color="#4a443c" />
+        <Box3D cam={cam} u0={u + 5} v0={d + 24} u1={u + doorW + 9} v1={d + 32} z0={0} z1={9} color="#524b42" />
+      </G>
+    );
+  }
+
+  if (env.entrance === 'stoop') {
+    const u = x0 + (x1 - x0) * 0.42;
+    return <Box3D cam={cam} u0={u} v0={d} u1={u + 40} v1={d + 22} z0={0} z1={14} color="#3d3a34" />;
+  }
+
+  const portico = env.entrance === 'portico';
+  const span = Math.min(portico ? 210 : 150, (x1 - x0) * (portico ? 0.5 : 0.42));
+  const u = x0 + (x1 - x0) * 0.05;
+  const depth = portico ? 62 : 42;
+  const deck = h * (portico ? 0.8 : 0.58);
+  const posts = portico ? 4 : 2;
+  const postW = portico ? 13 : 7;
+
+  return (
+    <G>
+      {Array.from({ length: posts }, (_, i) => {
+        const pu = u + 6 + ((span - 12 - postW) * i) / (posts - 1);
+        return (
+          <Box3D
+            key={i}
+            cam={cam}
+            u0={pu}
+            v0={d + depth - postW - 4}
+            u1={pu + postW}
+            v1={d + depth - 4}
+            z0={0}
+            z1={deck}
+            color={shadeOf(env.trim, portico ? 0.1 : -0.2)}
+          />
+        );
+      })}
+      {/* The slab. A portico's is deep enough to throw a soffit, which is why
+          it gets an underside in its own shade rather than just a top. */}
+      <Box3D
+        cam={cam}
+        u0={u}
+        v0={d}
+        u1={u + span}
+        v1={d + depth}
+        z0={deck}
+        z1={deck + (portico ? 22 : 13)}
+        color={portico ? shadeOf(env.wall, 0.2) : shadeOf(env.wall, 0.08)}
+      />
+      {portico ? (
+        <Polygon
+          points={quad(cam, [
+            [u + 3, d + depth - 3, deck],
+            [u + span - 3, d + depth - 3, deck],
+            [u + span - 3, d + 3, deck],
+            [u + 3, d + 3, deck],
+          ])}
+          fill={sign}
+          opacity={0.14}
+        />
+      ) : null}
+    </G>
+  );
+}
+
+/**
+ * A hand-lettered board on two stakes in the front yard.
+ *
+ * This is where the curbstone stage's name lives, and it has to be here rather
+ * than on the building: a curbstoner's entire position is that this is NOT a
+ * dealership, so the store's name painted across the front of the house in
+ * letters a foot high is the one thing that would break the joke.
+ */
+function YardSign({
+  cam,
+  layout,
+  signText,
+}: {
+  cam: Camera;
+  layout: LotLayout;
+  signText: string;
+}) {
+  const v = layout.showroomDepth + 40;
+  const u0 = 14;
+  const u1 = 14 + Math.min(150, layout.width * 0.34);
+  const board = cam.wall(u0, v, u1, v, 96);
+  const stake = (u: number) => {
+    const top = cam.project(u, v, 62);
+    const base = cam.project(u, v, 0);
+    const w = Math.max(1.2, 3 * cam.scale);
+    return <Rect x={top.x - w / 2} y={top.y} width={w} height={base.y - top.y} fill="#4a3f30" />;
+  };
+
+  return (
+    <G>
+      {stake(u0 + 10)}
+      {stake(u1 - 10)}
+      <G transform={board.matrix}>
+        <Rect width={board.length} height={board.height * 0.46} fill="#c9bb92" stroke="#6d5f42" strokeWidth={2.5} />
+        <SvgText
+          x={board.length / 2}
+          y={board.height * 0.2}
+          fontSize={board.height * 0.15}
+          fontWeight="800"
+          fill="#3a3226"
+          textAnchor="middle"
+        >
+          {signText.toUpperCase()}
+        </SvgText>
+        <SvgText
+          x={board.length / 2}
+          y={board.height * 0.35}
+          fontSize={board.height * 0.1}
+          fontWeight="700"
+          fill="#5c5140"
+          textAnchor="middle"
+        >
+          CARS 4 SALE
+        </SvgText>
+      </G>
+    </G>
+  );
+}
+
+/**
+ * The inflatable tube man.
+ *
+ * Exactly one store on the ladder gets one, and it is the large used lot: the
+ * rung where the operator has enough money to advertise and not enough taste to
+ * stop. It is drawn as a wavy stroke because that is what it is — the shape is
+ * the whole joke, and it does not need to move to land.
+ */
+function AirDancer({ cam, at, height }: { cam: Camera; at: { u: number; v: number }; height: number }) {
+  const base = cam.project(at.u, at.v);
+  const rise = cam.rise(height);
+  const w = Math.max(5, 11 * cam.scale);
+  const y = (f: number) => base.y - rise * f;
+  const sway = rise * 0.12;
+
+  // One long S, so the tube reads as caught mid-flail rather than as a post.
+  const spine =
+    `M${base.x},${base.y}` +
+    ` C${base.x - sway},${y(0.3)} ${base.x + sway * 1.4},${y(0.5)} ${base.x + sway * 0.5},${y(0.72)}` +
+    ` C${base.x - sway * 0.4},${y(0.86)} ${base.x + sway * 0.9},${y(0.94)} ${base.x + sway * 1.5},${y(1)}`;
+
+  return (
+    <G>
+      <Ellipse cx={base.x} cy={base.y} rx={w * 0.9} ry={w * 0.35} fill="#000" opacity={0.4} />
+      <Path d={spine} stroke="#e8574a" strokeWidth={w} fill="none" strokeLinecap="round" />
+      <Path d={spine} stroke="#ffd166" strokeWidth={w * 0.34} fill="none" strokeLinecap="round" opacity={0.85} />
+      {/* Arms, thrown the way the top of the tube is leaning. */}
+      <Path
+        d={`M${base.x + sway * 0.5},${y(0.72)} C${base.x + sway * 2.6},${y(0.78)} ${base.x + sway * 3},${y(0.62)} ${base.x + sway * 2.2},${y(0.52)}`}
+        stroke="#e8574a"
+        strokeWidth={w * 0.55}
+        fill="none"
+        strokeLinecap="round"
+      />
+      <Path
+        d={`M${base.x + sway * 0.4},${y(0.7)} C${base.x - sway * 2.2},${y(0.8)} ${base.x - sway * 2.8},${y(0.9)} ${base.x - sway * 1.6},${y(0.97)}`}
+        stroke="#e8574a"
+        strokeWidth={w * 0.55}
+        fill="none"
+        strokeLinecap="round"
+      />
+      {/* The blower it is bolted to. */}
+      <Rect x={base.x - w * 0.8} y={base.y - w * 0.5} width={w * 1.6} height={w * 0.6} rx={1.5} fill="#2f3540" />
     </G>
   );
 }
@@ -791,8 +1428,78 @@ function Frontage({ env, layout, world }: { env: EnvironmentDef; layout: LotLayo
   );
 }
 
-/** The upright half: chain-link, or flags on a wire. Nearest thing in the scene. */
+/** The upright half: chain-link and bunting. Nearest thing in the scene. */
 function Perimeter({ env, layout, cam }: { env: EnvironmentDef; layout: LotLayout; cam: Camera }) {
+  const { width, frontageY } = layout;
+  const v = frontageY - 8;
+
+  return (
+    <G>
+      <Fence env={env} layout={layout} cam={cam} />
+      {env.bunting ? <Bunting layout={layout} cam={cam} /> : null}
+    </G>
+  );
+}
+
+/**
+ * Pennant bunting, swagged between poles along the street frontage.
+ *
+ * Along the FRONT rather than across the lot, and that is a layering fact
+ * rather than a taste: everything `LotGround` draws is under the car layer, so
+ * a wire strung over the stalls would have sixty cars drawn on top of it. Along
+ * the frontage it is in front of everything and reads correctly.
+ */
+function Bunting({ layout, cam }: { layout: LotLayout; cam: Camera }) {
+  const { width, frontageY } = layout;
+  const v = frontageY - 6;
+  const colors = ['#e8574a', '#ffd166', '#5fbf6a', '#e9ecf3', '#6ea8e8'];
+  const bays = Math.max(2, Math.round(width / 150));
+  const top = 96;
+
+  return (
+    <G>
+      {Array.from({ length: bays + 1 }, (_, i) => {
+        const u = (width * i) / bays;
+        const a = cam.project(u, v, top);
+        const b = cam.project(u, v, 0);
+        return <Rect key={`pole${i}`} x={a.x - 1.4} y={a.y} width={2.8} height={b.y - a.y} fill="#5a5f68" />;
+      })}
+      {Array.from({ length: bays }, (_, i) => {
+        const u0 = (width * i) / bays;
+        const u1 = (width * (i + 1)) / bays;
+        const a = cam.project(u0, v, top);
+        const b = cam.project(u1, v, top);
+        // The swag. A dead-straight wire reads as a cable, not as bunting.
+        const sag = 16;
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + sag * 2 };
+        const flags = 7;
+        return (
+          <G key={`bay${i}`}>
+            <Path d={`M${a.x},${a.y} Q${mid.x},${mid.y} ${b.x},${b.y}`} stroke="#6b7280" strokeWidth={1.1} fill="none" />
+            {Array.from({ length: flags }, (_, j) => {
+              const t = (j + 0.5) / flags;
+              // Point on the quadratic, so a pennant hangs off the wire rather
+              // than off a straight line between the poles.
+              const x = (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * mid.x + t * t * b.x;
+              const y = (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * mid.y + t * t * b.y;
+              return (
+                <Path
+                  key={j}
+                  d={`M${x - 4.5},${y} L${x + 4.5},${y} L${x},${y + 11} Z`}
+                  fill={colors[(i * flags + j) % colors.length]}
+                  opacity={0.88}
+                />
+              );
+            })}
+          </G>
+        );
+      })}
+    </G>
+  );
+}
+
+/** Chain-link, or a row of single pennants on short poles. */
+function Fence({ env, layout, cam }: { env: EnvironmentDef; layout: LotLayout; cam: Camera }) {
   const { width, frontageY } = layout;
   const v = frontageY - 8;
 
@@ -822,25 +1529,6 @@ function Perimeter({ env, layout, cam }: { env: EnvironmentDef; layout: LotLayou
               height={base.y - top.y}
               fill="#474c55"
             />
-          );
-        })}
-      </G>
-    );
-  }
-
-  if (env.flags) {
-    const colors = [theme.colors.danger, theme.colors.accent, theme.colors.money, '#e9ecf3'];
-    return (
-      <G>
-        {Array.from({ length: Math.ceil(width / 34) }, (_, i) => {
-          const u = Math.min(width, 8 + i * 34);
-          const top = cam.project(u, v, 46);
-          const base = cam.project(u, v, 0);
-          return (
-            <G key={`f${i}`}>
-              <Rect x={top.x - 0.6} y={top.y} width={1.2} height={base.y - top.y} fill="#4a5162" opacity={0.6} />
-              <Path d={`M${top.x},${top.y} l9,4.5 l-9,4.5 Z`} fill={colors[i % colors.length]} opacity={0.82} />
-            </G>
           );
         })}
       </G>
