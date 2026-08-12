@@ -54,7 +54,7 @@ const AISLE_DEPTH = 46;
  * portable office — so this is only the fallback.
  */
 export const DEFAULT_SHOWROOM_DEPTH = 96;
-const SHOWROOM_GAP = 22;
+export const DEFAULT_APRON = 22;
 /** Curb, sidewalk and road along the bottom edge. */
 const FRONTAGE_DEPTH = 128;
 
@@ -98,6 +98,15 @@ export interface LotLayout {
   width: number;
   height: number;
   showroomDepth: number;
+  /**
+   * Depth of the display forecourt between the building and row one.
+   *
+   * A driveway has none to speak of; a franchise has a deep paved apron in
+   * front of the showroom that is part of how big the place looks. Reported so
+   * the ground plate can paint it rather than re-deriving it from the first
+   * stall.
+   */
+  apron: number;
   /** Where the curb starts. Everything below this is street, not lot. */
   frontageY: number;
   frontageDepth: number;
@@ -120,13 +129,24 @@ export function lotLayout(
   viewportWidth: number,
   showroomDepth: number = DEFAULT_SHOWROOM_DEPTH,
   edgePad: number = DEFAULT_EDGE_PAD,
+  siteWidth: number = 1,
+  apron: number = DEFAULT_APRON,
 ): LotLayout {
   const stalls = Math.max(1, Math.floor(capacity));
   const building = Math.max(0, showroomDepth);
-  const width = Math.max(240, viewportWidth);
+  const base = Math.max(240, viewportWidth);
+  const site = Math.max(1, siteWidth);
+  const width = base * site;
   // Never let the inset eat the lot on a narrow screen.
-  const pad = Math.max(0, Math.min(edgePad, width * 0.22));
-  const cols = columnsFor(stalls);
+  const pad = Math.max(0, Math.min(edgePad, base * 0.22)) * site;
+  // COLUMNS SCALE WITH THE SITE, which is what keeps a bigger lot from being a
+  // zoom-out. Lot coordinates only mean anything against the car artboard, so
+  // widening the ground without adding columns would just make every stall
+  // wider and every car bigger with it, and nothing would look any larger.
+  // Scaling both leaves a stall exactly the size it was and puts more of them
+  // abreast: the site really is twice the ground, and a car really is half the
+  // share of it.
+  const cols = Math.max(2, Math.round(columnsFor(stalls) * site));
   const rows = Math.ceil(stalls / cols);
 
   const stallWidth = (width - pad * 2) / cols;
@@ -136,9 +156,14 @@ export function lotLayout(
 
   const stallHeight = carLength + ROW_GAP * carScale;
   const aisleDepth = AISLE_DEPTH * carScale;
+  // A wide site gets a drive lane per row rather than one per pair. Doubling
+  // the columns halves the rows, and four rows of twelve run together into one
+  // slab of metal without a lane between them — which is also why a real
+  // dealership of that shape has one.
+  const aisleEvery = site > 1.5 ? 1 : AISLE_EVERY;
 
   const slots: LotSlot[] = [];
-  let y = building + SHOWROOM_GAP;
+  let y = building + Math.max(0, apron);
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
@@ -158,9 +183,9 @@ export function lotLayout(
       });
     }
     y += stallHeight;
-    // An aisle after every second row, but never a trailing one — the street
-    // is the bottom edge, and a lot does not end in a strip of nothing.
-    if ((row + 1) % AISLE_EVERY === 0 && row < rows - 1) y += aisleDepth;
+    // An aisle after the last row of a group, but never a trailing one — the
+    // street is the bottom edge, and a lot does not end in a strip of nothing.
+    if ((row + 1) % aisleEvery === 0 && row < rows - 1) y += aisleDepth;
   }
 
   const frontageY = y + 10 * carScale;
@@ -176,6 +201,7 @@ export function lotLayout(
     width,
     height: frontageY + FRONTAGE_DEPTH,
     showroomDepth: building,
+    apron: Math.max(0, apron),
     frontageY,
     frontageDepth: FRONTAGE_DEPTH,
   };
