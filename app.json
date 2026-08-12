@@ -19,7 +19,7 @@
       ]
     ],
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.jfarneth.hooptieempire",
       "config": {
         "usesNonExemptEncryption": false

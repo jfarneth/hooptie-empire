@@ -189,12 +189,26 @@ currently one: every new business opens on a **grand opening** that doubles
 walk-up traffic for its first twenty minutes. `src/sim/promotions.ts` is the
 table and the plumbing; the tray above the tab bar is the readout.
 
-An **admin console** (Office → Admin, visible to everyone) edits the tuning
-constants live. `src/sim/tuning.ts` is the registry; adding a knob is one entry
-in `TUNABLES` and nothing else. It is the one place the sim writes a global —
-read the header comment there before touching it, and note that overrides live
-on the save and are re-applied *before* offline catch-up, which is what keeps a
-given save replaying identically.
+An **admin console** (Office → Admin) edits the tuning constants live.
+`src/sim/tuning.ts` is the registry; adding a knob is one entry in `TUNABLES`
+and nothing else. It is the one place the sim writes a global — read the header
+comment there before touching it, and note that overrides live on the save and
+are re-applied *before* offline catch-up, which is what keeps a given save
+replaying identically.
+
+**It is no longer visible to everyone, and that is a shipping decision rather
+than a tidy-up.** `ADMIN_ENABLED` in `src/ui/devTools.ts` opens the tab under
+`__DEV__`, on the web target, and for an internal build that sets
+`EXPO_PUBLIC_ADMIN=1` — a signed store build gets none of the three. A console
+that sets cash to any number is a win button in a game whose entire product is
+the progression curve. **The gate covers the ROUTE, not the actions**: `setCash`
+and `setTuning` stay ordinary sim functions with their own tests, because
+breaking them under a hidden screen would make the dev build stop testing what
+the release build ships. The predicate lives in `adminGate.ts` with nothing
+imported so it can be tested at all — `devTools.ts` touches `Platform`, which
+drags react-native into a node suite — and it is mutation-tested, because the
+one case nobody will ever look at is the signed release and getting it backwards
+ships a cash field to the App Store.
 
 Cash is editable there too, but through `setCash` rather than through `TUNABLES`,
 and that distinction is not optional. **Nothing the simulation writes back to may
@@ -204,6 +218,33 @@ earned while the app was closed, so it is a plain action (`setCash`) that writes
 state once, logs a ledger line, and deliberately leaves `lifetimeProfit` alone —
 money conjured from a debug field is not profit, and polluting that number makes
 every later balance reading a lie.
+
+**Three coach marks open a new game, and the constraint that shaped them is that
+the copy has to describe the store the player is standing in.** A curbstone has
+`financing: false`, so a card promising weekly collections would be selling the
+best mechanic in the game to somebody two hours from reaching it — the fix is to
+name the thing and say where it unlocks. `Onboarding.tsx` is the sequence and
+`src/state/onboarding.ts` is the flag.
+
+- **The flag is NOT in `GameState`.** Everything in the save is there because
+  the sim needs it with the app closed, and nothing about a coach mark resolves
+  overnight — putting it there would buy a `SAVE_VERSION` bump, a migration and
+  a `cloneState()` line for nothing. It also means the marks survive
+  `hardReset`, so wiping the save to watch a tuning change from hour zero does
+  not make the game start explaining itself again.
+- **`isNewGame` on the store gates it**, so an existing save on the build that
+  added this is marked seen rather than taught.
+- **The caret is arithmetic, not a measurement** — tabs are evenly weighted, so
+  it needs no `onLayout` and cannot go stale when the promotion tray appears or
+  disappears under it. The tray IS up during the only session that shows a
+  coach mark, which is why the card measures the whole bottom block instead.
+
+Writing them turned up the retired wholesale rule living in player-facing copy:
+the empty lot told a brand new player to "look for anything priced under
+wholesale", which is precisely the gate the buyer was fixed for — the ask band
+straddles retail break-even on purpose, so that describes a sliver of a feed the
+store's own economy calls profitable. It was the first instruction anyone ever
+got. It points at `est. vs retail` now, which is what the feed actually shows.
 
 ## The two axes of the stage ladder
 
@@ -904,7 +945,7 @@ change can actually move what they measure.
 | anything stage-, margin- or ladder-shaped | plus the whole ladder (~2m45s) |
 
 ```bash
-npm test        # 485 tests, ~12s
+npm test        # 495 tests, ~12s
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~3s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2m45s
@@ -1713,6 +1754,42 @@ renders blank with no error.
 Only `master` triggers it. Pages serves one site, so a feature branch in that
 trigger list silently republishes over whatever `master` deployed — if you ever
 need a branch preview, build it somewhere that is not the live site.
+
+### The App Store
+
+**There is no `ios/` directory, so `app.json` IS the native config** — anything
+Xcode would normally own is generated from it at build time, and a field that is
+absent is a field that silently takes a default. Three were absent and all three
+were store-facing:
+
+- **The splash screen is a config plugin, not a `splash` key.** The key was
+  retired in SDK 52 and this app had neither, so it launched white into a game
+  that is `#101219` on every other frame. `assets/splash-icon.png` had been
+  sitting unreferenced since the first commit — an unused asset was the only
+  evidence.
+- **Export compliance is answered in the plist** (`usesNonExemptEncryption:
+  false`) rather than in a web form before every submission. It is honest here:
+  there is no `fetch` anywhere in `src`, which also makes App Privacy a single
+  "Data Not Collected" rather than a questionnaire.
+- **The build number is deliberately NOT in `app.json`.** `eas.json` sets
+  `appVersionSource: "remote"` with `autoIncrement`, so EAS owns it and two
+  builds of one version cannot collide. `version` is the only one you hand-edit.
+
+`supportsTablet` is **false**, which is a 1.0 scoping call rather than a
+technical limit: it costs an iPad screenshot set and a device class nobody has
+watched the lot camera run on. Turning it back on is one line and a test pass.
+
+**Verify a native change by exporting the bundle, not by trusting the web
+build.** `npx expo export --platform ios` runs the real Metro graph — it is the
+cheapest thing that catches a require the web target resolves and the native one
+does not, and it takes about thirty seconds.
+
+**What the harness and the suite cannot see is the phone.** Everything in this
+repo is verified in node and in headless Chromium, and React Native Web is
+faithful but not identical. The open question with actual risk is the lot scene:
+~400 svg elements repainting at 4Hz beside sixty sprites is fine on a laptop and
+unmeasured on a handset. That is a TestFlight build and ten minutes, and it
+should happen before any listing copy gets written.
 
 ## Open questions
 
