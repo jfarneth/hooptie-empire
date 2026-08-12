@@ -11,10 +11,19 @@ import {
 import Svg, { Circle, Ellipse } from 'react-native-svg';
 import { stageMovePreview } from '../../sim/actions';
 import { retailValue } from '../../sim/economy';
+import { readOffer } from '../../sim/haggle';
 import { getStage } from '../../sim/stages';
 import type { Car, GameState, Prospect } from '../../sim/types';
 import { CarArt } from '../art/CarArt';
-import { RARITY_COLOR, duration, money, moneyShort, theme } from '../theme';
+import {
+  OFFER_COLOR,
+  OFFER_LABEL,
+  RARITY_COLOR,
+  duration,
+  money,
+  moneyShort,
+  theme,
+} from '../theme';
 import { LadderPylon } from './LadderPylon';
 import { LotGround } from './LotGround';
 import { fitCameraToWidth, type Camera } from './camera';
@@ -442,6 +451,14 @@ function CarMarkers({
     return () => loop.stop();
   }, [prospect, pulse]);
 
+  // How this buyer's number reads against the sticker. The lot is a scene, not
+  // a list — at a franchise there are thirty of these on screen and the colour
+  // is the only thing that separates a lowball from an offer worth walking over
+  // for. See `readOffer`.
+  const read = prospect
+    ? readOffer(prospect.negotiation.currentOffer, prospect.negotiation.anchor)
+    : 'fair';
+
   const { cu, nose, tail } = carAnchor(slot, layout);
   const reconProgress =
     car.status === 'recon' && car.reconTotalMs > 0
@@ -532,10 +549,10 @@ function CarMarkers({
             onPress={() => onPressProspect(prospect.id)}
             hitSlop={12}
             accessibilityRole="button"
-            accessibilityLabel={`Buyer offering ${money(prospect.negotiation.currentOffer)}`}
+            accessibilityLabel={`Buyer offering ${money(prospect.negotiation.currentOffer)} — ${OFFER_LABEL[read]}`}
             style={styles.buyerHit}
           >
-            <Shopper size={Math.max(20, 30 * scale)} />
+            <Shopper size={Math.max(20, 30 * scale)} tone={OFFER_COLOR[read]} />
           </Pressable>
           {deskCountdown != null ? (
             // Seconds until the staff close this one and take their cut. The
@@ -556,16 +573,22 @@ function CarMarkers({
 /**
  * A customer, from above: shoulders and the top of a head.
  *
- * Ringed in the accent because at the top of the ladder there can be thirty of
- * these on screen at once and an unringed figure is a brown speck on tarmac.
- * This is the moment the game most wants you to notice.
+ * Ringed and coated in `tone`, which is how good their offer is — red, amber or
+ * green off `readOffer`. The ring exists because at the top of the ladder there
+ * can be thirty of these on screen at once and an unringed figure is a brown
+ * speck on tarmac; the COLOUR of it is what turns a lot full of specks into
+ * something you can read without opening anything.
+ *
+ * The head stays skin-toned on purpose. Colouring the whole figure made a lot of
+ * green buyers look like a row of traffic lights and stopped reading as people,
+ * which is the one thing this marker has to keep doing.
  */
-function Shopper({ size }: { size: number }) {
+function Shopper({ size, tone }: { size: number; tone: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 28 28">
       <Circle cx={14} cy={14} r={13} fill="#0b0d11" opacity={0.5} />
-      <Circle cx={14} cy={14} r={12} fill="none" stroke={theme.colors.accent} strokeWidth={2} />
-      <Ellipse cx={14} cy={16} rx={7.6} ry={6.4} fill={theme.colors.accent} />
+      <Circle cx={14} cy={14} r={12} fill="none" stroke={tone} strokeWidth={2} />
+      <Ellipse cx={14} cy={16} rx={7.6} ry={6.4} fill={tone} />
       <Circle cx={14} cy={12.4} r={4.8} fill="#c99a72" />
       <Circle cx={12.5} cy={11.2} r={1.8} fill="#fff" opacity={0.24} />
     </Svg>

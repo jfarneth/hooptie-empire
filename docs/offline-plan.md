@@ -21,8 +21,8 @@ $694k (was $1,316k), `affordBig` **0%** at both bedtimes. The big-lot overnight
 skip is dead at the 50/50 partner split with no cap change, no traffic change,
 and no touch to the offline-is-real pillar. Continuous-play harness numbers
 moved within noise, and `staff commission` reads $0 there by design — the bot
-grabs every deal inside the 20s window, which is exactly what an attentive
-player does. `--cadence=15:240` is the harness mode that measures a real
+grabs every deal inside the grab window (20s at the time of this measurement,
+30s since), which is exactly what an attentive player does. `--cadence=15:240` is the harness mode that measures a real
 person's day.
 
 ## The bug, stated precisely

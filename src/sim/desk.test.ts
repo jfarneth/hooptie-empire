@@ -284,6 +284,47 @@ function levelRefusing(s: GameState, side: DealSide, margin: number): number {
   );
 }
 
+describe('the grab window against a buyer\'s patience', () => {
+  /**
+   * THE ONE RELATIONSHIP THE GRACE WINDOW CANNOT BREAK, and it is a
+   * relationship between two constants that live in different sections of
+   * balance.ts and have never been edited together.
+   *
+   * The window is the player's chance to close a walk-up themselves and keep
+   * the staff's cut, so longer is friendlier — right up until it outlasts the
+   * buyer. `stepProspects` sweeps the expired before `stepAutomation` runs, so
+   * a window at or past the least patient buyer's lifetime does not move who
+   * closes the deal, it deletes the deal: nobody serves them, and offline that
+   * is the whole night's takings for the impatient tail.
+   *
+   * At 30s against a floor of 31.5s there is one and a half seconds in it. That
+   * is deliberate and it is the reason this test exists rather than a comment.
+   */
+  it('leaves the desk time to reach even the least patient buyer', () => {
+    // The shortest life `generateProspect` can draw — see its `expiresAt`.
+    const shortestPatience = BALANCE.prospectLifetimeMs * 0.7;
+    // Strictly less, and by at least the tick the desk needs to act on.
+    expect(BALANCE.desk.graceMs + TICK_MS).toBeLessThanOrEqual(shortestPatience);
+  });
+
+  /**
+   * And the same thing said in behaviour rather than in arithmetic, because the
+   * inequality above is only correct as long as the sweep still runs before the
+   * desk does. A buyer pinned to the shortest patience in the game has to end
+   * up sold to, not swept.
+   */
+  it('still closes a walk-up who is on the shortest fuse in the game', () => {
+    const { s, prospect } = lotWithWalkUp();
+    const live = s.prospects.find((p) => p.id === prospect.id)!;
+    live.expiresAt = live.arrivedAt + BALANCE.prospectLifetimeMs * 0.7;
+
+    const after = advance(s, BALANCE.prospectLifetimeMs);
+    expect(after.stats.carsSold).toBe(s.stats.carsSold + 1);
+    // By the desk, which is the half that would go quiet if the sweep won.
+    expect(after.stats.commissionPaid).toBeGreaterThan(s.stats.commissionPaid);
+  });
+});
+
 describe('the house minimum on a sale', () => {
   it('signs a deal that clears the floor', () => {
     const { s, car, prospect } = lotWithWalkUp();

@@ -91,11 +91,21 @@ export const BALANCE = {
      * therefore how long the player has to grab the deal and keep the whole
      * margin. The incentive for active play, in milliseconds.
      *
-     * Prospect patience is 45s +/-30%, so at 20s the staff always has time
-     * left to work with. Push this above ~30s in the admin console and the
-     * slowest walk-ups will leave before the desk ever gets to them.
+     * THIS IS AS HIGH AS IT CAN SAFELY GO. Prospect patience is 45s +/-30%, so
+     * the least patient buyer in the game leaves at 31.5s: at 30s the desk gets
+     * its shot with about a second and a half to spare, and it resolves a whole
+     * haggle inside one tick, so nothing is lost. Push it past ~31s and the
+     * impatient tail starts walking off the lot unserved — which costs the sale
+     * outright rather than moving who closes it, and offline that is the entire
+     * night's takings for those buyers.
+     *
+     * Raised from 20s: half a minute is a realistic amount of time to notice a
+     * buyer, open the sheet and work the slider, where 20s rewarded reflexes
+     * over judgement. The offline brake is unaffected — nobody taps while the
+     * app is closed, so every unattended sale still pays the staff cut whatever
+     * this is set to.
      */
-    graceMs: 20_000,
+    graceMs: 30_000,
   },
   // The seller ask band moved into `STAGES[].sourcing` in stages.ts when the
   // ladder landed, because a franchise buys at invoice and a used lot does not.
@@ -139,6 +149,30 @@ export const BALANCE = {
     /** Chance a buyer names an un-round number, which is what makes the round
      *  ones read as deliberate rather than as engine output. */
     oddNumberChance: 0.15,
+
+    /**
+     * WHERE THE COLOUR ON A BUYER CHANGES, as a share of your asking price.
+     *
+     * The lot draws the shopper in red, amber or green so a full lot can be
+     * read at a glance instead of by opening thirty deal sheets. These are the
+     * two thresholds, and they are set against MEASURED offers rather than
+     * picked round: with cars listed at retail the opening offer runs 0.80 to
+     * 1.00 of the ask with a median of 0.895, and 11% of buyers simply pay the
+     * sticker. At 0.87 and 0.93 that splits about 33 / 47 / 20, so amber is the
+     * ordinary case — which is the right shape for a glance signal, because a
+     * colour that is always green teaches nobody anything.
+     *
+     * They are a READ, not a rule: nothing in the sim consults them, and a
+     * buyer's colour changes nothing about what they will pay. Overpricing a
+     * car pushes its offers down the scale honestly, because the lowball
+     * factor is already denominated in the same ratio.
+     */
+    offerRead: {
+      /** At or above this share of the ask, the buyer is as good as it gets. */
+      strong: 0.93,
+      /** Below this, it is a lowball. Between the two is an ordinary offer. */
+      fair: 0.87,
+    },
 
     /**
      * Where the hidden reservation price sits between their offer and your ask.
