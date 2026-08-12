@@ -32,12 +32,13 @@ written down now. Read the `dealFloors` header in `stages.ts` before touching
 this panel. Three things carry it:
 
 - **The price of tabulating is a guard test**, in `margins.test.ts`, and it is
-  mutation-tested in both directions: a ladder must stay monotonic, its bottom
-  stop must sit under what the store averages, and its top stop must stay under
-  the best margin the store's own feed can produce. Move the economy far enough
-  and it goes red. `npm run sim` prints the same check against real listings —
-  each stop and the share of the feed it lets through — which is the column to
-  read after any margin work.
+  mutation-tested in both directions: a ladder must stay monotonic, must put
+  stops either side of an ordinary deal at any reach level, and must top out
+  under the best margin the store's own feed can produce. Move the economy far
+  enough and it goes red. **The suite is only half of it** — `npm run sim`
+  prints each stop against the share of a real feed it lets through, and that
+  column caught three franchise ladders with dead stops at the top that every
+  unit test passed. Read it after any margin work.
 - **Paper needs its own ladder.** A contract grosses the window price and
   collects part of it, so an average note at a small lot is worth 33% where the
   average cash deal is worth 19%. One shared set of stops would leave the bottom
@@ -806,6 +807,34 @@ the big lot predicts ±8.8 against a measured ±9.9 — the kind of miss that re
 as noise and is not. The big lot is the loosest row for the same reason; it is
 the store where reach is bought partway through, so the freight the model
 averages over is not the freight in force for the whole time spent there.
+
+**`npm run sim` also prints every sales-floor stop against the feed it has to
+let through**, and this is the guard that lives outside the suite. The floors
+are hard numbers per store now, so nothing follows a retune on its own — and a
+stop's *percentage* being fine tells you nothing about whether it is a position
+worth having. Measured at 8 seeds over 350h, the share of each store's own feed
+that clears each stop:
+
+| store | Scraping by | Thin | Fair | Good | Strong | Steals only |
+|---|---|---|---|---|---|---|
+| Curbstone | 0%: 90% | 8%: 74% | 15%: 59% | 22%: 42% | 30%: 24% | 40%: 3% |
+| Small lot | 0%: 95% | 8%: 77% | 15%: 60% | 22%: 42% | 30%: 22% | 40%: 1% |
+| Big lot | 4%: 87% | 9%: 71% | 14%: 55% | 20%: 35% | 27%: 13% | 36%: 1% |
+| Halvorsen | 5%: 96% | 7%: 80% | 9%: 54% | 11%: 26% | 13%: 8% | 15%: 1% |
+| Okabe | 4%: 95% | 6%: 74% | 7%: 56% | 9%: 22% | 10%: 11% | 12%: 2% |
+| Valmont | 4%: 94% | 5%: 78% | 6%: 57% | 7%: 36% | 8%: 15% | 10%: 3% |
+
+**THE FIRST CUT OF THAT TABLE PASSED EVERY UNIT TEST AND WAS STILL WRONG**, and
+it is the reason this column exists. The three franchise ladders read
+`13%:8% 15%:1% 18%:0%` and `12%:2% 15%:0%` and `10%:3% 13%:0%` — two slider
+positions at the top of each that both meant "stop selling cars", plus a Valmont
+bottom stop at `3%:100%` that could never bite. Every one of them satisfied
+monotonic, opens-below-the-average and tops-out-under-what-the-store-can-produce,
+because the share of a real feed above a threshold is not something a closed
+form over the ask band can see. Read this column after any margin work; a stop
+at 0% or at 100% is a slider position doing nothing. Cash only — the finance
+ladder is denominated in expected collections per contract, which is a property
+of a walk-up's credit rather than of a listing, so the feed cannot measure it.
 
 **A LOT IS ONLY AS BIG AS ITS FEED, and this is the table to read before
 touching capacity, the feed, or anything that sounds like "why is the lot

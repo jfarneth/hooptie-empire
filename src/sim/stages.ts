@@ -436,8 +436,8 @@ export const STAGES: readonly StageDef[] = [
     // would have meant "sell nothing, ever" — 22% is above anything a Halvorsen
     // allocation can produce.
     dealFloors: {
-      cash: [0.05, 0.07, 0.1, 0.12, 0.15, 0.18],
-      finance: [0.09, 0.13, 0.16, 0.19, 0.22, 0.24],
+      cash: [0.05, 0.07, 0.09, 0.11, 0.13, 0.15],
+      finance: [0.12, 0.13, 0.15, 0.17, 0.19, 0.21],
     },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.16, askMax: 1.24, makeId: 'halvorsen' },
   },
@@ -459,8 +459,8 @@ export const STAGES: readonly StageDef[] = [
     creditShift: 1.6,
     desk: { title: 'Sales manager', commission: 0.1, salaried: true },
     dealFloors: {
-      cash: [0.04, 0.06, 0.08, 0.1, 0.12, 0.15],
-      finance: [0.05, 0.08, 0.1, 0.13, 0.15, 0.18],
+      cash: [0.04, 0.06, 0.07, 0.09, 0.1, 0.12],
+      finance: [0.07, 0.09, 0.1, 0.12, 0.13, 0.15],
     },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.2, askMax: 1.27, makeId: 'okabe' },
   },
@@ -486,8 +486,8 @@ export const STAGES: readonly StageDef[] = [
     // so a contract here grosses 0.997 of the cash deal. Paper stops being a
     // premium at the top of the ladder, and the sliders say so.
     dealFloors: {
-      cash: [0.03, 0.05, 0.06, 0.08, 0.1, 0.13],
-      finance: [0.03, 0.05, 0.06, 0.08, 0.1, 0.13],
+      cash: [0.04, 0.05, 0.06, 0.07, 0.08, 0.1],
+      finance: [0.04, 0.05, 0.06, 0.07, 0.08, 0.1],
     },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.23, askMax: 1.29, makeId: 'valmont' },
   },

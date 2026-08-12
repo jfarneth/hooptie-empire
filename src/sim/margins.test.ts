@@ -20,7 +20,8 @@ import {
   stateMarginScale,
   zOfMargin,
 } from './margins';
-import { DEAL_FLOOR_LEVELS, DEAL_FLOOR_NAMES, STAGES, getStage } from './stages';
+import { DEAL_FLOOR_LEVELS, DEAL_FLOOR_NAMES, STAGES, getStage, stageRank } from './stages';
+import type { StageId } from './types';
 
 /**
  * The yardstick, and the ladder it keeps honest.
@@ -104,6 +105,11 @@ describe('the deal-margin scale', () => {
   });
 });
 
+/** Reach is sold from the large lot up, so nothing below it ever pays freight. */
+function canEverReach(id: StageId): boolean {
+  return stageRank(id) >= stageRank('largeUsed');
+}
+
 describe('the sales-floor ladder', () => {
   /**
    * THE PRICE OF TABULATING THE FLOORS IS THIS TEST. The stops no longer follow
@@ -146,18 +152,46 @@ describe('the sales-floor ladder', () => {
   });
 
   /**
-   * Levels 3 and 4 straddle the store's average deal — which is what lets one
-   * name mean one thing everywhere. "Fair" at a Valmont store is 6% and "Fair"
-   * at a curbstone is 15%, and both of them are just under an ordinary deal for
-   * the lot you are standing on. This is the property the old σ scale bought and
-   * the reason the ladder is per store rather than one shared set of stops.
+   * THE LADDER HAS TO SPAN THE STORE, not sit to one side of it. Stated as
+   * "stops on both sides of an ordinary deal, at least two each way" rather
+   * than as "level 3 is under the mean and level 4 is over it", because the
+   * mean is not one number: a Halvorsen store averages 11.5% buying locally and
+   * 9.4% once the transporters are running, and a ladder pinned to either one
+   * exactly would have half its stops bunched on the far side of the other.
+   *
+   * NOTE WHAT THIS DOES NOT CATCH, because the first cut of the table proved
+   * it: three franchise ladders whose top two stops let 1% and 0% of the feed
+   * through — two slider positions that both meant "stop selling cars" — passed
+   * every assertion in this file. The share of a real feed above a threshold is
+   * not something a closed form over the ask band can see, and it is why the
+   * harness prints the ladder against measured listings. Read that column after
+   * any margin work; it is the half of this guard that lives outside the suite.
    */
-  it('puts the same names either side of an average deal at every store', () => {
+  it('puts stops either side of an ordinary deal, at every store and any reach', () => {
     expect(DEAL_FLOOR_NAMES.length).toBe(DEAL_FLOOR_LEVELS);
     for (const stage of STAGES) {
-      const scale = marginScale(stage);
-      expect(dealMarginFloor(stage, 'cash', 3)).toBeLessThan(scale.mean);
-      expect(dealMarginFloor(stage, 'cash', 4)).toBeGreaterThan(scale.mean);
+      const cash = marginScale(stage);
+      const paper = financeMarginScale(cash, financeGrossMultiple(stage));
+      for (const [side, scale] of [
+        ['cash', cash],
+        ['finance', paper],
+      ] as const) {
+        const ladder = dealFloorLadder(stage, side);
+        if (ladder.length === 0) continue;
+        // The freighted store as well as the local one: reach moves the average
+        // by a third at a big lot, and a ladder that only spans one of them is
+        // a slider that goes dead when the player buys a transporter. Only
+        // where reach is actually for sale — a curbstone driveway cannot have a
+        // transporter, and pricing its ladder as if it could would be measuring
+        // a business that does not exist.
+        const reached = canEverReach(stage.id)
+          ? scale.mean - freightMoments({ upgrades: { reach: 2 } }, stage).mean
+          : scale.mean;
+        for (const mean of [scale.mean, reached]) {
+          expect(ladder.filter((m) => m < mean).length).toBeGreaterThanOrEqual(2);
+          expect(ladder.filter((m) => m > mean).length).toBeGreaterThanOrEqual(2);
+        }
+      }
     }
   });
 
@@ -170,6 +204,25 @@ describe('the sales-floor ladder', () => {
   it('cannot be collapsed into one ladder shared by every store', () => {
     const curbstone = dealMarginFloor(getStage('curbstone'), 'cash', 4);
     expect(curbstone).toBeGreaterThan(marginScale(getStage('premiumFranchise')).best);
+  });
+
+  /**
+   * And the same name has to mean the same posture at every store, which is the
+   * property the σ scale was originally chosen for and the one thing a table
+   * could plausibly lose. "Fair" is 15% at a small lot and 6% at a Valmont
+   * store, and this is the assertion that those are the same setting: the two
+   * middle stops land within a standard deviation and a half of an ordinary
+   * deal wherever you stand. That is the honest tolerance rather than a tighter
+   * one, because the stores' spreads differ by eight times and each ladder also
+   * has to span its own store at any reach level — see above.
+   */
+  it('keeps a level meaning the same posture at every store', () => {
+    for (const level of [3, 4]) {
+      for (const stage of STAGES) {
+        const scale = marginScale(stage);
+        expect(Math.abs(zOfMargin(scale, dealMarginFloor(stage, 'cash', level)))).toBeLessThan(1.5);
+      }
+    }
   });
 });
 
