@@ -532,24 +532,40 @@ without a migration. Three of the twelve (`coupeEconomy`, `hatchPremium`,
 `vanPremium`) are unreachable from the current catalogue and deliberately have no
 art; they are the standing test of the fallback path.
 
-**The lot is drawn with rendered sprites; everything else is still vector.**
-`tools/render-sprites` turns the `.glb` models into 81 top-down frames — nine
-archetypes by nine body colours — and generates `src/ui/art/sprites/index.ts`.
-Only the top-down angle is rendered: the lot is where sixty cars share a screen
-and the shading earns its keep, while the feed and the sheets show one car at a
-time and the vector side profile reads fine. Two things that bite:
+**EVERY SCREEN DRAWS RENDERED CARS NOW, at two angles.** `tools/render-cars`
+turns the `.glb` models into 162 frames — nine archetypes by nine body colours
+by two angles — and generates `src/ui/art/sprites/index.ts` and `geometry.ts`.
+The lot gets a top-down frame; the feed and the sheets get a **three-quarter
+hero shot**, for the same reason a forecourt photograph is one.
 
-**The sprites are still shot at 12 degrees and the scene camera is at 25.**
-`SPRITE_TILT_DEGREES` in `camera.ts` is the honest record of that, and
-`tools/render-sprites/config.json` must match THAT number, not
-`LOT_TILT_DEGREES`. The tool needs Blender, which a normal checkout does not
-have, so the scene moved ahead of the art. What it costs is small and bounded: a
-car is laid on the ground plane through the same affine transform as the tarmac
-under it, so it parks in the right place at the right angle with the right
-foreshortening, and only its own shading is from a shallower camera. Re-running
-the tool with `tiltDegrees: 25` and a yaw closes the gap. Do not "fix" the
-mismatch by editing one constant to match the other — that just makes the comment
-lie.
+That second angle was argued against for most of this file's life — one car at a
+time, a silhouette reads fine — and the argument was wrong in a specific way. It
+does read fine. It also reads as a *silhouette*, on the two surfaces where a car
+is biggest and where the player is deciding whether to spend money on it, which
+is the worst place in the game to be showing a cartoon of a car instead of the
+car. It cost 2.7MB and no code outside `src/ui/art`.
+
+**THE PIPELINE NO LONGER NEEDS BLENDER, and that was the real bug.** It was
+Blender + Pillow, which a normal checkout has neither of, so in practice the art
+was frozen the day it shipped: the top-down angle sat recorded as owed work for
+the whole life of the isometric camera, and the side angle went unrendered
+entirely. It is three.js in headless Chromium now — the browser this repo
+already drives — so `npm i -D playwright three` and the whole matrix re-renders
+in about six minutes. **The swap was like-for-like**: footprints measured off the
+Blender frames and the three.js frames agree to three decimals, which is what
+made replacing the shipped art a non-event.
+
+**The sprites are still shot at 12 degrees and the scene camera is at 25, and
+the fix this file used to name is WRONG.** It said re-run the tool at
+`tiltDegrees: 25` with a yaw. `LotScene` lays a frame down through
+`artRotationDeg` and `artSquash`, so the render's own foreshortening *composes*
+with the scene's: 12 degrees gives 0.978 x 0.939 = 0.918 against a correct
+0.906, and 25 would give 0.851 — a car squashed 15% on tarmac squashed 9%. Right
+angle, worse shape. Closing it properly means baking the whole 25/25 projection
+in and having `LotScene` stop transforming the art at all, which is a change to
+how cars are POSITIONED — new artboard, re-measured geometry, different hit
+target. Worth doing; never one config value. `SPRITE_TILT_DEGREES` in `camera.ts`
+is the honest record, and `views.json` must match THAT number.
 
 - **Paint is baked per colour, never tinted at runtime.** A flat tint destroys
   the shading that is the whole reason for having sprites. Condition is the
@@ -557,11 +573,47 @@ lie.
   grey, laid over itself at `weatherAmount`. Both renderers read that one
   function so a car cannot change condition just because its archetype got art.
 - **Paint in the kit is a texture edit, not a material**, and every model ships
-  in its own colour. `tools/render-sprites/README.md` has the details, including
+  in its own colour. `tools/render-cars/README.md` has the details, including
   why paint bands must be measured area-weighted rather than by vertex count.
+- **The ortho box is fitted over every VERTEX, not over bounding-box corners.**
+  A car's box is mostly empty at its corners, and at a three-quarter angle those
+  corners are what project furthest: the first hero shot framed the car filling
+  39% of its own artboard and the rest air.
 
 The lot draws cars at ~34px on a small lot and ~60px on a driveway under the
-isometric camera, so sprites ship at 192px wide and the whole set is ~2.9MB.
+isometric camera, so top frames ship at 192px wide; the sheets draw at 220px, so
+side frames ship at 288. The whole set is ~4.2MB.
+
+**`geometry.ts` is generated by the same run that writes the PNGs, and that is
+the point of it.** It carries two things per archetype per angle: the footprint
+(where the car sits in its frame) and the **axes** (where the car's own nose,
+flank and roof point on the artboard). Both used to be measured by a separate
+pass over the committed PNGs and pasted into `footprint.ts` by hand — which
+works, and leaves one failure mode wide open: re-render, forget the paste, and
+every spoiler in the game sits a few percent off the car it is bolted to, on
+every screen, with nothing failing.
+
+The axes are what let `RarityTrim` work over a three-quarter shot at all. A
+footprint is a bounding box, and a bounding box is enough on a plan view because
+the car's length runs down the frame and its width across it. On a hero shot
+neither is true, so trim names its points in the car's own space — "at the tail,
+at deck height, out to the flank" — and projects them. It is the same trade
+`camera.ts` makes with the ground plate, and it means the overlay never learns
+the camera: change the angle in `views.json`, re-render, and the trim follows.
+
+**Where the trim sits on a given BODY still comes from `SIDE_SHAPES`.** A boot
+lid is at a different height on a hatch than on a sedan and a van's roof runs
+almost to the tailgate, so one set of height constants puts a spoiler through
+the rear glass on half the catalogue — which is what the first cut did, and it
+took a screenshot to see. The vector elevation and the three-quarter overlay
+read the same shape table, so a change to a body drags both along.
+
+**`tools/render-cars/shots.js` is how a change to any of this gets checked.** It
+exports the web build, injects a real save, and screenshots the lot, the feed
+and the sheets — forcing one car of each trim grade onto the lot, because rarity
+is 90/9/0.9/0.1 and a legendary car will not turn up in a fixture by waiting for
+it. Every mistake in this section was found by looking at its output and none of
+them by a test, which is the standing pattern for anything that is a picture.
 
 **The camera is isometric — 25 degrees of tilt and 25 degrees of yaw — and it
 lives in `camera.ts`, which is the only file that knows how to get from the plan

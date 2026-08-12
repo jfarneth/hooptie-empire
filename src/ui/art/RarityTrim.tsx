@@ -1,12 +1,12 @@
 import React, { memo } from 'react';
-import Svg, { G, Path, Rect } from 'react-native-svg';
+import Svg, { G, Path, Polygon, Rect } from 'react-native-svg';
 import type { Rarity } from '../../sim/types';
 import { rarityRank } from '../../sim/rarity';
 import { CAR_BOX_L, CAR_BOX_W } from '../lot/layout';
 import { NEON, shadeColor, stripeColor } from '../theme';
 import type { Archetype } from './archetypes';
 import { bodyStyleOf } from './archetypes';
-import { footprintFor, type ArtSource } from './footprint';
+import { footprintFor, frameAxes, type ArtSource, type FrameAxes } from './footprint';
 import { SIDE_SHAPES } from './vector/shapes';
 import type { CarAngle } from './registry';
 
@@ -40,8 +40,16 @@ export interface RarityTrimProps {
   /** Which renderer drew the car, so the trim matches its framing. */
   source: ArtSource;
   layer: TrimLayer;
-  /** On-screen width of the artboard. Height follows the angle's aspect. */
+  /** On-screen width of the artboard. */
   width: number;
+  /**
+   * On-screen height of the artboard, from whatever drew the car.
+   *
+   * Passed in rather than derived from an aspect here, because the rendered
+   * side frames do not share the vector elevation's proportions and a second
+   * copy of that number is a second thing to forget when the camera moves.
+   */
+  height: number;
   /** The car's already-weathered paint, so trim ages with the car it is on. */
   paint: string;
 }
@@ -58,6 +66,7 @@ function RarityTrimBase({
   source,
   layer,
   width,
+  height,
   paint,
 }: RarityTrimProps) {
   const rank = rarityRank(rarity);
@@ -66,18 +75,39 @@ function RarityTrimBase({
   const glow = rank >= 3;
   if (layer === 'under' && !glow) return null;
 
-  return angle === 'top' ? (
-    <TopTrim
-      archetype={archetype}
-      source={source}
-      layer={layer}
-      width={width}
-      paint={paint}
-      rank={rank}
-    />
-  ) : (
-    <SideTrim archetype={archetype} layer={layer} width={width} paint={paint} rank={rank} />
-  );
+  if (angle === 'top') {
+    return (
+      <TopTrim
+        archetype={archetype}
+        source={source}
+        layer={layer}
+        width={width}
+        paint={paint}
+        rank={rank}
+      />
+    );
+  }
+
+  // The two side renderers are not two framings of one picture the way the
+  // top-down pair are — one is a flat elevation and one is a three-quarter
+  // shot — so they get separate overlays rather than a shared one parameterised
+  // by a footprint. `axes` is present exactly when a frame was rendered.
+  const axes = source === 'sprite' ? frameAxes(archetype, 'side') : null;
+  if (axes) {
+    return (
+      <SideSpriteTrim
+        archetype={archetype}
+        axes={axes}
+        layer={layer}
+        width={width}
+        height={height}
+        paint={paint}
+        rank={rank}
+      />
+    );
+  }
+
+  return <SideTrim archetype={archetype} layer={layer} width={width} paint={paint} rank={rank} />;
 }
 
 // -------------------------------------------------------------- side profile
@@ -224,6 +254,272 @@ function SideTrim({
 
       {rank >= 3 ? (
         <Rect x={12} y={sill - 0.9} width={76} height={0.9} rx={0.45} fill={NEON} opacity={0.85} />
+      ) : null}
+    </G>,
+  );
+}
+
+// ------------------------------------------------- three-quarter, on a sprite
+
+/**
+ * The tarmac line in the vector side artboard, which is 100 x 44 with the nose
+ * at x = 0 and the tail at x = 100 — the same way round as the rendered
+ * three-quarter frames. The wheels are drawn at cy 33 with a radius of 6, so
+ * the tyres meet the ground here.
+ */
+const VECTOR_GROUND = 39;
+
+/** Vector artboard x to car space: +1 at the nose, -1 at the tail. */
+const alongLength = (x: number) => 1 - x / 50;
+
+/** Vector artboard y to car space: 0 on the tarmac, 1 at the roof. */
+const upFromGround = (y: number, roofY: number) =>
+  (VECTOR_GROUND - y) / (VECTOR_GROUND - roofY);
+
+/**
+ * The feed and the sheets, over a rendered three-quarter frame.
+ *
+ * NOTHING HERE IS POSITIONED ON THE ARTBOARD. Every point is named in the car's
+ * own space — how far along its length, how far out toward the near flank, how
+ * far up toward the roof — and projected through the axes the renderer measured
+ * for this exact frame. That is the only way a spoiler lands on the boot rather
+ * than beside it: on a three-quarter shot the car's length runs diagonally and
+ * "along the tail" is not a horizontal line, so a bar drawn across the artboard
+ * is a bar floating at an angle to the car it is bolted to.
+ *
+ * It also means this code never learns the camera. Change the angle in
+ * `tools/render-cars/views.json`, re-render, and the trim follows, because the
+ * numbers it reads came out of the same run as the picture underneath it.
+ */
+function SideSpriteTrim({
+  archetype,
+  axes,
+  layer,
+  width,
+  height,
+  paint,
+  rank,
+}: {
+  archetype: Archetype;
+  axes: FrameAxes;
+  layer: TrimLayer;
+  width: number;
+  height: number;
+  paint: string;
+  rank: number;
+}) {
+  const shape = SIDE_SHAPES[bodyStyleOf(archetype)] ?? SIDE_SHAPES.sedan;
+  const { shoulder, sill, deck, roofY, roof, bolt } = shape.trim;
+  const trim = shadeColor(paint, -0.34);
+  const stripe = stripeColor(paint);
+
+  // Where the bodywork is on THIS body style, read off the same shape table the
+  // vector elevation draws itself from. A boot lid is at a different height on
+  // a hatch than on a sedan and a van's roof runs almost to the tailgate, so
+  // one set of constants puts a spoiler through the rear glass on half the
+  // catalogue — which is what the first cut of this did, and it took a
+  // screenshot to see. Deriving instead means the two overlays describe one
+  // car rather than two, and a change to a body shape drags both along.
+  const beltU = upFromGround(shoulder, roofY);
+  const sillU = upFromGround(sill, roofY);
+  const deckL = deck.map(alongLength);
+  const roofL = roof.map(alongLength);
+
+  // Percent-of-width units, so stroke widths and radii read the same at 96px in
+  // the feed and at 220px on the sheet.
+  const W = 100;
+  const H = (100 * height) / width;
+
+  /**
+   * A point in the car's own space.
+   *
+   * `l` runs -1 at the tail to +1 at the nose, `w` runs -1 at the far flank to
+   * +1 at the near one, `u` runs 0 at the tarmac to 1 at the roof.
+   */
+  const at = (l: number, w: number, u: number) => {
+    const a = axes;
+    return [
+      (a.anchor.x + a.length.x * l + a.width.x * w + a.up.x * u) * W,
+      (a.anchor.y + a.length.y * l + a.width.y * w + a.up.y * u) * H,
+    ] as const;
+  };
+  const poly = (corners: (readonly [number, number])[]) =>
+    corners.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
+
+  const svg = (children: React.ReactNode) => (
+    <Svg width={width} height={height} viewBox={`0 0 ${W} ${H}`}>
+      {children}
+    </Svg>
+  );
+
+  if (layer === 'under') {
+    // Neon spilling onto the tarmac. Drawn ON THE GROUND PLANE (u = 0) and
+    // sheared with it, so it reads as light pooling under the car rather than
+    // as a halo pasted behind it.
+    //
+    // Five thin layers rather than three fatter ones. react-native-svg's filter
+    // support is patchy across platforms so an actual blur is out, and a
+    // polygon cannot take the rounded corners the elevation's rects use — with
+    // three steps the corners read as a magenta rug under the car. The
+    // difference costs two polygons on the 0.1% of cars that are legendary.
+    return svg(
+      <G>
+        {[
+          [1.26, 0.06],
+          [1.17, 0.08],
+          [1.09, 0.11],
+          [1.02, 0.15],
+          [0.95, 0.22],
+        ].map(([spread, opacity]) => (
+          <Polygon
+            key={spread}
+            points={poly([
+              at(spread, -spread, 0),
+              at(spread, spread, 0),
+              at(-spread, spread, 0),
+              at(-spread, -spread, 0),
+            ])}
+            fill={NEON}
+            opacity={opacity}
+          />
+        ))}
+      </G>,
+    );
+  }
+
+  return svg(
+    <G>
+      {bolt === 'spoiler' ? (
+        // A wing standing off the back of the boot lid: a flat blade across the
+        // car, on two uprights. Every corner is in car space, so the blade
+        // shears exactly as the panel under it does instead of lying across the
+        // frame at an angle of its own.
+        <G>
+          {[-0.4, 0.4].map((w) => (
+            <Polygon
+              key={w}
+              points={poly([
+                at(deckL[1] + 0.03, w - 0.05, beltU + 0.11),
+                at(deckL[1] + 0.03, w + 0.05, beltU + 0.11),
+                at(deckL[1] + 0.03, w + 0.05, beltU - 0.03),
+                at(deckL[1] + 0.03, w - 0.05, beltU - 0.03),
+              ])}
+              fill={trim}
+            />
+          ))}
+          <Polygon
+            points={poly([
+              at(deckL[1] - 0.03, -0.7, beltU + 0.13),
+              at(deckL[1] - 0.03, 0.7, beltU + 0.13),
+              at(deckL[1] + 0.1, 0.7, beltU + 0.13),
+              at(deckL[1] + 0.1, -0.7, beltU + 0.13),
+            ])}
+            fill={trim}
+          />
+        </G>
+      ) : null}
+
+      {bolt === 'offroad' ? (
+        <G>
+          {/* Flares, standing proud of the bodywork over both axles. A lift is
+              the obvious treatment for a modified truck and an additive overlay
+              cannot draw one — it would have to raise a body it did not draw. A
+              wider stance it can. */}
+          {shape.wheels.map(alongLength).map((l) => (
+            <Polygon
+              key={l}
+              points={poly([
+                at(l - 0.19, 1.1, sillU + 0.16),
+                at(l + 0.19, 1.1, sillU + 0.16),
+                at(l + 0.24, 1.1, sillU - 0.02),
+                at(l - 0.24, 1.1, sillU - 0.02),
+              ])}
+              fill={trim}
+            />
+          ))}
+          {/* Light bar, on the roof just behind the windscreen header. */}
+          <Polygon
+            points={poly([
+              at(roofL[0] - 0.14, -0.66, 1.09),
+              at(roofL[0] - 0.14, 0.66, 1.09),
+              at(roofL[0] - 0.02, 0.66, 1.09),
+              at(roofL[0] - 0.02, -0.66, 1.09),
+            ])}
+            fill="#2a2f3a"
+          />
+          {[-0.4, 0, 0.4].map((w) => (
+            <Polygon
+              key={w}
+              points={poly([
+                at(roofL[0] - 0.12, w - 0.1, 1.08),
+                at(roofL[0] - 0.12, w + 0.1, 1.08),
+                at(roofL[0] - 0.04, w + 0.1, 1.08),
+                at(roofL[0] - 0.04, w - 0.1, 1.08),
+              ])}
+              fill="#e8e2c8"
+            />
+          ))}
+        </G>
+      ) : null}
+
+      {bolt === 'rails' ? (
+        // Two rails running the length of the roof, inboard of its edges.
+        <G>
+          {[-0.58, 0.58].map((w) => (
+            <Polygon
+              key={w}
+              points={poly([
+                at(roofL[0] - 0.04, w - 0.06, 1.04),
+                at(roofL[0] - 0.04, w + 0.06, 1.04),
+                at(roofL[1] + 0.04, w + 0.06, 1.04),
+                at(roofL[1] + 0.04, w - 0.06, 1.04),
+              ])}
+              fill={trim}
+            />
+          ))}
+        </G>
+      ) : null}
+
+      {rank >= 2 ? (
+        // The rocker band, along the near flank between the belt line and the
+        // sills — at the same two fractions the vector elevation uses, so a car
+        // does not get a different stripe for having been rendered. This is the
+        // plan view's over-the-top stripe seen from where this camera stands:
+        // that one is edge-on here and would be invisible.
+        <G>
+          {[
+            [0.44, 0.055],
+            [0.68, 0.028],
+          ].map(([down, thickness]) => {
+            const u = beltU + (sillU - beltU) * down;
+            return (
+              <Polygon
+                key={down}
+                points={poly([
+                  at(0.93, 1.02, u),
+                  at(-0.93, 1.02, u),
+                  at(-0.93, 1.02, u - thickness),
+                  at(0.93, 1.02, u - thickness),
+                ])}
+                fill={stripe}
+                opacity={0.85}
+              />
+            );
+          })}
+        </G>
+      ) : null}
+
+      {rank >= 3 ? (
+        <Polygon
+          points={poly([
+            at(0.86, 1.02, sillU + 0.03),
+            at(-0.86, 1.02, sillU + 0.03),
+            at(-0.86, 1.02, sillU),
+            at(0.86, 1.02, sillU),
+          ])}
+          fill={NEON}
+          opacity={0.9}
+        />
       ) : null}
     </G>,
   );

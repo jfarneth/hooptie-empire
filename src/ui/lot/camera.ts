@@ -63,19 +63,29 @@ export const LOT_YAW_DEGREES = 25;
 /**
  * The angle the car sprites in `art/sprites` were actually photographed at.
  *
- * NOT the camera above, and deliberately so. The sprites are baked, one render
- * per archetype per colour, by `tools/render-sprites` — which needs Blender, so
- * they cannot be re-shot from inside a normal checkout. The scene camera moved
- * to 25/25 ahead of them.
+ * NOT the camera above, and deliberately so. `tools/render-cars/views.json`
+ * must match THIS number, not `LOT_TILT_DEGREES`.
  *
- * What that costs: a car is laid on the ground plane through the same affine
- * transform as the tarmac it sits on, so it parks in the right place, at the
- * right angle, foreshortened by the right amount. Only its *own* shading is
+ * What the difference costs: a car is laid on the ground plane through the same
+ * affine transform as the tarmac it sits on, so it parks in the right place, at
+ * the right angle, foreshortened by the right amount. Only its *own* shading is
  * from a 13-degree-shallower camera, which at 34-110px is a slightly flatter
- * roof and nothing else. Re-running the sprite tool with `tiltDegrees: 25` and
- * `yawDegrees: 25` closes the gap; until then this constant is the honest
- * record of where they came from, and `tools/render-sprites/config.json` must
- * match THIS number, not `LOT_TILT_DEGREES`.
+ * roof and nothing else.
+ *
+ * **RE-SHOOTING AT 25 DOES NOT CLOSE THE GAP, and this comment said it did for
+ * as long as nobody could run the tool to find out.** `LotScene` lays the frame
+ * down through `artRotationDeg` and `artSquash`, so the render's own
+ * foreshortening COMPOSES with the scene's: at 12 degrees the pair land on
+ * 0.978 x 0.939 = 0.918 against a correct 0.906, and at 25 they would land on
+ * 0.851 — a car squashed by 15% where the tarmac under it is squashed by 9%.
+ * The angle would be right and the shape would be worse.
+ *
+ * Closing it properly means baking the whole 25/25 projection into the frame
+ * and having `LotScene` stop transforming the art at all — verticals vertical,
+ * the roof correctly offset from the footprint, the sprite simply placed at the
+ * projected stall centre. That is a change to how cars are POSITIONED, not to a
+ * number here, and it lands with a new artboard, a re-measured geometry table
+ * and a different hit target. Worth doing; not one config value.
  */
 export const SPRITE_TILT_DEGREES = 12;
 

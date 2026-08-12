@@ -1,14 +1,14 @@
 import type { ImageSourcePropType } from 'react-native';
 import { BODY_COLORS } from '../../sim/models';
 import type { Archetype } from './archetypes';
-import { SPRITE_HEIGHT, SPRITE_SOURCES, SPRITE_WIDTH } from './sprites';
+import { SPRITE_ANGLES } from './sprites';
 
 /**
  * Where rendered sprites live, and the reason nothing else has to change when
  * they arrive.
  *
  * Cars are modelled once in 3D and rendered offline to sprites by
- * `tools/render-sprites`, so the images are a build artifact and the assets you
+ * `tools/render-cars`, so the images are a build artifact and the assets you
  * actually own are the `.glb` files. Until a given archetype is rendered this
  * table has no entry for it, `spriteFor` returns `null`, and `CarArt` draws the
  * vector fallback instead.
@@ -25,7 +25,7 @@ import { SPRITE_HEIGHT, SPRITE_SOURCES, SPRITE_WIDTH } from './sprites';
  * three-dimensional in the first place, and the whole point of these is the
  * shading. Kenney's kit in particular bakes paint into a shared palette texture
  * rather than a material, so colour variants come from re-rendering against a
- * recoloured atlas; see `tools/render-sprites`.
+ * recoloured atlas; see `tools/render-cars`.
  *
  * Condition is NOT baked. It is continuous, so baking it would multiply this
  * table by however many buckets we chose. `CarArt` handles it by compositing.
@@ -47,24 +47,33 @@ type ColorVariants = readonly SpriteFrame[];
 type SpriteTable = Partial<Record<Archetype, Partial<Record<CarAngle, ColorVariants>>>>;
 
 /**
- * Built from the generated table. Only the top-down angle is rendered: the lot
- * is where sixty cars are on screen at once and where the shading earns its
- * keep, while the feed and the sheets show one car at a time and the vector
- * side profile reads perfectly well there. Rendering both angles would double
- * the matrix and the bundle for the screen that needs it least.
+ * Built from the generated table, which is keyed angle-first because that is
+ * how the frames are rendered; this inverts it to archetype-first because that
+ * is how they are looked up.
+ *
+ * BOTH ANGLES ARE RENDERED NOW. The top-down set was always the argument that
+ * carried itself — sixty cars on one screen is where shading earns its keep —
+ * and the side was left to a vector drawing on the grounds that the feed and
+ * the sheets show one car at a time and a silhouette reads fine there. It does
+ * read fine. It also reads as a silhouette, on the two surfaces where a car is
+ * biggest and where the player is deciding whether to spend money on it, which
+ * is the worst place in the game to be showing a cartoon of a car instead of
+ * the car. The side frames are a three-quarter shot for the same reason a
+ * forecourt photograph is one.
  */
-const SPRITES: SpriteTable = Object.fromEntries(
-  Object.entries(SPRITE_SOURCES).map(([archetype, sources]) => [
-    archetype,
-    {
-      top: sources.map((source) => ({
+const SPRITES: SpriteTable = (() => {
+  const table: Record<string, Record<string, ColorVariants>> = {};
+  for (const [angle, generated] of Object.entries(SPRITE_ANGLES)) {
+    for (const [archetype, sources] of Object.entries(generated.sources)) {
+      (table[archetype] ??= {})[angle] = sources.map((source) => ({
         source,
-        width: SPRITE_WIDTH,
-        height: SPRITE_HEIGHT,
-      })),
-    },
-  ]),
-) as SpriteTable;
+        width: generated.width,
+        height: generated.height,
+      }));
+    }
+  }
+  return table as SpriteTable;
+})();
 
 export function spriteFor(
   archetype: Archetype,
