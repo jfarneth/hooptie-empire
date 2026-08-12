@@ -6,11 +6,13 @@ name: Deploy web build
 # There is no server involved — the game is entirely client-side, so this is a
 # static file upload and nothing needs to stay running.
 
+# Pages serves exactly one site, so only the branch that is meant to be live may
+# trigger this. A feature branch in the trigger list silently overwrites what
+# master deployed the moment anyone pushes to it.
 on:
   push:
     branches:
       - master
-      - claude/idle-car-dealership-game-2qb1fr
   workflow_dispatch:
 
 permissions:

@@ -1,4 +1,8 @@
-import { reconCost, reconLift, reconValueGain } from './cars';
+import { reconCost, reconLift, reconValueGain, type ReconMods } from './cars';
+import { BALANCE } from './balance';
+
+/** A level-1 shop with no mechanic: the baseline these curves were tuned at. */
+const SHOP: ReconMods = { maxLift: BALANCE.reconMaxLift, costMult: 1, speedMult: 1 };
 import {
   conditionFactor,
   conditionFreeValue,
@@ -16,6 +20,7 @@ function makeCar(over: Partial<Car> = {}): Car {
     id: 'car_1',
     modelId: 'comet',
     colorIndex: 0,
+    rarity: 'common',
     mileage: 150_000,
     condition: 0.5,
     costBasis: 2_000,
@@ -81,9 +86,9 @@ describe('reconditioning is a real choice, not a trap', () => {
       for (const mileage of [30_000, 90_000, 150_000, 210_000, 260_000]) {
         for (const condition of [0.2, 0.4, 0.6]) {
           const car = makeCar({ modelId: model.id, mileage, condition });
-          if (reconLift(car) <= 0.02) continue;
-          const cost = reconCost(car);
-          const gain = reconValueGain(car);
+          if (reconLift(car, SHOP) <= 0.02) continue;
+          const cost = reconCost(car, SHOP);
+          const gain = reconValueGain(car, SHOP);
           expect(gain).toBeGreaterThan(cost);
         }
       }
@@ -93,7 +98,7 @@ describe('reconditioning is a real choice, not a trap', () => {
   it('scales cost with the car actually in front of you, not the model name', () => {
     const fresh = makeCar({ mileage: 20_000, condition: 0.4 });
     const tired = makeCar({ mileage: 240_000, condition: 0.4 });
-    expect(reconCost(tired)).toBeLessThan(reconCost(fresh));
+    expect(reconCost(tired, SHOP)).toBeLessThan(reconCost(fresh, SHOP));
   });
 });
 

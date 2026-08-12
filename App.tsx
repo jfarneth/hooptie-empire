@@ -6,6 +6,7 @@ import { activeNotes } from './src/sim/notes';
 import { useGame } from './src/state/store';
 import { AwaySummaryModal } from './src/ui/components/AwaySummaryModal';
 import { Hud } from './src/ui/components/Hud';
+import { PromotionBar } from './src/ui/components/PromotionBar';
 import { Loading } from './src/ui/components/ui';
 import { BuyScreen } from './src/ui/screens/BuyScreen';
 import { LotScreen } from './src/ui/screens/LotScreen';
@@ -85,14 +86,22 @@ export default function App() {
     <SafeAreaProvider>
       <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
         <StatusBar style="light" />
-        <Hud state={state} />
 
         <View style={styles.body}>
           {tab === 'lot' ? <LotScreen state={state} /> : null}
           {tab === 'buy' ? <BuyScreen state={state} /> : null}
           {tab === 'notes' ? <NotesScreen state={state} /> : null}
           {tab === 'upgrades' ? <UpgradesScreen state={state} /> : null}
+
+          {/* Floats over the screen, which is why every screen pads by HUD_HEIGHT. */}
+          <View style={styles.hudLayer} pointerEvents="box-none">
+            <Hud state={state} />
+          </View>
         </View>
+
+        {/* Above the tabs rather than over the lot: the HUD is the two scores,
+            and a promotion is status. Renders nothing when nothing is running. */}
+        <PromotionBar state={state} />
 
         <View style={styles.tabBar}>
           {TABS.map(({ id, label }) => {
@@ -127,6 +136,7 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.colors.bg },
   body: { flex: 1 },
+  hudLayer: { position: 'absolute', left: 0, right: 0, top: 0 },
   tabBar: {
     flexDirection: 'row',
     backgroundColor: theme.colors.surface,

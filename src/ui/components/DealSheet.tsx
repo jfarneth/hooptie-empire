@@ -7,13 +7,18 @@ import { expectedCollections } from '../../sim/engine';
 import {
   countersRemaining,
   readCounter,
+  readOffer,
   roundingIncrement,
   tellFor,
 } from '../../sim/haggle';
-import { activeNotes, overCapacityFactor } from '../../sim/notes';
+import { repoThreshold } from '../../sim/business';
+import { getStage } from '../../sim/stages';
+import { level } from '../../sim/upgrades';
+import { activeNotes, canWriteNote, overCapacityFactor } from '../../sim/notes';
+import { haggleSkillFor } from '../../sim/skills';
 import { collectionsCapacity } from '../../sim/upgrades';
 import type { GameState, Prospect } from '../../sim/types';
-import { TIER_COLOR, money, theme } from '../theme';
+import { OFFER_COLOR, TIER_COLOR, money, theme } from '../theme';
 import { PriceSlider } from './PriceSlider';
 import { Sheet } from './Sheet';
 import { Button, Chip, Row } from './ui';
@@ -43,6 +48,13 @@ export function DealSheet({
   onDecline: () => void;
   onClose: () => void;
 }) {
+  // The sheet being open IS the claim — the staff stand back the moment you sit
+  // down (see claimDeal in LotScreen), so what the subtitle owes the player is
+  // the fact that this deal is now theirs to keep the whole margin on.
+  const deskWaiting =
+    level(state, 'salesDesk') > 0 && state.dealPolicy !== 'manual' && prospect != null;
+  const deskTitle = getStage(state.stage).desk.title;
+
   // Hooks must run unconditionally, so the counter lives above the early return.
   const neg = prospect?.negotiation ?? null;
   const step = neg ? roundingIncrement(neg.anchor) : 100;
@@ -69,25 +81,35 @@ export function DealSheet({
 
   const car = state.cars.find((c) => c.id === prospect.carId);
   const costBasis = car?.costBasis ?? 0;
-  const financeAvailable = state.stage === 'bhph';
+  const financeAvailable = getStage(state.stage).financing;
 
-  const countersLeft = countersRemaining(neg);
+  const countersLeft = countersRemaining(neg, haggleSkillFor(state));
   const agreed = neg.status === 'accepted';
   // Once they have said yes there is nothing left to argue about; without the
   // status check the sheet would render a counter control that silently no-ops,
   // because the action layer rejects counters on a closed negotiation.
   const canCounter = neg.status === 'open' && countersLeft > 0 && neg.currentOffer < neg.anchor;
 
-  const capFactor = overCapacityFactor(activeNotes(state.notes).length, collectionsCapacity(state));
+  const bookSize = activeNotes(state.notes).length;
+  const bookLimit = collectionsCapacity(state);
+  const bookOpen = canWriteNote(state);
+
+  const capFactor = overCapacityFactor(bookSize, bookLimit);
   const missChance = BALANCE.creditTiers[prospect.tier].missChance * capFactor;
+  // Quoted against the player's own repo trigger, not the house default: this
+  // number is presented as exact, so it has to be the rule they actually set.
   const { expectedCollected, defaultProbability } = expectedCollections(
     prospect.financeTerms.weeks,
     prospect.financeTerms.weeklyPayment,
     missChance,
+    repoThreshold(state),
   );
 
   const financeEv = prospect.downPayment + expectedCollected;
   const cashProfit = neg.currentOffer - costBasis;
+  // Follows the CURRENT offer, not the opening one: counter them up and the
+  // headline goes amber and then green as they climb toward the sticker.
+  const offerRead = readOffer(neg.currentOffer, neg.anchor);
   const financeEvProfit = financeEv - costBasis;
   const financeBeatsC = financeEv > neg.currentOffer;
 
@@ -97,7 +119,13 @@ export function DealSheet({
     <Sheet
       visible
       title={prospect.name}
-      subtitle={car ? `wants the ${carLabel(car)}` : undefined}
+      subtitle={
+        car
+          ? deskWaiting
+            ? `wants the ${carLabel(car)} — yours to close, ${deskTitle.toLowerCase()} waived off`
+            : `wants the ${carLabel(car)}`
+          : undefined
+      }
       onClose={onClose}
     >
       <Row gap={8}>
@@ -116,7 +144,11 @@ export function DealSheet({
           <Text style={styles.optionTitle}>
             {agreed ? 'They agreed' : neg.countersMade > 0 ? 'Their new offer' : 'Cash'}
           </Text>
-          <Text style={styles.optionHeadline}>{money(neg.currentOffer)}</Text>
+          {/* The same red/amber/green the lot painted this buyer, so the colour
+              that made you walk over means one thing on both screens. */}
+          <Text style={[styles.optionHeadline, { color: OFFER_COLOR[offerRead] }]}>
+            {money(neg.currentOffer)}
+          </Text>
         </Row>
         <Text style={styles.optionNote}>
           {agreed
@@ -191,7 +223,7 @@ export function DealSheet({
 
       {/* ------------------------------------------------------- finance */}
       {financeAvailable ? (
-        <View style={[styles.option, financeBeatsC && styles.optionHighlight]}>
+        <View style={[styles.option, financeBeatsC && bookOpen && styles.optionHighlight]}>
           <Row style={{ justifyContent: 'space-between' }}>
             <Text style={styles.optionTitle}>Finance it</Text>
             <Text style={styles.optionHeadline}>{money(prospect.downPayment)}</Text>
@@ -234,13 +266,35 @@ export function DealSheet({
             </Text>
           </Row>
 
-          <Button
-            label="Write the note"
-            sublabel={financeBeatsC ? `+${money(financeEv - neg.currentOffer)} over cash` : undefined}
-            tone={financeBeatsC ? 'primary' : 'default'}
-            onPress={onFinance}
-            style={{ marginTop: 10 }}
-          />
+          {bookOpen ? (
+            <Button
+              label="Write the note"
+              sublabel={
+                financeBeatsC ? `+${money(financeEv - neg.currentOffer)} over cash` : undefined
+              }
+              tone={financeBeatsC ? 'primary' : 'default'}
+              onPress={onFinance}
+              style={{ marginTop: 10 }}
+            />
+          ) : (
+            // A disabled button rather than a hidden one: the deal that is not
+            // available is still information, and the player needs to see what
+            // the full book is costing them on this specific customer.
+            <>
+              <Button
+                label="Book is full"
+                sublabel={`${bookSize}/${bookLimit} contracts`}
+                tone="ghost"
+                disabled
+                onPress={onFinance}
+                style={{ marginTop: 10 }}
+              />
+              <Text style={styles.bookFull}>
+                The collections desk will not carry another contract. Take the cash, or staff the
+                desk and come back to the next one.
+              </Text>
+            </>
+          )}
         </View>
       ) : (
         <View style={styles.lockedBox}>
@@ -328,6 +382,13 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     marginTop: 8,
     fontStyle: 'italic',
+  },
+  bookFull: {
+    color: theme.colors.warn,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 8,
+    textAlign: 'center',
   },
   profitLabel: { color: theme.colors.textDim, fontSize: 12, fontWeight: '600' },
   profitValue: { fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },

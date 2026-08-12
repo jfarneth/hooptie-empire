@@ -1,4 +1,4 @@
-import { BALANCE, TICK_MS } from './balance';
+import { BALANCE, MS_PER_GAME_WEEK, TICK_MS } from './balance';
 import {
   applyRepoDamage,
   beginRecon,
@@ -8,34 +8,88 @@ import {
   generateCar,
   reconCost,
 } from './cars';
+import { appraisalError, estimatedRetail, pessimisticRetail } from './appraisal';
+import {
+  businessDefaults,
+  cashFloorLevel,
+  financeFloorLevel,
+  minBuyMargin,
+  minWorkingCapital,
+  repoThreshold,
+  servicePlanBand,
+  shopRateLevel,
+} from './business';
+import {
+  claimCostMultiplier,
+  maybeSellPlan,
+  pruneClosedPlans,
+  stepDuePlans,
+  voidPlansForCar,
+} from './service';
+import { bayCount, shopPayroll, shopRate, stepShop } from './shop';
+import { dealMarginFloor } from './margins';
 import { generateProspect } from './customers';
 import { deskCounter, resolveCounter } from './haggle';
 import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
 import { mintId } from './ids';
-import { LISTING_SOURCES, TIERS_BY_STAGE, modelsForTiers } from './models';
+import { drawOrigin, freightCost, getMarketTier, landedCost } from './market';
+import { LISTING_SOURCES, makeName, modelsForMake, modelsForTiers } from './models';
+import { getStage } from './stages';
 import {
   activeNotes,
   applyDuePayment,
+  canWriteNote,
+  expectedCollections,
   missChance,
   openNote,
   overCapacityFactor,
 } from './notes';
-import { chance, createRng, pick, range } from './rng';
+import { prestigeEdge } from './prestige';
+import { baseTrim, rarityAskMult } from './rarity';
 import {
+  expirePromotions,
+  getPromotion,
+  promotionDuration,
+  promotionTrafficMultiplier,
+  startPromotion,
+} from './promotions';
+import { chance, createRng, normalish, pick, range } from './rng';
+import {
+  blankSkills,
+  buyXp,
+  cloneSkills,
+  getSkill,
+  grantXp,
+  appraisalSigma,
+  haggleSkillFor,
+  reconModsFor,
+  sourcingModsFor,
+  repairXp,
+  sellXp,
+  walkawayXp,
+} from './skills';
+import {
+  UPGRADES,
   carCapacity,
   collectionsCapacity,
   level,
-  listingIntervalMs,
-  listingSlots,
+  weeklyWage,
   repoConditionLoss as repoConditionLossFor,
   repoFee as repoFeeFor,
 } from './upgrades';
-import type { Car, GameState, Millis, SimEvent } from './types';
+import type { StageSourcing } from './stages';
+import type { StockProfile } from './cars';
+import type { Car, GameState, Listing, Millis, Prospect, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 16;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
+
+  // Every business opens with a grand opening, including the one you start
+  // after retiring. It costs no RNG draws, so a run's stream is identical with
+  // or without it and every seeded comparison still lines up.
+  openTheDoors(state);
 
   // Seed the feed so a brand new player has something to look at immediately.
   // Waiting out the first listing interval on a cold open is the worst possible
@@ -50,21 +104,48 @@ export function createInitialState(seed: number, wallNow: number): GameState {
   return state;
 }
 
+/**
+ * The opening promotion, and the ledger line that tells the player it is on.
+ *
+ * The first twenty minutes are the thinnest part of the game — one car, one
+ * buyer every couple of minutes — and this is the cheapest honest way to give
+ * them a pulse: it moves the arrival rate and nothing else, so no price, margin
+ * or credit number the rest of the economy is balanced on has to move with it.
+ */
+function openTheDoors(s: GameState): void {
+  const active = startPromotion(s, 'grandOpening');
+  const def = getPromotion(active.id);
+  if (!def) return;
+  logEvent(s, {
+    t: s.t,
+    kind: 'promotion',
+    label: `${def.name} — ${def.effect.toLowerCase()} for ${Math.round(promotionDuration(active.id) / 60_000)} minutes.`,
+  });
+}
+
 /** The guaranteed opening deal. Affordable, and obviously worth doing. */
 function spawnStarterListing(s: GameState): void {
   const models = modelsForTiers(['beater']);
   const model = pick(s.rng, models);
   const car = generateCar(s, s.rng, model, s.t);
 
+  // Stock trim, same rule the rotating feed follows — if the dealt car happens
+  // to roll a grade, the opening deal is quietly a very good one rather than a
+  // more expensive one.
   const affordable = BALANCE.startingCash * range(s.rng, 0.5, 0.72);
-  const price = Math.round(Math.min(wholesaleValue(car) * 0.95, affordable));
+  const price = Math.round(Math.min(wholesaleValue(baseTrim(car)) * 0.95, affordable));
 
   s.listings.push({
     id: mintId(s, 'lst'),
     car,
     price,
     expiresAt: s.t + BALANCE.listingLifetimeMs * 2,
+    // The opening deal is always the car down the road. A new game has no reach
+    // and nothing to truck anything with.
+    origin: 'local',
+    freight: 0,
     source: pick(s.rng, LISTING_SOURCES),
+    appraisalNoise: drawAppraisalNoise(s),
   });
 }
 
@@ -75,13 +156,19 @@ function blankState(seed: number, wallNow: number): GameState {
     accumulatorMs: 0,
     rng: createRng(seed),
     cash: BALANCE.startingCash,
-    stage: 'curbstoner',
+    stage: 'curbstone',
     cars: [],
     listings: [],
     prospects: [],
     notes: [],
+    serviceContracts: [],
+    shop: { techs: [], jobs: [], weekRevenue: 0, weekJobs: 0 },
     upgrades: {},
+    skills: blankSkills(),
     dealPolicy: 'manual',
+    business: businessDefaults(),
+    promotions: [],
+    tuning: {},
     stats: {
       carsSold: 0,
       cashDeals: 0,
@@ -93,8 +180,21 @@ function blankState(seed: number, wallNow: number): GameState {
       walkaways: 0,
       totalCollected: 0,
       lifetimeProfit: 0,
+      commissionPaid: 0,
+      plansSold: 0,
+      planIncome: 0,
+      planPayouts: 0,
+      shopRevenue: 0,
+      shopJobsDone: 0,
+      shopReworks: 0,
+      shopTurnedAway: 0,
     },
     events: [],
+    prestige: { count: 0, points: 0, history: [] },
+    loan: null,
+    // The first bill lands a week in, not on the opening tick: a new game should
+    // not owe rent before it has seen a car.
+    nextBillAt: MS_PER_GAME_WEEK,
     lastSeenAt: wallNow,
     nextId: 1,
   };
@@ -131,11 +231,176 @@ export function advance(state: GameState, dtMs: number): GameState {
 /** One fixed 1s slice. Mutates. */
 function step(s: GameState): void {
   s.t += TICK_MS;
+  stepPromotions(s);
   stepRecon(s);
   stepListings(s);
   stepProspects(s);
   stepNotes(s);
+  // The other side of the book, on the same weekly beat and with the opposite
+  // sign. Placed straight after the notes for that reason, and before the bill
+  // so a week's claims and a week's rent land in the order the week happened.
+  stepServicePlans(s);
+  stepServiceDept(s);
+  stepBills(s);
   stepAutomation(s);
+}
+
+// ----------------------------------------------------------------- promotions
+
+/**
+ * Retire anything that has run out.
+ *
+ * This is bookkeeping and a ledger line, NOT what makes the boost stop. The
+ * clock filter is inside `livePromotions`, so the traffic multiplier is already
+ * back to 1 on the tick a promotion is due whether this has swept it yet or
+ * not — which is deliberate, because the UI and the harness both read that
+ * accessor between ticks and neither of them runs the sweep. Moving this call
+ * to the end of `step` changes nothing; the belt and the braces are both real.
+ *
+ * Consumes no RNG, which is what lets promotions be added to an existing save
+ * without shifting a single draw in the stream.
+ */
+function stepPromotions(s: GameState): void {
+  if (s.promotions.length === 0) return;
+  for (const def of expirePromotions(s)) {
+    logEvent(s, { t: s.t, kind: 'promotion', label: `${def.name} is over.` });
+  }
+}
+
+// ------------------------------------------------------------------- expenses
+
+/**
+ * The weekly bill: rent, wages and floorplan interest.
+ *
+ * Charged on the same beat note payments land on, and for the same reason it is
+ * on the clock rather than on a render: the business runs while the app is
+ * closed, and an overhead that only accrued while somebody was watching would
+ * make closing the app a way to avoid it.
+ *
+ * A week can only come due once per 1s step, so this is an `if` and not a
+ * `while` — the same argument `stepNotes` makes about payments.
+ */
+function stepBills(s: GameState): void {
+  if (s.nextBillAt > s.t) return;
+  s.nextBillAt += MS_PER_GAME_WEEK;
+
+  const bill = weeklyExpenses(s);
+
+  // The shop's week, in one line. Its money already landed, job by job, as the
+  // cars went out — see `stepServiceDept` for why none of that is logged
+  // individually. This is the ledger's honest account of it, and it is written
+  // before the bill so the takings read above the wages that produced them.
+  if (s.shop.weekJobs > 0) {
+    logEvent(s, {
+      t: s.t,
+      kind: 'shop',
+      label: `Service department — ${s.shop.weekJobs} job${s.shop.weekJobs > 1 ? 's' : ''} billed`,
+      amount: s.shop.weekRevenue,
+    });
+    s.shop.weekRevenue = 0;
+    s.shop.weekJobs = 0;
+  }
+
+  // Rent, wages and floorplan are paid out of cash, and cash does not go
+  // Charged IN FULL, whatever the balance says afterwards. Rent and wages used
+  // to floor at zero, which produced the game's sneakiest failure state: a
+  // business pinned at $0 paid nothing, so two different expense settings
+  // reported identical lifetime profit and the books quietly stopped meaning
+  // anything. A landlord does not floor at zero and neither do wages owed —
+  // the honest ledger goes negative, the buying gates (`cash >= price`) shut
+  // themselves off, and digging out is selling stock and collecting payments,
+  // which are both still possible at any balance. Recovery stays reachable;
+  // only the number stops lying.
+  const overheads = bill.total - bill.debtService;
+  if (overheads > 0) {
+    s.cash -= overheads;
+    s.stats.lifetimeProfit -= overheads;
+    logEvent(s, {
+      t: s.t,
+      kind: 'expense',
+      label: s.cash < 0 ? 'Weekly costs — the account is overdrawn' : 'Weekly costs',
+      amount: -overheads,
+    });
+  }
+
+  // THE SHARK ALWAYS COLLECTS. Every bill drives the balance below zero now,
+  // but his is still different in kind: rent stops when you move and wages stop
+  // when staff reset, while his schedule survives everything short of
+  // retirement, which settles him off the top of the sale. There is no
+  // missed-payment state and no compounding shortfall — the schedule simply
+  // runs until the player recovers or quits.
+  if (s.loan) {
+    s.cash -= s.loan.paymentAmount;
+    s.stats.lifetimeProfit -= s.loan.paymentAmount;
+    s.loan.paymentsRemaining -= 1;
+    logEvent(s, {
+      t: s.t,
+      kind: 'loan',
+      label:
+        s.loan.paymentsRemaining > 0
+          ? `The shark's cut — ${s.loan.paymentsRemaining} to go`
+          : 'The shark is paid off',
+      amount: -s.loan.paymentAmount,
+    });
+    if (s.loan.paymentsRemaining <= 0) s.loan = null;
+  }
+}
+
+export interface WeeklyExpenses {
+  rent: number;
+  payroll: number;
+  floorplan: number;
+  /**
+   * The technicians. Kept apart from `payroll` because the two answer different
+   * questions: the sales side is overhead against the cars, and this is the
+   * direct cost of a department that bills for its own time. A shop losing money
+   * and a lot losing money need opposite fixes, and one merged number hides
+   * which one is happening.
+   */
+  shopPayroll: number;
+  /** The shark's weekly payment, when a loan is out. */
+  debtService: number;
+  total: number;
+}
+
+/**
+ * What running the place costs per game week, itemised.
+ *
+ * Exported because three places need exactly this number and none of them may
+ * compute their own: the tick that charges it, the business screen that shows
+ * it, and the harness that measures it.
+ */
+export function weeklyExpenses(s: GameState): WeeklyExpenses {
+  const stage = getStage(s.stage);
+  const rent = stage.rentPerWeek;
+
+  let payroll = 0;
+  for (const def of UPGRADES) payroll += level(s, def.id) * weeklyWage(def, s.stage);
+
+  // Only cars still on the lot. A financed car is out with the customer and is
+  // the book's problem, not the floorplan's.
+  const tiedUp = s.cars.reduce((sum, c) => (c.status === 'sold' ? sum : sum + c.costBasis), 0);
+  const floorplan = Math.round(tiedUp * BALANCE.expenses.floorplanWeeklyRate);
+
+  // In the total so the reserve floor and the harness hold money back for it —
+  // an automated business that budgets for rent but not for the shark walks
+  // straight into the hole the reserve exists to prevent.
+  const debtService = s.loan ? s.loan.paymentAmount : 0;
+
+  // The benches. In the total for the same reason everything else is: the
+  // working-capital floor and the harness both have to see the whole bill, and a
+  // department whose wages were invisible to the reserve would be a way to walk
+  // into exactly the hole the reserve exists to prevent.
+  const shopWages = shopPayroll(s);
+
+  return {
+    rent,
+    payroll,
+    floorplan,
+    shopPayroll: shopWages,
+    debtService,
+    total: rent + payroll + floorplan + shopWages + debtService,
+  };
 }
 
 // ------------------------------------------------------------------ recon
@@ -145,7 +410,10 @@ function stepRecon(s: GameState): void {
     if (car.status !== 'recon') continue;
     car.reconRemainingMs -= TICK_MS;
     if (car.reconRemainingMs <= 0) {
+      // Captured before finishing, because finishRecon() is what closes the gap.
+      const lift = car.reconTargetCondition - car.condition;
       finishRecon(car);
+      awardXp(s, 'repair', repairXp(lift));
       logEvent(s, { t: s.t, kind: 'recon-done', label: `${carLabel(car)} out of the shop` });
     }
   }
@@ -159,32 +427,97 @@ function stepListings(s: GameState): void {
     s.listings = s.listings.filter((l) => l.expiresAt > s.t);
   }
 
-  const slots = listingSlots(s);
-  if (s.listings.length >= slots) return;
+  const sourcing = sourcingModsFor(s);
+  if (s.listings.length >= sourcing.slots) return;
 
-  const ratePerSec = 1000 / listingIntervalMs(s);
+  const ratePerSec = 1000 / sourcing.intervalMs;
   if (!chance(s.rng, arrivalChance(ratePerSec, TICK_MS))) return;
 
   spawnListing(s);
 }
 
-/** Put one car on the sourcing feed. */
+/**
+ * Put one car on the sourcing feed.
+ *
+ * Both halves of this — what turns up and what it costs — come from the stage,
+ * because on a franchise stage they change together: one make, delivery miles,
+ * and an invoice price with almost no spread.
+ */
 function spawnListing(s: GameState): void {
-  const tiers = TIERS_BY_STAGE[s.stage] ?? TIERS_BY_STAGE.curbstoner;
-  const models = modelsForTiers(tiers);
+  const stage = getStage(s.stage);
+  const { sourcing } = stage;
+
+  const models = sourcing.makeId
+    ? modelsForMake(sourcing.makeId)
+    : modelsForTiers(sourcing.tiers ?? []);
   const model = pick(s.rng, models);
-  const car = generateCar(s, s.rng, model, s.t);
+
+  const car = generateCar(s, s.rng, model, s.t, stockProfile(sourcing));
+  // A retired-and-returned dealer buys cheaper everywhere — auction or invoice.
+  // Applied after the draw so the RNG stream is identical with or without an
+  // edge; the discount is deterministic from the save's prestige points.
+  const edge = 1 - prestigeEdge(s);
+  // THE ASK IS PRICED IN STOCK TRIM, or nearly so. This is one half of the
+  // rarity feature and the whole of its economics: a dealer auction does not pay
+  // extra for a spoiler and a wholesale book has no column for one, so the
+  // seller quotes the base car and the premium is left on the table for whoever
+  // spots it. Pricing the fully trimmed car instead would scale ask and retail
+  // together and make rarity worth exactly nothing.
+  //
+  // `raritySellerCapture` is how much of the premium this particular seller is
+  // wise to — zero at auction, high at a factory, which does list the trim
+  // package on the invoice.
   const ask = Math.round(
-    wholesaleValue(car) * range(s.rng, BALANCE.listingAskMin, BALANCE.listingAskMax),
+    wholesaleValue(baseTrim(car)) *
+      rarityAskMult(car.rarity, sourcing.raritySellerCapture) *
+      range(s.rng, sourcing.askMin, sourcing.askMax) *
+      edge,
   );
+
+  // Where this one is, and what the truck costs. Drawn before the source label
+  // because the label depends on it; consumes no draw at all while the business
+  // is local-only, which is what keeps a pre-reach save replaying identically.
+  const origin = drawOrigin(s.rng, s);
+  const tier = getMarketTier(origin);
 
   s.listings.push({
     id: mintId(s, 'lst'),
     car,
     price: ask,
+    origin,
+    freight: freightCost(origin, ask),
     expiresAt: s.t + BALANCE.listingLifetimeMs,
-    source: pick(s.rng, LISTING_SOURCES),
+    // A franchise consumes one fewer draw per listing than the open market
+    // does, which is fine: determinism needs the same state to consume the same
+    // stream, not every stage to consume the same amount.
+    source: sourcing.makeId
+      ? `${makeName(sourcing.makeId)} ${tier.allocation}`
+      : pick(s.rng, tier.sources),
+    appraisalNoise: drawAppraisalNoise(s),
   });
+}
+
+/**
+ * Mileage and condition overrides for stock that did not come off the open
+ * market. Undefined on the used stages, where the car's tier decides.
+ */
+function stockProfile(sourcing: StageSourcing): StockProfile | undefined {
+  if (!sourcing.makeId) return undefined;
+  return {
+    mileage: [sourcing.mileageMin, sourcing.mileageMax],
+    condition: [sourcing.conditionMin, sourcing.conditionMax],
+  };
+}
+
+/**
+ * How wrong this car will look, as a z-score with unit standard deviation.
+ *
+ * `normalish` spreads over ±spread with sd = spread/3, so spread 3 is what
+ * makes this a real z: multiplying it by σ then yields an error whose sd is σ,
+ * which is what lets the UI quote an honest ±1σ band.
+ */
+function drawAppraisalNoise(s: GameState): number {
+  return normalish(s.rng, 0, 3, -3, 3);
 }
 
 // ------------------------------------------------------------------ sales
@@ -198,19 +531,33 @@ function stepProspects(s: GameState): void {
 
   const advertising = level(s, 'advertising');
   const underwriting = level(s, 'underwriting');
+  const haggle = haggleSkillFor(s);
+  // Applied to the rate rather than inside `prospectRate`, which stays a pure
+  // function of price and advertising. A promotion cannot rescue an overpriced
+  // car either way: the rate is already zero above `maxViablePriceRatio`, and
+  // twice nothing is nothing.
+  const promotion = promotionTrafficMultiplier(s);
+  // How busy this store is per car on the lot. Hoisted because it is the same
+  // for every car and this loop runs once per listed car per second.
+  const storeTraffic = getStage(s.stage).trafficPerCar;
 
   for (const car of s.cars) {
     if (car.status !== 'listed') continue;
     // One shopper at a time per car keeps the decision surface small.
     if (s.prospects.some((p) => p.carId === car.id)) continue;
 
-    // Cars are shopped against what the buyer could pay for them: cash retail in
-    // stage 1, the marked-up window price once there is a finance desk.
-    const reference = s.stage === 'bhph' ? bhphPrice(car) : retailValue(car);
-    const rate = prospectRate(car.askPrice, reference, advertising);
+    // Shopped against cash retail, which is what the sticker is now denominated
+    // in. Judging the ask against the finance window instead made a car priced
+    // at what it is worth look like a 30% discount to the traffic model.
+    const reference = retailValue(car);
+    // Store traffic multiplies the same way a promotion does, and for the same
+    // reason: `prospectRate` stays a pure function of price and advertising, and
+    // neither term can rescue an overpriced car, because the rate is already
+    // zero above `maxViablePriceRatio` and any multiple of nothing is nothing.
+    const rate = prospectRate(car.askPrice, reference, advertising) * promotion * storeTraffic;
     if (!chance(s.rng, arrivalChance(rate, TICK_MS))) continue;
 
-    s.prospects.push(generateProspect(s, s.rng, car, underwriting, s.t));
+    s.prospects.push(generateProspect(s, s.rng, car, underwriting, haggle, s.t));
   }
 }
 
@@ -223,6 +570,7 @@ function stepNotes(s: GameState): void {
   if (active.length === 0) return;
 
   const capFactor = overCapacityFactor(active.length, collectionsCapacity(s));
+  const repoAfter = repoThreshold(s);
 
   for (const note of active) {
     // A step is 1s and a payment period is a game week, so at most one payment
@@ -230,7 +578,7 @@ function stepNotes(s: GameState): void {
     if (note.nextDueAt > s.t) continue;
 
     const made = !chance(s.rng, missChance(note, capFactor));
-    const result = applyDuePayment(note, made);
+    const result = applyDuePayment(note, made, repoAfter);
 
     if (result.paid) {
       s.cash += result.amount;
@@ -288,27 +636,166 @@ function repossess(s: GameState, carId: string, customer: string, label: string)
   s.stats.lifetimeProfit -= fee;
   s.stats.reposCompleted += 1;
 
-  const car = s.cars.find((c) => c.id === carId);
-  if (car) {
-    // The car was marked sold at delivery; bring it back to inventory.
-    applyRepoDamage(car, repoConditionLossFor(s));
-    logEvent(s, { t: s.t, kind: 'repo', label: `Repo: ${label} back from ${customer}`, amount: -fee });
-  } else {
-    logEvent(s, { t: s.t, kind: 'repo', label: `Repo: ${label} (${customer})`, amount: -fee });
+  // The cover goes with the customer. They are not driving it any more and the
+  // house has no reason to go on paying to repair a car sitting on its own lot
+  // for somebody who stopped paying for it two months ago. It also means the
+  // worst borrowers are the cheapest to cover, which is a genuinely nice thing
+  // to find on the ledger.
+  for (const voided of voidPlansForCar(s.serviceContracts, carId)) {
+    logEvent(s, {
+      t: s.t,
+      kind: 'plan-claim',
+      label: `Cover on ${voided.carLabel} torn up with the repo — kept ${
+        '$' + Math.max(0, voided.price - voided.paidOut).toLocaleString()
+      }`,
+    });
   }
+
+  const car = s.cars.find((c) => c.id === carId);
+  if (!car) {
+    logEvent(s, { t: s.t, kind: 'repo', label: `Repo: ${label} (${customer})`, amount: -fee });
+    return;
+  }
+
+  // The car was marked sold at delivery; this brings it back to inventory,
+  // damaged by however hard it had to be taken.
+  applyRepoDamage(car, repoConditionLossFor(s));
+
+  // ...but only if there is a stall for it. THE LOT IS A HARD LIMIT: every
+  // buying path is gated on capacity, and a repo is the one event that can add
+  // to inventory without anybody choosing to. Left ungated it was the only way
+  // to hold more cars than the lot has room for, which reads as a bug because
+  // it is one — the HUD says 18/18 and there are twenty cars on the tarmac.
+  //
+  // A full lot does not cancel the repossession. Same shape as the collections
+  // desk, which sells the customer the car instead of the payment rather than
+  // sending them away: the car is still taken, it just never comes home. It goes
+  // from the tow truck straight to the auction at `forcedSaleRate`, which is
+  // less than it is worth, so a full lot costs you the difference. That is the
+  // right pressure — it is a reason to keep a stall free, not a wall.
+  if (overLotCapacity(s)) {
+    const dumped = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
+    s.cash += dumped;
+    s.stats.lifetimeProfit += dumped - car.costBasis;
+    removeCar(s, car.id);
+    logEvent(s, {
+      t: s.t,
+      kind: 'repo',
+      label: `Repo: ${label} straight to auction — no room on the lot`,
+      amount: dumped - fee,
+    });
+    return;
+  }
+
+  logEvent(s, { t: s.t, kind: 'repo', label: `Repo: ${label} back from ${customer}`, amount: -fee });
+}
+
+/**
+ * Is the lot holding more than it has room for?
+ *
+ * Counted AFTER the car in question has been put back, so this is "did that one
+ * tip us over", not "were we already full". An existing save can legitimately be
+ * over the line — the admin console can shrink a stage's capacity under a lot
+ * that is already full — and the rule there is the same one the loan book
+ * follows: a new limit never retroactively destroys what a save already holds.
+ * It drains by attrition, and nothing new is allowed to arrive.
+ */
+function overLotCapacity(s: GameState): boolean {
+  return s.cars.filter((c) => c.status !== 'sold').length > carCapacity(s);
+}
+
+// -------------------------------------------------- service contracts
+
+/**
+ * A week of cover, on every plan in force.
+ *
+ * The mirror image of `stepNotes`: same clock, same beat, money going the other
+ * way. Most weeks nothing happens on most plans, which is the product working —
+ * roughly a quarter of contracts run their whole term and never cost a penny,
+ * and the ones that do cost are lumpy on purpose.
+ *
+ * Claims are charged IN FULL whatever the balance says, like every other bill.
+ * A house that stopped honouring its own paper when the till ran low would be
+ * the floored-expenses bug again in a different costume.
+ */
+function stepServicePlans(s: GameState): void {
+  if (s.serviceContracts.length === 0) return;
+
+  const claims = stepDuePlans(s.serviceContracts, s.t, s.rng, claimCostMultiplier(s));
+  if (claims.length === 0) return;
+
+  for (const claim of claims) {
+    if (claim.cost <= 0) continue;
+    s.cash -= claim.cost;
+    s.stats.lifetimeProfit -= claim.cost;
+    s.stats.planPayouts += claim.cost;
+    logEvent(s, {
+      t: s.t,
+      kind: 'plan-claim',
+      label: `Claim on ${claim.contract.carLabel} — ${claim.contract.customerName}`,
+      amount: -claim.cost,
+    });
+  }
+
+  s.serviceContracts = pruneClosedPlans(s.serviceContracts);
+}
+
+// -------------------------------------------------- service department
+
+/**
+ * One second of the bays.
+ *
+ * The money lands here silently, per job, and the ledger line for it is written
+ * once a week by `stepBills`. That is a deliberate exception to "a balance that
+ * moves with no line in the ledger is a bug waiting to be misdiagnosed": a busy
+ * Valmont shop turns over a hundred and thirty repair orders a game week, which
+ * against a sixty-entry ring buffer would mean the ledger showed nothing else
+ * ever again. One honest weekly total says the same thing and leaves the log
+ * readable.
+ */
+function stepServiceDept(s: GameState): void {
+  const stage = getStage(s.stage);
+  if (!stage.shop || bayCount(s) === 0) return;
+
+  const rate = shopRate(stage, shopRateLevel(s));
+  const result = stepShop(s, rate);
+
+  for (const { job } of result.billed) {
+    s.cash += job.price;
+    s.stats.lifetimeProfit += job.price;
+    s.stats.shopRevenue += job.price;
+    s.stats.shopJobsDone += 1;
+    s.shop.weekRevenue += job.price;
+    s.shop.weekJobs += 1;
+  }
+  s.stats.shopReworks += result.reworked.length;
+  s.stats.shopTurnedAway += result.turnedAway;
 }
 
 // ------------------------------------------------------------- automation
 
 function stepAutomation(s: GameState): void {
+  // Nothing unattended spends below the working capital floor — the player's
+  // floor, and ONLY the player's floor. There used to be two hidden terms
+  // underneath it (weeks of expenses, the price of two cars) added when bills
+  // floored at zero and a business at $0 froze silently forever. Bills charge
+  // in full now, so the failure mode is a visible negative balance instead of
+  // a silent freeze — and a safety rail the player cannot see is exactly what
+  // made "why isn't my buyer buying" unanswerable from inside the game. The
+  // Business panel quotes the weekly bill right above the floor selector; what
+  // to keep back is the player's call, informed and theirs to get wrong.
+  const reserve = minWorkingCapital(s);
+
   if (level(s, 'autoRecon') > 0) {
+    const mods = reconModsFor(s);
     for (const car of s.cars) {
-      if (!canRecon(car)) continue;
-      const cost = reconCost(car);
-      if (cost > s.cash) continue;
+      if (!canRecon(car, mods)) continue;
+      const cost = reconCost(car, mods);
+      // `s.cash` falls as jobs are booked, so the reserve holds across the loop.
+      if (cost > s.cash - reserve) continue;
       s.cash -= cost;
       car.costBasis += cost;
-      beginRecon(car, level(s, 'mechanic'));
+      beginRecon(car, mods);
     }
   }
 
@@ -317,7 +804,14 @@ function stepAutomation(s: GameState): void {
       if (car.status !== 'ready') continue;
       // Leave cars alone if the shop still has work to do on them and the
       // standing shop order is going to pick them up next step.
-      if (level(s, 'autoRecon') > 0 && canRecon(car) && reconCost(car) <= s.cash) continue;
+      const mods = reconModsFor(s);
+      if (
+        level(s, 'autoRecon') > 0 &&
+        canRecon(car, mods) &&
+        reconCost(car, mods) <= s.cash - reserve
+      ) {
+        continue;
+      }
       listCar(s, car);
     }
   }
@@ -326,23 +820,79 @@ function stepAutomation(s: GameState): void {
     const capacity = carCapacity(s);
     for (const listing of [...s.listings]) {
       if (s.cars.filter((c) => c.status !== 'sold').length >= capacity) break;
-      if (listing.price > wholesaleValue(listing.car)) continue;
-      // Keep a working reserve so automation cannot spend the player broke.
-      if (s.cash - listing.price < 500) continue;
+      // The retainer buyer sees exactly what the player sees, and works from the
+      // bad end of it. Left on ground truth it was omniscient, which made
+      // automating strictly better than looking at the feed yourself.
+      // Judged on what the car costs to get here, not on the sticker. A buyer
+      // that compares the ask against its margin rule and then pays the ask plus
+      // freight is the same class of bug as one that gates on wholesale at a
+      // store pricing in retail — it quietly buys at a loss it can't see.
+      const landed = landedCost(listing);
+      if (landed > acquisitionCeiling(s, listing)) continue;
+      if (s.cash - landed < reserve) continue;
       buyListingInternal(s, listing.id);
     }
   }
 
   if (level(s, 'salesDesk') > 0 && s.dealPolicy !== 'manual' && s.prospects.length > 0) {
+    const floors = dealFloors(s);
     for (const prospect of [...s.prospects]) {
-      const choice = chooseDeal(s, prospect.id);
+      // The player's window. Staff leave a walk-up alone until it has aged the
+      // grace period — that is the standing chance to close the deal yourself
+      // and keep their cut — and they never touch a deal the player has open
+      // in front of them, however stale it gets. Offline, nobody grabs
+      // anything, so every sale is a staff sale and the cut applies to the
+      // whole night. That asymmetry IS the offline brake, and it needs no
+      // knowledge of whether anyone is watching.
+      if (prospect.claimed) continue;
+      if (s.t - prospect.arrivedAt < BALANCE.desk.graceMs) continue;
+      const choice = chooseDeal(s, prospect.id, floors);
       if (choice === 'finance') {
-        acceptFinance(s, prospect.id);
+        acceptFinance(s, prospect.id, 'desk');
       } else if (choice === 'cash') {
-        runDeskNegotiation(s, prospect.id);
+        runDeskNegotiation(s, prospect.id, floors.cash);
       }
     }
   }
+}
+
+/**
+ * WHAT THE DESK WILL AND WILL NOT SIGN, in margin points.
+ *
+ * The player's two house rules, resolved against the store they are standing
+ * in. `-Infinity` is the "any deal" stop and is the default on both, which is
+ * what makes this whole feature inert until somebody moves a slider.
+ *
+ * Two table lookups. It used to derive the store's whole margin distribution
+ * here — walking the model list on every tick of a 350-hour catch-up, with an
+ * early-out for the common case where both rules were off to keep it
+ * affordable. The floors being tabulated per store retires that cost along with
+ * the drift it was paying for.
+ *
+ * Paper reads its own ladder, for the reason `financeGrossMultiple` gives: a
+ * contract grosses the window price and then collects only part of it, so the
+ * same LEVEL is a different margin on the two sides of the desk.
+ */
+interface DealFloors {
+  cash: number;
+  finance: number;
+}
+
+function dealFloors(s: GameState): DealFloors {
+  const stage = getStage(s.stage);
+  return {
+    cash: dealMarginFloor(stage, 'cash', cashFloorLevel(s)),
+    finance: dealMarginFloor(stage, 'finance', financeFloorLevel(s)),
+  };
+}
+
+/**
+ * Margin on a deal, as a share of the gross — the same unit `marginScale`
+ * quotes and the same one a dealer says out loud. Zero-priced deals read as a
+ * total loss rather than dividing by zero.
+ */
+function dealMargin(gross: number, costBasis: number): number {
+  return gross > 0 ? (gross - costBasis) / gross : -Infinity;
 }
 
 /**
@@ -352,51 +902,97 @@ function stepAutomation(s: GameState): void {
  *
  * It uses the same pure functions the player's taps go through, so an automated
  * lot and a hand-played one are running identical rules.
+ *
+ * `floor` is the house minimum, and it is checked at the moment of signing
+ * rather than up front, because the counter is the desk's one chance to lift a
+ * thin deal over the line. A deal that still falls short is simply not closed:
+ * the buyer stands there, the offer does not improve, and they leave when their
+ * patience runs out. That is what "the manager ignored them" looks like from
+ * the tarmac, and it is deliberately not a walk-away — nobody stormed off, the
+ * business just would not take the money.
  */
-function runDeskNegotiation(s: GameState, prospectId: string): void {
+function runDeskNegotiation(s: GameState, prospectId: string, floor: number): void {
   const prospect = s.prospects.find((p) => p.id === prospectId);
   if (!prospect) return;
 
+  const car = s.cars.find((c) => c.id === prospect.carId);
+  if (!car) return;
+  const clears = (price: number) => dealMargin(price, car.costBasis) >= floor;
+
   const neg = prospect.negotiation;
 
-  // Already at the asking price, or the desk has had its turn: just close.
+  // Already at the asking price, or the desk has had its turn: close it if the
+  // house rules allow, and otherwise leave it alone.
   if (neg.countersMade > 0 || neg.currentOffer >= neg.anchor) {
-    acceptCash(s, prospectId);
+    if (clears(neg.currentOffer)) acceptCash(s, prospectId, 'desk');
     return;
   }
 
-  const counter = deskCounter(neg);
+  const haggle = haggleSkillFor(s);
+  const counter = deskCounter(neg, haggle);
   if (counter <= neg.currentOffer) {
-    acceptCash(s, prospectId);
+    if (clears(neg.currentOffer)) acceptCash(s, prospectId, 'desk');
     return;
   }
 
-  const outcome = resolveCounter(s.rng, neg, counter);
+  const outcome = resolveCounter(s.rng, neg, counter, haggle);
   if (outcome.kind === 'walked') {
-    s.stats.walkaways += 1;
-    logEvent(s, { t: s.t, kind: 'walkaway', label: `${prospect.name} walked` });
+    registerWalkaway(s, prospect.name);
     return; // stepProspects sweeps them out.
   }
 
-  // Accepted, or they came back with a better number — either way, take it.
-  acceptCash(s, prospectId);
+  // Accepted, or they came back with a better number — either way, take it if
+  // it clears.
+  if (clears(prospect.negotiation.currentOffer)) acceptCash(s, prospectId, 'desk');
 }
 
-/** Which side of the deal the standing policy takes. */
-function chooseDeal(s: GameState, prospectId: string): 'cash' | 'finance' | 'none' {
+/**
+ * Which side of the deal the standing policy takes — and whether there is a
+ * deal here at all.
+ *
+ * The house floors are applied to the BEST each side could realistically do:
+ * the asking price for cash (nobody pays over it, and the desk's counter climbs
+ * towards it), and the expected value of the contract for paper. Judging cash
+ * on the opening lowball instead would have the desk refuse to even counter on
+ * deals it could have talked up over the line, and judging paper on the sticker
+ * would make the finance floor a second cash floor rather than the underwriting
+ * rule it is.
+ */
+function chooseDeal(
+  s: GameState,
+  prospectId: string,
+  floors: DealFloors,
+): 'cash' | 'finance' | 'none' {
   const prospect = s.prospects.find((p) => p.id === prospectId);
   if (!prospect) return 'none';
-  if (s.stage !== 'bhph') return 'cash';
+  const car = s.cars.find((c) => c.id === prospect.carId);
+  if (!car) return 'none';
+
+  // The most this walk-up could ever pay in cash: their ceiling is the ask, and
+  // the desk's counter only ever moves towards it.
+  const cashOk = dealMargin(prospect.negotiation.anchor, car.costBasis) >= floors.cash;
+
+  if (!getStage(s.stage).financing) return cashOk ? 'cash' : 'none';
+  // A full book is not a reason to send a buyer away — it is a reason to sell
+  // them the car instead of the payment. Without this the desk would keep
+  // choosing paper it cannot write and then close nothing at all.
+  if (!canWriteNote(s)) return cashOk ? 'cash' : 'none';
+
+  const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
+  const ev = expectedFinanceValue(s, prospect.id, capFactor);
+  const financeOk = dealMargin(ev, car.costBasis) >= floors.finance;
 
   switch (s.dealPolicy) {
     case 'cash':
-      return 'cash';
+      return cashOk ? 'cash' : 'none';
     case 'finance':
-      return 'finance';
+      // Paper is what was asked for, but a deal the underwriting rule refuses is
+      // not a reason to lose the customer if the cash side still stands up.
+      if (financeOk) return 'finance';
+      return cashOk ? 'cash' : 'none';
     case 'auto': {
-      const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
-      const ev = expectedFinanceValue(s, prospect.id, capFactor);
-      return ev > prospect.negotiation.currentOffer ? 'finance' : 'cash';
+      if (financeOk && (!cashOk || ev > prospect.negotiation.currentOffer)) return 'finance';
+      return cashOk ? 'cash' : 'none';
     }
     default:
       return 'none';
@@ -405,11 +1001,137 @@ function chooseDeal(s: GameState, prospectId: string): 'cash' | 'finance' | 'non
 
 // ------------------------------------------------------------------- utils
 
+/**
+ * What this car is shopped against at this store.
+ *
+ * Cash retail where there is no finance desk; the marked-up window price where
+ * there is, using the store's own markup. One helper because pricing, traffic
+ * and the default ask all have to agree on the same number — they got out of
+ * step once already and the symptom was cars nobody looked at.
+ */
+export function windowPrice(s: Pick<GameState, 'stage'>, car: Car): number {
+  const stage = getStage(s.stage);
+  return stage.financing ? bhphPrice(car, stage.bhphMultiplier) : retailValue(car);
+}
+
+/**
+ * How confident the buyer is being about a car it cannot see inside.
+ *
+ * 'worstCase' is what anything spending money unattended must use — it only
+ * takes deals that survive the appraisal being wrong. 'estimate' is what a
+ * person does: buy on the number in front of them. The harness bot uses
+ * 'estimate' deliberately, because a bot working from the floor is a more
+ * cautious buyer than any player and would measure a game nobody plays.
+ */
+export type AppraisalStance = 'worstCase' | 'estimate';
+
+/**
+ * The most a buyer should pay for a listing.
+ *
+ * The two branches are genuinely different questions, and collapsing them is
+ * what broke the franchise stages on their first run: both buyers asked "is this
+ * under wholesale?", a factory allocation is priced *above* wholesale by
+ * construction, and so neither ever bought a single car at a franchise. The feed
+ * sat there for ten hours and the economy flatlined.
+ *
+ *  - **Open market: margin against RETAIL, because retail is where the cars
+ *    go.** This branch gated on wholesale for a long time, and that was the
+ *    same bug as the franchise one in a milder key. The used stages price the
+ *    feed at 0.84-1.38x wholesale ON PURPOSE — the band straddling retail
+ *    break-even is the whole judgement game — so a buyer that refuses to pay
+ *    over wholesale rejects ~90% of a feed the store's own economy calls
+ *    profitable. The player found it with a screenshot: eight listings, every
+ *    one showing a green margin, none bought. The buyer now asks the question
+ *    the sticker asks — "does the worst case still clear the price by the
+ *    margin the house rules demand?" — with `stance` deciding whether "worst
+ *    case" means the bottom of the band (anything spending money unattended)
+ *    or the estimate (the harness bot, because that is what a person does).
+ *  - **Franchise.** There is no wholesale market for an allocation and nothing to
+ *    appraise; sigma is zero, so both stances agree and the same formula answers
+ *    it. Invoice is the price and every unit is saleable, so the only question
+ *    is still whether the sticker leaves the margin you asked for.
+ *
+ * THE BASIS IS CASH RETAIL AT EVERY STAGE, and the franchise branch used to have
+ * its own line reading `windowPrice` — retail x the store's subprime markup —
+ * which let the buyer pay up to 22% ABOVE what the car sells for. It never bit
+ * while an invoice asked ~0.9x retail and there was nothing else to add, so it
+ * sat there as a latent version of the exact bug this function has now paid for
+ * three times: judging a purchase against a number the car is not sold at. It
+ * bit the moment freight went on top, because landed cost could clear retail
+ * while still passing a ceiling set 22% over it — the retainer buyer filled a
+ * franchise lot with two points of margin and the business lost $145M with a
+ * full lot the whole way down. One basis now, and freight is inside the
+ * comparison rather than outside it.
+ */
+export function acquisitionCeiling(
+  s: GameState,
+  listing: Listing,
+  stance: AppraisalStance = 'worstCase',
+): number {
+  const keepBack = 1 - minBuyMargin(s);
+  const sigma = appraisalSigma(s);
+  const basis =
+    stance === 'worstCase'
+      ? pessimisticRetail(listing, sigma)
+      : estimatedRetail(listing, sigma);
+  return basis * keepBack;
+}
+
+/**
+ * Put a car on the lot.
+ *
+ * THE DEFAULT ASK IS CASH RETAIL, not the finance window. It used to be the
+ * window — retail x `bhphMultiplier` — which was incoherent in two ways at once:
+ * a cash offer is capped at `min(askPrice, retail)` so nine buyers in ten would
+ * never pay it, and `askPrice / retail` feeds the overpricing model, so the
+ * default price was simultaneously unreachable and read by the game as greedy,
+ * inviting harder lowballs.
+ *
+ * The subprime premium belongs on the deal, not on the windscreen: someone
+ * paying cash pays what the car is worth, and someone who needs financing pays
+ * more for the approval. That is what `bhphPrice` is for, and it is applied
+ * where the contract is written.
+ */
 export function listCar(s: GameState, car: Car, askPrice?: number): void {
-  const reference = s.stage === 'bhph' ? bhphPrice(car) : retailValue(car);
+  const reference = retailValue(car);
   car.askPrice = Math.round(askPrice ?? reference * BALANCE.defaultAskRatio);
   car.status = 'listed';
   car.listedAt = s.t;
+}
+
+/**
+ * Award skill XP and announce any level-up.
+ *
+ * This lives on the shared path rather than in actions.ts on purpose. The
+ * standing shop order, the retainer buyer and the sales desk all call the
+ * engine internals directly, so XP granted in the player-facing wrapper would
+ * quietly stop accruing the moment someone automated — exactly backwards for an
+ * idle game.
+ */
+export function awardXp(s: GameState, id: SkillId, amount: number): void {
+  const gained = grantXp(s, id, amount);
+  if (gained === 0) return;
+
+  const name = getSkill(id).name;
+  const finalLevel = s.skills[id].level;
+  for (let i = gained; i > 0; i--) {
+    logEvent(s, {
+      t: s.t,
+      kind: 'skill-up',
+      label: `${name} reached level ${finalLevel - i + 1}`,
+    });
+  }
+}
+
+/**
+ * A buyer walking is bookkeeping in three places at once, and it happens on
+ * both the hand-played and the automated path. One helper so a fourth caller
+ * cannot forget one of them.
+ */
+export function registerWalkaway(s: GameState, customerName: string): void {
+  s.stats.walkaways += 1;
+  awardXp(s, 'sell', walkawayXp());
+  logEvent(s, { t: s.t, kind: 'walkaway', label: `${customerName} walked` });
 }
 
 export function logEvent(s: GameState, event: SimEvent): void {
@@ -436,7 +1158,33 @@ export function cloneState(s: GameState): GameState {
       negotiation: { ...p.negotiation },
     })),
     notes: s.notes.map((n) => ({ ...n })),
+    // The tick writes to both of these every week, so a shared array or a shared
+    // entry would leak backwards through history and corrupt offline catch-up —
+    // the same failure `prospects` and `promotions` are spelled out for. The
+    // shop needs its two arrays copied as well as the block itself. The `??`
+    // covers a fixture written before either existed.
+    serviceContracts: (s.serviceContracts ?? []).map((c) => ({ ...c })),
+    shop: {
+      ...(s.shop ?? { weekRevenue: 0, weekJobs: 0 }),
+      techs: (s.shop?.techs ?? []).map((t) => ({ ...t })),
+      jobs: (s.shop?.jobs ?? []).map((j) => ({ ...j })),
+    },
     upgrades: { ...s.upgrades },
+    // Each skill is a nested object, so the record needs cloning entry by entry
+    // for the same reason prospects do.
+    skills: cloneSkills(s.skills),
+    // Nested and mutable: a shared policy object would let a rule change made
+    // now rewrite the rules a historical state was running under.
+    business: { ...s.business },
+    // The tick expires these and `startPromotion` extends one in place, so a
+    // shared array or a shared entry would leak backwards through history. The
+    // `??` covers a fixture written before promotions existed.
+    promotions: (s.promotions ?? []).map((p) => ({ ...p })),
+    // The history is an array of records and the loan is written by the tick,
+    // so both need real copies or mutations leak backwards through history.
+    prestige: { ...s.prestige, history: s.prestige.history.map((r) => ({ ...r })) },
+    loan: s.loan ? { ...s.loan } : null,
+    tuning: { ...s.tuning },
     stats: { ...s.stats },
     events: s.events.map((e) => ({ ...e })),
   };
@@ -451,17 +1199,85 @@ function buyListingInternal(s: GameState, listingId: string): boolean {
   const idx = s.listings.findIndex((l) => l.id === listingId);
   if (idx < 0) return false;
   const listing = s.listings[idx];
-  if (s.cash < listing.price) return false;
+  // The truck is part of the price. Everything downstream — floorplan, profit,
+  // the forced-sale haircut, the buyer's own ceiling — reads `costBasis`, so
+  // putting freight here is what makes distance cost real money exactly once.
+  const landed = landedCost(listing);
+  if (s.cash < landed) return false;
   if (s.cars.filter((c) => c.status !== 'sold').length >= carCapacity(s)) return false;
 
-  s.cash -= listing.price;
-  const car = { ...listing.car, costBasis: listing.price, acquiredAt: s.t };
+  s.cash -= landed;
+  const car = { ...listing.car, costBasis: landed, acquiredAt: s.t };
   s.cars.push(car);
+
+  // You own it now, so you can put it on a lift. This is where the appraisal
+  // gets marked, and where the skill teaches itself — the number was a guess
+  // and now it is not.
+  reportAppraisal(s, listing, car);
+
   s.listings.splice(idx, 1);
+  awardXp(s, 'buy', buyXp(landed));
   return true;
 }
 
-function acceptCash(s: GameState, prospectId: string): boolean {
+/**
+ * Say something when a car turns out materially different from how it looked.
+ *
+ * Only when it is worth saying: a miss inside the threshold is the appraisal
+ * working as advertised, and narrating every one of those would train players
+ * to ignore the line that matters.
+ */
+function reportAppraisal(s: GameState, listing: Listing, car: Car): void {
+  const error = appraisalError(listing, appraisalSigma(s));
+  if (Math.abs(error) < BALANCE.appraisalSurpriseThreshold) return;
+
+  const label = carLabel(car);
+  logEvent(s, {
+    t: s.t,
+    kind: 'appraisal',
+    label:
+      error > 0
+        ? `${label} is rougher than it looked on the feed`
+        : `${label} cleaned up better than it looked`,
+  });
+}
+
+/**
+ * Who closed the deal. The player's tap keeps every dollar; the staff's close
+ * pays the stage's commission. This is the whole attended-play incentive and
+ * the whole offline brake in one parameter — offline, there is nobody to tap,
+ * so every deal is a 'desk' deal and the cut applies to the entire absence.
+ */
+type DealCloser = 'player' | 'desk';
+
+/**
+ * The staff's cut of a deal they closed: the stage's commission rate on the
+ * PROFIT at signing, never on the price — curbstone margin is about a quarter
+ * of the sale price, so a cut of price would be four times sharper than it
+ * reads. Floored at zero (nobody pays the staff for selling at a loss, and the
+ * staff do not eat the loss either) and capped at the cash the deal actually
+ * put in the till, so a commission can never be the thing that takes the
+ * business below where it stood — only the shark gets to do that.
+ */
+function commissionOn(s: GameState, profitAtSigning: number, cashReceived: number): number {
+  const cut = Math.round(getStage(s.stage).desk.commission * Math.max(0, profitAtSigning));
+  return Math.min(cut, Math.max(0, cashReceived));
+}
+
+function payCommission(s: GameState, cut: number, dealLabel: string): void {
+  if (cut <= 0) return;
+  s.cash -= cut;
+  s.stats.lifetimeProfit -= cut;
+  s.stats.commissionPaid += cut;
+  logEvent(s, {
+    t: s.t,
+    kind: 'expense',
+    label: `${getStage(s.stage).desk.title}'s cut on ${dealLabel}`,
+    amount: -cut,
+  });
+}
+
+function acceptCash(s: GameState, prospectId: string, closer: DealCloser = 'player'): boolean {
   const idx = s.prospects.findIndex((p) => p.id === prospectId);
   if (idx < 0) return false;
   const prospect = s.prospects[idx];
@@ -479,24 +1295,38 @@ function acceptCash(s: GameState, prospectId: string): boolean {
   s.stats.lifetimeProfit += profit;
 
   if (prospect.negotiation.countersMade > 0) s.stats.negotiationsWon += 1;
+  awardXp(s, 'sell', sellXp(price, prospect.negotiation.countersMade));
 
   logEvent(s, {
     t: s.t,
     kind: 'sale-cash',
-    label: `Cash sale: ${carLabel(car)}`,
+    label:
+      closer === 'desk'
+        ? `${getStage(s.stage).desk.title} sold ${carLabel(car)}`
+        : `Cash sale: ${carLabel(car)}`,
     amount: price,
   });
+  if (closer === 'desk') {
+    payCommission(s, commissionOn(s, profit, price), carLabel(car));
+  }
+
+  sellServicePlan(s, prospect, car);
 
   removeCar(s, car.id);
   s.prospects.splice(idx, 1);
   return true;
 }
 
-function acceptFinance(s: GameState, prospectId: string): boolean {
+function acceptFinance(s: GameState, prospectId: string, closer: DealCloser = 'player'): boolean {
   const idx = s.prospects.findIndex((p) => p.id === prospectId);
   if (idx < 0) return false;
   const prospect = s.prospects[idx];
-  if (s.stage !== 'bhph') return false;
+  if (!getStage(s.stage).financing) return false;
+  // The book limit is enforced here, on the one path every contract goes
+  // through — the sales desk, the harness bot and the player's tap all land on
+  // this function, and a limit checked anywhere else would be a limit with a
+  // way around it.
+  if (!canWriteNote(s)) return false;
 
   const car = s.cars.find((c) => c.id === prospect.carId);
   if (!car || car.status !== 'listed') return false;
@@ -513,9 +1343,22 @@ function acceptFinance(s: GameState, prospectId: string): boolean {
   logEvent(s, {
     t: s.t,
     kind: 'sale-finance',
-    label: `Financed: ${label} to ${prospect.name} (${prospect.tier})`,
+    label:
+      closer === 'desk'
+        ? `${getStage(s.stage).desk.title} financed ${label} to ${prospect.name} (${prospect.tier})`
+        : `Financed: ${label} to ${prospect.name} (${prospect.tier})`,
     amount: prospect.downPayment,
   });
+  if (closer === 'desk') {
+    // Profit at signing is the whole contract's edge — down payment plus paper
+    // minus the metal — because that is the deal the staff actually closed. The
+    // cap in commissionOn keeps the cut inside the down payment, the only cash
+    // this deal has produced so far.
+    const profitAtSigning = prospect.downPayment + prospect.financeTerms.amountFinanced - car.costBasis;
+    payCommission(s, commissionOn(s, profitAtSigning, prospect.downPayment), label);
+  }
+
+  sellServicePlan(s, prospect, car);
 
   // The car leaves the lot but stays in state so a repo can bring it back.
   car.status = 'sold';
@@ -523,6 +1366,35 @@ function acceptFinance(s: GameState, prospectId: string): boolean {
   car.listedAt = null;
   s.prospects.splice(idx, 1);
   return true;
+}
+
+/**
+ * Offer this buyer a service contract, and book it if they take it.
+ *
+ * Called from both `acceptCash` and `acceptFinance` — the two functions every
+ * sale goes through — so cover is as likely to be sold at four in the morning by
+ * the sales manager as by the player at the sheet.
+ *
+ * THE COMMISSION DOES NOT SEE THIS MONEY, deliberately. The desk's cut is a
+ * share of the profit on the CAR at signing, and a plan's profit is not made at
+ * signing: it is made over eight months of not being claimed on, and it can turn
+ * out to be a loss. Paying a percentage of it on the day would be paying a
+ * commission on a liability.
+ */
+function sellServicePlan(s: GameState, prospect: Prospect, car: Car): void {
+  const contract = maybeSellPlan(s, prospect, car, carLabel(car), servicePlanBand(s));
+  if (!contract) return;
+
+  s.cash += contract.price;
+  s.stats.lifetimeProfit += contract.price;
+  s.stats.planIncome += contract.price;
+  s.stats.plansSold += 1;
+  logEvent(s, {
+    t: s.t,
+    kind: 'plan-sold',
+    label: `${contract.customerName} took the ${contract.weeksTotal}-week cover on ${contract.carLabel}`,
+    amount: contract.price,
+  });
 }
 
 /** Drop a car that is gone for good (cash sale). */
@@ -550,44 +1422,20 @@ function expectedFinanceValue(s: GameState, prospectId: string, capacityFactor: 
       prospect.financeTerms.weeks,
       prospect.financeTerms.weeklyPayment,
       BALANCE.creditTiers[prospect.tier].missChance * capacityFactor,
+      repoThreshold(s),
     ).expectedCollected
   );
 }
 
-export function expectedCollections(
-  weeks: number,
-  paymentAmount: number,
-  baseMissChance: number,
-): { expectedCollected: number; defaultProbability: number } {
-  const pFresh = Math.min(0.95, baseMissChance);
-  const pBehind = Math.min(0.95, baseMissChance * BALANCE.delinquencyMissMultiplier);
-
-  // states[k] = probability of being alive with k consecutive missed payments
-  let states = [1, 0, 0];
-  let dead = 0;
-  let expectedPayments = 0;
-
-  for (let week = 0; week < weeks; week++) {
-    const next = [0, 0, 0];
-    for (let k = 0; k < 3; k++) {
-      const mass = states[k];
-      if (mass === 0) continue;
-      const p = k === 0 ? pFresh : pBehind;
-      // Paid: collect and reset to zero consecutive misses.
-      next[0] += mass * (1 - p);
-      expectedPayments += mass * (1 - p);
-      // Missed: advance, or die at the repo threshold.
-      if (k + 1 >= BALANCE.repoAfterMissedPayments) dead += mass * p;
-      else next[k + 1] += mass * p;
-    }
-    states = next;
-  }
-
-  return {
-    expectedCollected: Math.round(expectedPayments * paymentAmount),
-    defaultProbability: dead,
-  };
-}
+/**
+ * Re-exported from notes.ts, where the note lifecycle lives.
+ *
+ * It sat here for as long as the engine was its only caller. `margins.ts`
+ * needs it to price the average contract a store writes, and the engine
+ * imports margins — so leaving it here would have closed a cycle to save a
+ * line. Every existing caller still reaches it through this module.
+ */
+export { expectedCollections };
 
 export { step as __stepForTests };
 export type { Millis };
