@@ -40,6 +40,9 @@
   "side": {
     "note": [
       "The feed and the sheets, where one car fills the card at 96px and 220px.",
+      "Ships at 512 because 220 logical points is 660 physical on a phone, and at",
+      "288 the card was visibly soft. The palette step in render.js is what makes",
+      "that affordable: these are a third the size of the 288px frames were.",
       "",
       "A three-quarter shot rather than a flat elevation, because this is the",
       "'listing photograph' angle the vector renderer was always approximating",
@@ -58,7 +61,7 @@
     "yawDegrees": 66,
     "faceLeft": false,
     "marginFactor": 1.12,
-    "renderWidth": 768,
-    "shipWidth": 288
+    "renderWidth": 1024,
+    "shipWidth": 512
   }
 }

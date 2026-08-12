@@ -5,7 +5,7 @@ Blender and no Python** — three.js in headless Chromium, which is the browser
 the repo already keeps around for driving the app.
 
 ```bash
-npm i -D playwright three                # not in package.json: build-time only
+npm i -D playwright three sharp          # not in package.json: build-time only
 node tools/render-cars/render.js         # 162 frames, both angles
 node tools/render-cars/pack.js           # generate index.ts and geometry.ts
 ```
@@ -32,7 +32,7 @@ it — and the grades are exactly what the overlay has to land correctly on.
 | view | angle | ships at | drawn by |
 |---|---|---|---|
 | `top` | 12° off vertical | 192 x 397 | the lot, ~34–60px, sixty at a time |
-| `side` | 62° off vertical, yawed 66° | 288 x 176 | the feed at 96px, the sheets at 220px |
+| `side` | 62° off vertical, yawed 66° | 512 x 313 | the feed at 96px, the sheets at 220px |
 
 Both go to `src/ui/art/sprites/`, committed, because a clean clone has to build
 without any of this installed. `frames.json` beside them is the manifest.
@@ -68,6 +68,17 @@ car in the kit was green.
 car's box is mostly empty at its corners, and at a three-quarter angle those
 empty corners are exactly what project furthest: the first cut of the hero shot
 framed the car filling 39% of its own artboard and the rest air.
+
+**Quantise colour only, then re-attach the 8-bit alpha.** Palettising RGBA
+together is smaller still — 9.8KB against 14.1KB on a 512px frame — and it
+collapses the drop shadow's alpha ramp from 248 levels to **seven**, which bands
+a soft shadow into contour rings against dark tarmac. Alpha is also floored at
+12: the shadow catcher picks up a wash of ambient occlusion across the whole
+frame at alpha 1–7, invisible on screen and expensive, because it denies PNG a
+large flat region to compress.
+
+This step is why the side frames ship at 512px and are still a third the size
+the 288px frames were. The first cut of this tool dropped it.
 
 **Nearest-neighbour filtering on the atlas is not optional.** It is a palette of
 flat swatches packed edge to edge, so linear filtering bleeds one swatch into

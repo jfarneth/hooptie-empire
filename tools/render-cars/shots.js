@@ -65,7 +65,13 @@ async function main() {
   const browser = await chromium.launch({
     executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   });
-  const page = await browser.newPage({ viewport: { width: 420, height: 900 } });
+  // Retina, because the deal card draws a car at 220 logical points and the
+  // question "is this sharp enough" cannot be answered at 1x — a frame that
+  // looks fine in a 1x screenshot is the one a phone upscales three times.
+  const page = await browser.newPage({
+    viewport: { width: 420, height: 900 },
+    deviceScaleFactor: 3,
+  });
 
   // Seed only when the key is absent. addInitScript runs on EVERY navigation,
   // including reload(), so an unconditional write re-stamps the fixture over

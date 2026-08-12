@@ -80,8 +80,9 @@ function main() {
       const v = (p) => `{ x: ${p.x}, y: ${p.y} }`;
       axisLines.push(
         `    ${archetype}: { anchor: ${v(a.anchor)}, length: ${v(a.length)}, ` +
-          `width: ${v(a.width)}, up: ${v(a.up)} },`,
+          `width: ${v(a.width)}, up: ${v(a.up)},`,
       );
+      axisLines.push(`      profile: [${(a.profile ?? []).join(', ')}] },`);
     }
     axisLines.push('  },');
   }

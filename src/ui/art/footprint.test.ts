@@ -205,6 +205,33 @@ describe('frameAxes', () => {
     }
   });
 
+  /**
+   * The roofline the over-the-top stripe rides.
+   *
+   * It is a fraction of the car's OWN height, so 1 has to be reachable and
+   * nothing may exceed it: a profile normalised against anything else puts the
+   * stripe above the roof or inside the bonnet, which is the bug this replaced
+   * — the first cut used the vector elevation's proportions and drew the stripe
+   * under the sills and through the wheel arches.
+   */
+  it('measures a roofline that peaks at the roof and never leaves the car', () => {
+    for (const angle of ANGLES) {
+      for (const archetype of RENDERED) {
+        const { profile } = frameAxes(archetype, angle)!;
+        expect(profile.length).toBeGreaterThan(8);
+        for (const u of profile) {
+          expect(u).toBeGreaterThan(0);
+          expect(u).toBeLessThanOrEqual(1);
+        }
+        // The tallest station IS the roof, by construction.
+        expect(Math.max(...profile)).toBeCloseTo(1, 3);
+        // And the car has a shape: a flat profile means every station was
+        // measured against the same bound rather than against its own slab.
+        expect(Math.max(...profile) - Math.min(...profile)).toBeGreaterThan(0.15);
+      }
+    }
+  });
+
   it('points the length down the frame overhead and across it in profile', () => {
     // The two angles are genuinely different pictures, and this is the cheapest
     // statement of how: from above a car is long top-to-bottom, from the side
