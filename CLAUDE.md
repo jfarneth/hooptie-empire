@@ -718,6 +718,24 @@ franchises that climb almost entirely on **glass** (`glazing`, 0.44 → 0.6 →
 0.78) and on what is over the front door (`entrance`: a canopy on two posts, then
 a portico on four columns with the fascia uplit).
 
+- **A BIGGER STORE IS MORE GROUND, NOT A WIDER STALL, and that is the only way
+  to say it.** Lot coordinates mean nothing on their own — the camera fits the
+  world to the viewport, so doubling the lot's width and nothing else just makes
+  every stall twice as wide, every car twice as big, and the picture identical.
+  `env.siteWidth` scales the lot AND the column count together, so a stall stays
+  exactly the size it was and there are simply more of them abreast: the site
+  really is twice the tarmac and a car really is half the share of it. The three
+  franchises run at ~2 and the used stages at 1. Depth comes from `env.apron`
+  (the paved forecourt in front of the showroom), from a drive lane per row
+  rather than per pair once the site is wide, and from a building about twice as
+  deep. **Height is untouched** — height is not what says "big", and the
+  buildings already carry a 2x cheat.
+- **A DEEP BUILDING IS MOSTLY ROOF from up here.** At 25 degrees a 286-unit roof
+  projects further down the screen than a 294-unit wall rises up it, so doubling
+  the depth without giving the roof anything to look at buys a bigger grey plate
+  and nothing else. Roof plant and skylights are counted off the building's own
+  length for the same reason a facade's panes are: three units on a frontage
+  twice as long reads as a roof nobody has ever serviced.
 - **Service bays are the STORE's fact, never the artwork's.** `LotGround` takes
   `hasShop` from `STAGES[].shop` and draws no doors without it; `env.bays` only
   says how many once there are any. A lot that advertises a department the sim

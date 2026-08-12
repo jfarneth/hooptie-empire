@@ -100,6 +100,21 @@ export interface EnvironmentDef {
   buildingHeight: number;
   /** How far the stalls sit in from the screen edge. Wide on a driveway. */
   edgePad: number;
+  /**
+   * How many times bigger this store's SITE is than a default one.
+   *
+   * Ground, not zoom. `layout.ts` scales the column count with it, so a stall
+   * stays exactly the size it was and there are simply more of them abreast —
+   * the lot really is that much more tarmac and a car really is that much
+   * smaller a share of it. Widening without it would make every stall wider and
+   * every car bigger to match, and nothing would look any larger.
+   *
+   * 1 for the used stages, about 2 for the franchises, which are a different
+   * kind of business on a different kind of plot.
+   */
+  siteWidth: number;
+  /** Depth of the paved display forecourt in front of the showroom. */
+  apron: number;
   wall: string;
   trim: string;
   /** Marque colour on the sign. Undefined falls back to the theme accent. */
@@ -168,6 +183,8 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     buildingDepth: 126,
     buildingHeight: 188,
     edgePad: 62,
+    siteWidth: 1,
+    apron: 22,
     wall: '#3f362f',
     trim: '#6b5d51',
     roof: 'gable',
@@ -203,6 +220,8 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     buildingDepth: 132,
     buildingHeight: 174,
     edgePad: 16,
+    siteWidth: 1,
+    apron: 22,
     wall: '#4a453c',
     trim: '#5b544a',
     roof: 'flat',
@@ -237,6 +256,8 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     buildingDepth: 130,
     buildingHeight: 208,
     edgePad: 12,
+    siteWidth: 1,
+    apron: 30,
     wall: '#4a3b35',
     trim: '#6a5a50',
     roof: 'flat',
@@ -268,9 +289,11 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     weeds: 0,
     stallLine: { color: '#f0ecd8', opacity: 0.42, width: 2.5, wobble: 0 },
     building: 'showroom',
-    buildingDepth: 128,
+    buildingDepth: 228,
     buildingHeight: 214,
     edgePad: 12,
+    siteWidth: 1.9,
+    apron: 120,
     wall: '#39424f',
     trim: '#7c8797',
     signColor: '#5fbf6a',
@@ -303,9 +326,11 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     weeds: 0,
     stallLine: { color: '#f6f3e4', opacity: 0.5, width: 2.5, wobble: 0 },
     building: 'showroomWide',
-    buildingDepth: 146,
+    buildingDepth: 256,
     buildingHeight: 248,
     edgePad: 10,
+    siteWidth: 2,
+    apron: 140,
     wall: '#3b4552',
     trim: '#93a0b2',
     signColor: '#6ea8e8',
@@ -338,9 +363,11 @@ const ENVIRONMENTS: Record<StageId, EnvironmentDef> = {
     weeds: 0,
     stallLine: { color: '#ffffff', opacity: 0.32, width: 2, wobble: 0 },
     building: 'flagship',
-    buildingDepth: 164,
+    buildingDepth: 286,
     buildingHeight: 294,
     edgePad: 10,
+    siteWidth: 2.1,
+    apron: 165,
     wall: '#55606f',
     trim: '#d3dde9',
     signColor: '#e8e2d2',

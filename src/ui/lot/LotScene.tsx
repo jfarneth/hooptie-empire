@@ -118,8 +118,8 @@ export function LotScene({ state, capacity, onSelectCar, onSelectProspect, onPre
   // office — so the environment feeds the layout rather than the other way round.
   const env = environmentFor(state.stage);
   const layout = useMemo(
-    () => lotLayout(capacity, width, env.buildingDepth, env.edgePad),
-    [capacity, width, env.buildingDepth, env.edgePad],
+    () => lotLayout(capacity, width, env.buildingDepth, env.edgePad, env.siteWidth, env.apron),
+    [capacity, width, env.buildingDepth, env.edgePad, env.siteWidth, env.apron],
   );
 
   const camera = useMemo(

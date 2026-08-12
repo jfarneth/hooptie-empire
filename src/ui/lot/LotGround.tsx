@@ -93,6 +93,7 @@ function LotGroundBase({ layout, camera, world, stage, signText, financing, hasS
   const props = useMemo(() => surroundingsFor(stage, world), [stage, world]);
 
   const stripeW = Math.max(1, (env.stallLine?.width ?? 2) * Math.min(1.2, carScale));
+  const bedCount = Math.max(3, Math.round(width / 190));
 
   const uprights: Upright[] = [];
 
@@ -190,6 +191,42 @@ function LotGroundBase({ layout, camera, world, stage, signText, financing, hasS
         <Rect width={width} height={frontageY} fill={env.ground} />
 
         <Surface env={env} layout={layout} />
+
+        {/* The display forecourt, when the store has one worth painting. A
+            franchise has a deep apron between its showroom and the first row,
+            and left as bare tarmac that depth reads as a gap rather than as
+            part of the place — so it gets its own paving, a kerb line at the
+            street end of it, and planting beds either side of the entrance. */}
+        {layout.apron > 60 ? (
+          <G>
+            <Rect
+              y={showroomDepth}
+              width={width}
+              height={layout.apron}
+              fill={env.surfaceColor}
+              opacity={0.55}
+            />
+            <Rect
+              y={showroomDepth + layout.apron - 3}
+              width={width}
+              height={3}
+              fill={env.stallLine?.color ?? '#f0ecd8'}
+              opacity={0.22}
+            />
+            {Array.from({ length: bedCount }, (_, i) => (
+              <Rect
+                key={`bed${i}`}
+                x={width * ((i + 0.5) / bedCount) - 34}
+                y={showroomDepth + layout.apron * 0.44}
+                width={68}
+                height={layout.apron * 0.3}
+                rx={5}
+                fill={env.plantColor}
+                opacity={0.5}
+              />
+            ))}
+          </G>
+        ) : null}
 
         {/* light pools under the paint, so the paint reads as painted */}
         {scatter.lights.map(({ x, y }, i) => (
@@ -642,6 +679,11 @@ function Roof({
   h: number;
 }) {
   const fill = env.roofColor ?? shadeOf(env.wall, -0.18);
+  // Counted off the roof rather than fixed: on a building twice as long, three
+  // units of plant read as a roof nobody has ever serviced.
+  const plantCount = Math.max(3, Math.round((x1 - x0) / 210));
+  const seamCount = Math.max(4, Math.round((x1 - x0) / 150));
+  const skylights = Math.max(3, Math.round((x1 - x0) / 170));
 
   if (env.roof === 'gable') {
     const r = env.ridge;
@@ -740,22 +782,26 @@ function Roof({
     <G>
       <G transform={cam.planeMatrix(h)}>
         <Rect x={x0} y={0} width={x1 - x0} height={d} fill={fill} />
-        {/* Roof plant. Every flat commercial roof has some. */}
-        {[0.2, 0.52, 0.78].map((f, i) => (
-          <Rect
-            key={i}
-            x={x0 + (x1 - x0) * f - 16}
-            y={d * 0.3}
-            width={32}
-            height={d * 0.26}
-            rx={2}
-            fill={shadeOf(env.wall, -0.34)}
-          />
-        ))}
-        {Array.from({ length: 4 }, (_, i) => (
+        {/* Roof plant, counted off the roof rather than fixed at three: on a
+            building twice as long, three units read as a roof nobody serviced. */}
+        {Array.from({ length: plantCount }, (_, i) => {
+          const f = (i + 0.5) / plantCount;
+          return (
+            <Rect
+              key={i}
+              x={x0 + (x1 - x0) * f - 17}
+              y={d * 0.28}
+              width={34}
+              height={d * 0.22}
+              rx={2}
+              fill={shadeOf(env.wall, -0.34)}
+            />
+          );
+        })}
+        {Array.from({ length: seamCount }, (_, i) => (
           <Rect
             key={`seam${i}`}
-            x={x0 + ((i + 1) * (x1 - x0)) / 5}
+            x={x0 + ((i + 1) * (x1 - x0)) / (seamCount + 1)}
             y={0}
             width={1.2}
             height={d}
@@ -763,6 +809,28 @@ function Roof({
             opacity={0.13}
           />
         ))}
+
+        {/* Skylights over the showroom, along the front of the roof.
+            A deep building is mostly ROOF from up here — at 25 degrees a
+            286-unit roof projects further down the screen than a 294-unit wall
+            rises up it — so making the building deeper without giving the roof
+            anything to look at buys a bigger grey plate and nothing else. */}
+        {env.glazing > 0.3 ? (
+          <G>
+            {Array.from({ length: skylights }, (_, i) => (
+              <Rect
+                key={`sky${i}`}
+                x={x0 + (x1 - x0) * ((i + 0.5) / skylights) - 26}
+                y={d * 0.09}
+                width={52}
+                height={d * 0.12}
+                rx={2}
+                fill={env.lightColor}
+                opacity={0.13}
+              />
+            ))}
+          </G>
+        ) : null}
       </G>
 
       {/* A parapet: the roof edge carried up past the deck, with a coping band
@@ -1065,19 +1133,31 @@ function Facade({
         </G>
       ) : null}
 
+      {/* Centred over the glass rather than tucked against its left edge. On a
+          franchise frontage twice the length it used to be, a left-aligned name
+          sits at the far end of the building — off screen on a lot the player
+          has to pan. */}
       <SvgText
-        x={flagship ? usable / 2 : glassInset + 4}
+        x={flagship ? usable / 2 : glassInset + glassW / 2}
         y={glassTop - (flagship ? 16 : 12)}
         fontSize={flagship ? 18 : 14}
         fontWeight="800"
         fill={sign}
-        textAnchor={flagship ? 'middle' : 'start'}
+        textAnchor="middle"
         letterSpacing={flagship ? 6 : 1.8}
       >
         {signText.toUpperCase()}
       </SvgText>
       {financing && !flagship ? (
-        <SvgText x={glassInset + 4} y={wallHeight - 6} fontSize={7.5} fontWeight="700" fill={theme.colors.textDim} letterSpacing={1.6}>
+        <SvgText
+          x={glassInset + glassW / 2}
+          y={wallHeight - 6}
+          fontSize={7.5}
+          fontWeight="700"
+          fill={theme.colors.textDim}
+          textAnchor="middle"
+          letterSpacing={1.6}
+        >
           BUY HERE · PAY HERE
         </SvgText>
       ) : null}
@@ -1183,9 +1263,12 @@ function Entrance({
   }
 
   const portico = env.entrance === 'portico';
-  const span = Math.min(portico ? 210 : 150, (x1 - x0) * (portico ? 0.5 : 0.42));
+  // A share of the frontage, NOT a capped number of lot units. The franchises
+  // are twice the building they were, and a canopy pinned at 150 units read as
+  // a porch bolted to a warehouse.
+  const span = (x1 - x0) * (portico ? 0.34 : 0.3);
   const u = x0 + (x1 - x0) * 0.05;
-  const depth = portico ? 62 : 42;
+  const depth = Math.max(42, d * (portico ? 0.34 : 0.24));
   const deck = h * (portico ? 0.8 : 0.58);
   const posts = portico ? 4 : 2;
   const postW = portico ? 13 : 7;
