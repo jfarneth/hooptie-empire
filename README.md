@@ -58,9 +58,40 @@ to pay for.
 - **On the web:** pushing to `master` publishes a playable build to GitHub Pages
   via `.github/workflows/deploy-web.yml`. Good for sharing a link; React Native
   Web is faithful but not identical to native, so judge game *feel* on a device.
-- **App stores:** not set up. When the game earns it, EAS Build produces
-  iOS/Android binaries without needing a Mac, and EAS Update pushes JS changes
-  over the air — useful when retuning `balance.ts` is most of the work.
+- **App stores:** configured but not yet submitted. `eas.json` carries the three
+  build profiles and `app.json` carries the release fields — see below.
+
+## Release builds
+
+There are no `ios/` or `android/` directories — the native projects are
+generated from `app.json` at build time, so that file *is* the native config and
+editing it is how you change anything Xcode would otherwise own.
+
+```bash
+npm i -g eas-cli && eas login
+eas build:configure                       # links the project to an EAS account, once
+eas build --profile preview  --platform ios   # simulator build, no signing needed
+eas build --profile production --platform ios # signed archive for App Store Connect
+eas submit --profile production --platform ios
+```
+
+Three things in `app.json` exist only for the store and are easy to knock out:
+
+- **`version` is what reviewers and customers see** (`CFBundleShortVersionString`).
+  The build number underneath it is *not* in this file — `eas.json` sets
+  `appVersionSource: "remote"` with `autoIncrement`, so EAS owns it and two
+  builds of one version cannot collide.
+- **`usesNonExemptEncryption: false`** answers the export-compliance question at
+  build time instead of in a web form before every single submission. It is
+  honest here: the app makes no network calls at all.
+- **The splash screen is a config plugin, not a `splash` key.** Since SDK 52 the
+  key in `app.json` is ignored; `expo-splash-screen` in `plugins` is the only
+  thing that generates the launch storyboard, and a missing one ships a white
+  flash into a game that is otherwise `#101219` throughout.
+
+**No data leaves the device, and that is worth saying out loud on the listing.**
+There is no network code in `src` at all, which makes App Privacy a single
+"Data Not Collected" declaration rather than a questionnaire.
 
 Note that **saves are local to the device.** Lose the phone, lose the portfolio.
 There is no cloud sync, and adding it is the one feature that would introduce a
