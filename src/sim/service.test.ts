@@ -55,6 +55,7 @@ function prospectWithTerm(weeks: number): Prospect {
     negotiation: {} as Prospect['negotiation'],
     downPayment: 0,
     financeTerms: { amountFinanced: 0, apr: 0.2, weeklyPayment: 0, weeks },
+    paymentCeiling: 0,
     arrivedAt: 0,
     claimed: false,
     expiresAt: 0,

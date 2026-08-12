@@ -8,16 +8,17 @@ import {
   generateCar,
   reconCost,
 } from './cars';
-import { appraisalError, estimatedRetail, pessimisticRetail } from './appraisal';
+import { appraisalError, estimatedBook, pessimisticBook } from './appraisal';
 import {
   businessDefaults,
-  cashFloorLevel,
-  financeFloorLevel,
   minBuyMargin,
   minWorkingCapital,
   repoThreshold,
   servicePlanBand,
   shopRateLevel,
+  listMarkup,
+  offerFloor as offerFloorHere,
+  paymentPush as paymentPushHere,
 } from './business';
 import {
   claimCostMultiplier,
@@ -27,10 +28,16 @@ import {
   voidPlansForCar,
 } from './service';
 import { bayCount, shopPayroll, shopRate, stepShop } from './shop';
-import { dealMarginFloor } from './margins';
 import { generateProspect } from './customers';
-import { deskCounter, resolveCounter } from './haggle';
-import { arrivalChance, bhphPrice, prospectRate, retailValue, wholesaleValue } from './economy';
+import { deskCounter, resolveCounter, resolvePaymentPush } from './haggle';
+import {
+  arrivalChance,
+  bhphPrice,
+  bookValue,
+  prospectRate,
+  retailValue,
+  wholesaleValue,
+} from './economy';
 import { mintId } from './ids';
 import { drawOrigin, freightCost, getMarketTier, landedCost } from './market';
 import { LISTING_SOURCES, makeName, modelsForMake, modelsForTiers } from './models';
@@ -82,7 +89,7 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, Note, Prospect, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 17;
+export const SAVE_VERSION = 18;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -854,7 +861,7 @@ function stepAutomation(s: GameState): void {
   }
 
   if (level(s, 'salesDesk') > 0 && s.dealPolicy !== 'manual' && s.prospects.length > 0) {
-    const floors = dealFloors(s);
+    const rules = dealRules(s);
     for (const prospect of [...s.prospects]) {
       // The player's window. Staff leave a walk-up alone until it has aged the
       // grace period — that is the standing chance to close the deal yourself
@@ -865,11 +872,19 @@ function stepAutomation(s: GameState): void {
       // knowledge of whether anyone is watching.
       if (prospect.claimed) continue;
       if (s.t - prospect.arrivedAt < BALANCE.desk.graceMs) continue;
-      const choice = chooseDeal(s, prospect.id, floors);
+      const choice = chooseDeal(s, prospect.id, rules);
       if (choice === 'finance') {
-        acceptFinance(s, prospect.id, 'desk');
+        // A push they balk at is not a reason to lose the customer — they are
+        // still standing there and the cash offer is untouched. Same spirit as
+        // the old rule that fell back to cash when the underwriting floor
+        // refused the paper: the desk tries the deal it wanted, then the deal
+        // it can get. A buyer who WALKED is gone and `stepProspects` will sweep
+        // them, so the fallback simply finds nobody.
+        if (!acceptFinance(s, prospect.id, 'desk', rules.paymentPush)) {
+          runDeskNegotiation(s, prospect.id, rules.offerFloor);
+        }
       } else if (choice === 'cash') {
-        runDeskNegotiation(s, prospect.id, floors.cash);
+        runDeskNegotiation(s, prospect.id, rules.offerFloor);
       }
     }
   }
@@ -892,26 +907,25 @@ function stepAutomation(s: GameState): void {
  * contract grosses the window price and then collects only part of it, so the
  * same LEVEL is a different margin on the two sides of the desk.
  */
-interface DealFloors {
-  cash: number;
-  finance: number;
+interface DealRules {
+  /** Least the desk will take on cash, as a share of the ask. */
+  offerFloor: number;
+  /** How far past their own payment it pushes a financed buyer. */
+  paymentPush: number;
 }
 
-function dealFloors(s: GameState): DealFloors {
-  const stage = getStage(s.stage);
-  return {
-    cash: dealMarginFloor(stage, 'cash', cashFloorLevel(s)),
-    finance: dealMarginFloor(stage, 'finance', financeFloorLevel(s)),
-  };
+function dealRules(s: GameState): DealRules {
+  return { offerFloor: offerFloorHere(s), paymentPush: paymentPushHere(s) };
 }
 
 /**
- * Margin on a deal, as a share of the gross — the same unit `marginScale`
- * quotes and the same one a dealer says out loud. Zero-priced deals read as a
- * total loss rather than dividing by zero.
+ * How good an offer is, as a share of the ask.
+ *
+ * The unit both sales rules and the lot's red/amber/green now share. An ask of
+ * zero reads as a total lowball rather than dividing by zero.
  */
-function dealMargin(gross: number, costBasis: number): number {
-  return gross > 0 ? (gross - costBasis) / gross : -Infinity;
+function offerShare(offer: number, ask: number): number {
+  return ask > 0 ? offer / ask : 0;
 }
 
 /**
@@ -936,7 +950,11 @@ function runDeskNegotiation(s: GameState, prospectId: string, floor: number): vo
 
   const car = s.cars.find((c) => c.id === prospect.carId);
   if (!car) return;
-  const clears = (price: number) => dealMargin(price, car.costBasis) >= floor;
+  // Judged against the ASK, not against what the car cost. The desk's job is to
+  // hold out for the sticker, and whether the sticker is above cost is the
+  // pricing desk's business — see `defaultAsk`. A lot priced under cost will be
+  // sold under cost, deliberately.
+  const clears = (price: number) => offerShare(price, prospect.negotiation.anchor) >= floor;
 
   const neg = prospect.negotiation;
 
@@ -980,16 +998,17 @@ function runDeskNegotiation(s: GameState, prospectId: string, floor: number): vo
 function chooseDeal(
   s: GameState,
   prospectId: string,
-  floors: DealFloors,
+  rules: DealRules,
 ): 'cash' | 'finance' | 'none' {
   const prospect = s.prospects.find((p) => p.id === prospectId);
   if (!prospect) return 'none';
   const car = s.cars.find((c) => c.id === prospect.carId);
   if (!car) return 'none';
 
-  // The most this walk-up could ever pay in cash: their ceiling is the ask, and
-  // the desk's counter only ever moves towards it.
-  const cashOk = dealMargin(prospect.negotiation.anchor, car.costBasis) >= floors.cash;
+  // The best cash could ever do is the asking price itself, so a floor at or
+  // under 100% of the ask is always worth trying for. Only "sticker or near it"
+  // can refuse outright, and only when the buyer will not get there.
+  const cashOk = rules.offerFloor <= 1;
 
   if (!getStage(s.stage).financing) return cashOk ? 'cash' : 'none';
   // A full book is not a reason to send a buyer away — it is a reason to sell
@@ -998,19 +1017,19 @@ function chooseDeal(
   if (!canWriteNote(s)) return cashOk ? 'cash' : 'none';
 
   const capFactor = overCapacityFactor(activeNotes(s.notes).length, collectionsCapacity(s));
-  const ev = expectedFinanceValue(s, prospect.id, capFactor);
-  const financeOk = dealMargin(ev, car.costBasis) >= floors.finance;
+  // Valued at the payment the desk will actually ask for, not at the one the
+  // customer offered — pushing is the whole point of the rule, and a policy that
+  // compared cash against an un-pushed contract would under-sell paper at every
+  // setting above "take their number".
+  const ev = expectedFinanceValue(s, prospect.id, capFactor, rules.paymentPush);
 
   switch (s.dealPolicy) {
     case 'cash':
       return cashOk ? 'cash' : 'none';
     case 'finance':
-      // Paper is what was asked for, but a deal the underwriting rule refuses is
-      // not a reason to lose the customer if the cash side still stands up.
-      if (financeOk) return 'finance';
-      return cashOk ? 'cash' : 'none';
+      return 'finance';
     case 'auto': {
-      if (financeOk && (!cashOk || ev > prospect.negotiation.currentOffer)) return 'finance';
+      if (ev > prospect.negotiation.currentOffer) return 'finance';
       return cashOk ? 'cash' : 'none';
     }
     default:
@@ -1089,11 +1108,25 @@ export function acquisitionCeiling(
 ): number {
   const keepBack = 1 - minBuyMargin(s);
   const sigma = appraisalSigma(s);
-  const basis =
-    stance === 'worstCase'
-      ? pessimisticRetail(listing, sigma)
-      : estimatedRetail(listing, sigma);
-  return basis * keepBack;
+  // THE BASIS IS WHAT THIS CAR WILL LIST FOR, as best the buyer can tell from
+  // the feed. Not retail — retail stopped being the sticker the moment pricing
+  // became a markup the player sets, and a buyer still judging against retail
+  // would cheerfully pay $7,254 for a car the desk then lists at $5,905. That is
+  // the same bug this function has now paid for three times, arriving through a
+  // new door: judge a purchase against the number the car SELLS at.
+  //
+  // At the default markup this is `pessimisticRetail` to the dollar — the two
+  // are algebraically identical, because book x (1 + retailMarkup()) IS retail —
+  // so the buyer that shipped yesterday is the buyer that ships today until
+  // somebody moves the pricing slider.
+  //
+  // The uncertainty is preserved and is the point: the buyer estimates what the
+  // car will list for, the pricing desk finds out. The gap between them is the
+  // surprise of buying, and it is now denominated in the price the car actually
+  // wears rather than in a valuation nobody quotes.
+  const book =
+    stance === 'worstCase' ? pessimisticBook(listing, sigma) : estimatedBook(listing, sigma);
+  return book * (1 + listMarkup(s)) * keepBack;
 }
 
 /**
@@ -1112,10 +1145,33 @@ export function acquisitionCeiling(
  * where the contract is written.
  */
 export function listCar(s: GameState, car: Car, askPrice?: number): void {
-  const reference = retailValue(car);
-  car.askPrice = Math.round(askPrice ?? reference * BALANCE.defaultAskRatio);
+  car.askPrice = Math.round(askPrice ?? defaultAsk(s, car));
   car.status = 'listed';
   car.listedAt = s.t;
+}
+
+/**
+ * WHAT THE PRICING DESK ASKS FOR A CAR IT NOW KNOWS EVERYTHING ABOUT.
+ *
+ * Book value plus the house markup, and the two halves of that sentence are the
+ * whole design. The BUYER works on an appraisal and is regularly wrong; by the
+ * time a car is standing on the lot there is nothing left to guess — the
+ * condition is known, the recon is done, the trim is on it — so pricing is done
+ * on the full picture rather than on what anybody hoped they were buying. A car
+ * that cleaned up better than it looked simply lists for more, and one that did
+ * not lists for less, which is where the surprise of buying finally shows up in
+ * dollars.
+ *
+ * The default markup is `1/wholesaleOfRetail - 1`, so out of the box this is
+ * cash retail to the dollar and nothing about pricing, traffic or the buyer's
+ * ceiling moves. `bookValue` is unrounded for exactly that reason.
+ *
+ * Note what this is NOT gated on: cost. Price the lot under what it owes and the
+ * lot lists under what it owes — that is a real way to clear stock, and the only
+ * thing standing between a player and it is the number they chose.
+ */
+export function defaultAsk(s: Pick<GameState, 'business'>, car: Car): number {
+  return bookValue(car) * (1 + listMarkup(s));
 }
 
 /**
@@ -1336,7 +1392,26 @@ function acceptCash(s: GameState, prospectId: string, closer: DealCloser = 'play
   return true;
 }
 
-function acceptFinance(s: GameState, prospectId: string, closer: DealCloser = 'player'): boolean {
+/**
+ * Write the paper, at a payment the house has chosen.
+ *
+ * `push` is a multiple of the payment this buyer walked in able to make. At 1
+ * they sign on their own terms and nothing can go wrong, which is what financing
+ * did before it was a negotiation. Above it the contract collects more and they
+ * may balk — no deal on paper, cash still on the table — or walk out entirely.
+ *
+ * The pushed contract is a bigger one, not a shorter one: the same term at a
+ * higher weekly payment is simply more car sold to the same customer, so the
+ * amount financed and everything downstream of it scale together. That is what
+ * makes "for them it is the payment, for us it is total collected" arithmetically
+ * true rather than just a slogan.
+ */
+function acceptFinance(
+  s: GameState,
+  prospectId: string,
+  closer: DealCloser = 'player',
+  push = 1,
+): boolean {
   const idx = s.prospects.findIndex((p) => p.id === prospectId);
   if (idx < 0) return false;
   const prospect = s.prospects[idx];
@@ -1350,8 +1425,27 @@ function acceptFinance(s: GameState, prospectId: string, closer: DealCloser = 'p
   const car = s.cars.find((c) => c.id === prospect.carId);
   if (!car || car.status !== 'listed') return false;
 
+  const asked = pushedTerms(prospect, push);
+  if (asked.payment > prospect.financeTerms.weeklyPayment) {
+    const outcome = resolvePaymentPush(
+      s.rng,
+      asked.payment,
+      prospect.financeTerms.weeklyPayment,
+      prospect.paymentCeiling,
+      haggleSkillFor(s),
+    );
+    if (outcome === 'walked') {
+      registerWalkaway(s, prospect.name);
+      prospect.negotiation.status = 'walked';
+      return false;
+    }
+    // Balked: priced out of the paper, but still standing on the lot. The cash
+    // side is untouched and the desk gets to try it on the next tick.
+    if (outcome !== 'signed') return false;
+  }
+
   const label = carLabel(car);
-  const note = openNote(s, prospect, label, s.t);
+  const note = openNote(s, { ...prospect, financeTerms: asked.terms }, label, s.t);
   s.notes.push(note);
 
   s.cash += prospect.downPayment;
@@ -1373,7 +1467,7 @@ function acceptFinance(s: GameState, prospectId: string, closer: DealCloser = 'p
     // minus the metal — because that is the deal the staff actually closed. The
     // cap in commissionOn keeps the cut inside the down payment, the only cash
     // this deal has produced so far.
-    const profitAtSigning = prospect.downPayment + prospect.financeTerms.amountFinanced - car.costBasis;
+    const profitAtSigning = prospect.downPayment + asked.terms.amountFinanced - car.costBasis;
     payCommission(s, commissionOn(s, profitAtSigning, prospect.downPayment), label);
   }
 
@@ -1432,18 +1526,49 @@ function removeCar(s: GameState, carId: string): void {
  * engine uses. The deal sheet shows this number, which turns the cash-versus-
  * finance choice into a judgement instead of a coin flip.
  */
-function expectedFinanceValue(s: GameState, prospectId: string, capacityFactor: number): number {
+function expectedFinanceValue(
+  s: GameState,
+  prospectId: string,
+  capacityFactor: number,
+  push = 1,
+): number {
   const prospect = s.prospects.find((p) => p.id === prospectId);
   if (!prospect) return 0;
+  const asked = pushedTerms(prospect, push);
   return (
     prospect.downPayment +
     expectedCollections(
-      prospect.financeTerms.weeks,
-      prospect.financeTerms.weeklyPayment,
+      asked.terms.weeks,
+      asked.payment,
       BALANCE.creditTiers[prospect.tier].missChance * capacityFactor,
       repoThreshold(s),
     ).expectedCollected
   );
+}
+
+/**
+ * The contract as the house would like to write it.
+ *
+ * One multiply, applied to the payment and to the principal behind it, so the
+ * APR and the term stay the customer's and only the size of the deal moves.
+ * Exported through actions.ts so the deal sheet quotes the exact contract the
+ * button will write — a slider whose readout and outcome are computed
+ * separately is a slider that will eventually lie.
+ */
+export function pushedTerms(
+  prospect: Prospect,
+  push: number,
+): { payment: number; terms: Prospect['financeTerms'] } {
+  const factor = Math.max(1, push);
+  const payment = Math.round(prospect.financeTerms.weeklyPayment * factor * 100) / 100;
+  return {
+    payment,
+    terms: {
+      ...prospect.financeTerms,
+      weeklyPayment: payment,
+      amountFinanced: Math.round(prospect.financeTerms.amountFinanced * factor),
+    },
+  };
 }
 
 /**

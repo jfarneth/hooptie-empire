@@ -20,40 +20,60 @@ capital floor, the repo trigger, the retainer buyer's minimum margin, and the
 least margin the sales desk will sign for **in cash and on paper**.
 `src/sim/business.ts` resolves them, and every one of them is a slider now.
 
-**The two sales floors are SIX HARD NUMBERS PER STORE**, tabulated in
-`STAGES[].dealFloors` and set by a slider whose levels — Scraping by, Thin, Fair,
-Good, Strong, Steals only — index straight into that table. They shipped
-denominated in standard deviations off the store's derived margin distribution,
-which solved the right problem (a flat percentage is meaningless across a
-thousandfold ladder) and created a worse one: **the yardstick moved every time
-the economy did**, so a rule a player set once and stopped looking at quietly
-meant a different number after the next retune. A house rule is a promise; it is
-written down now. Read the `dealFloors` header in `stages.ts` before touching
-this panel. Three things carry it:
+**THE TWO SALES RULES ARE SCALE-FREE NOW, and the per-store ladders are gone.**
+They spent two rewrites as margins — first in standard deviations off the
+store's derived distribution, then as six hard numbers per store in
+`STAGES[].dealFloors` — because a margin is not comparable across a
+thousandfold ladder and every attempt to make one work needed a bigger table to
+hold it up. The third answer is to stop denominating them in margin at all:
 
-- **The price of tabulating is a guard test**, in `margins.test.ts`, and it is
-  mutation-tested in both directions: a ladder must stay monotonic, must put
-  stops either side of an ordinary deal at any reach level, and must top out
-  under the best margin the store's own feed can produce. Move the economy far
-  enough and it goes red. **The suite is only half of it** — `npm run sim`
-  prints each stop against the share of a real feed it lets through, and that
-  column caught three franchise ladders with dead stops at the top that every
-  unit test passed. Read it after any margin work.
-- **Paper needs its own ladder.** A contract grosses the window price and
-  collects part of it, so an average note at a small lot is worth 33% where the
-  average cash deal is worth 19%. One shared set of stops would leave the bottom
-  half of the finance slider doing nothing. The two converge at a Valmont store,
-  which is `bhphMultiplier` telling the truth.
-- **"Take any deal" is level 0 and has to be its own stop**, not the bottom of
-  the ladder — the bottom stop is a real rule at every store (break-even at a
-  curbstone, 5% at a Halvorsen), so backfilling a save onto it would hand it a
-  floor it never agreed to.
+- **Cash is HOW CLOSE TO THE ASK.** `BALANCE.business.offerFloors` is one ladder
+  for every store, because a share of your own sticker already carries the
+  store's scale. The stops are the bands `readOffer` paints buyers with on the
+  lot, so the colour that made you walk over and the rule the manager runs under
+  are one scale. **It guards nothing about profit** — price the lot low, set the
+  tolerance loose, and the desk will sell under cost, deliberately.
+- **Paper is HOW HARD YOU PUSH.** Financing became a negotiation:
+  `BALANCE.business.paymentPushes` is how far past the payment a buyer walked in
+  able to make the desk asks, and it is the same scale as the slider on the deal
+  card. Every walk-up carries a hidden `paymentCeiling`; past it they balk — no
+  paper, cash still on the table — or walk out. A push scales the payment AND the
+  principal behind it, so "for them it is the payment, for us it is total
+  collected" is arithmetic rather than a slogan.
+- **Pricing is its own rule now.** `BusinessPolicy.listMarkup` lists a car at its
+  TRUE book value plus a markup, applied once you own it and know what it really
+  is — recon included. The buyer works on an appraisal and is often wrong; the
+  pricing desk works on the full picture, and the gap between them is where the
+  surprise of buying finally shows up in dollars.
 
-`src/sim/margins.ts` is still the derived per-store distribution, and it still
-earns its place — it is the YARDSTICK now rather than the rules: the panel quotes
-a fixed stop against it ("about an average deal here"), the buy slider takes its
-grain from it, the harness prints measured against predicted, and the guard test
-above measures the table with it.
+**The default markup is `1/wholesaleOfRetail - 1`, which IS cash retail**, so
+pricing, traffic and the buy ceiling are untouched until somebody moves the
+slider. That equivalence is load-bearing in three places and there is a test on
+each: `businessDefaults()` derives it rather than reading a literal, the v17→v18
+migration writes it out to full precision (0.351 is two dollars light on a $7k
+car, which is a whole lot silently re-priced by a rounding error), and
+`acquisitionCeiling` is `pessimisticRetail` to the cent at that markup.
+
+**THE BUY CEILING FOLLOWS THE LIST PRICE, and it has to.** Retail stopped being
+the sticker the moment pricing became a rule, and a buyer still judging against
+retail would pay $7,254 for a car the desk then lists at $5,905 — the same
+"judge a purchase against the number the car SELLS at" bug this codebase has
+paid for three times, arriving through a new door. The relationship is one line:
+a markup below `35.1% x (1 - buy margin)` would have the buyer paying over the
+list price, which is why the ceiling is derived from the markup rather than left
+beside it.
+
+What retired with the old ladders: `STAGES[].dealFloors`, `DEAL_FLOOR_NAMES`,
+`dealMarginFloor`, the mutation-tested ladder suite in `margins.test.ts`, and the
+harness column that measured every stop against the feed. That is a lot of
+hard-won machinery, and it existed to prop up a unit that was wrong. The
+replacement needs one guard — ascending, straddling the colours, topping out past
+what an average buyer can carry — and it is in `business.test.ts`.
+
+`src/sim/margins.ts` is still the derived per-store distribution and still earns
+its place, but its job narrowed: it is the yardstick the BUY slider takes its
+range and its grain from, and the thing the harness prints measured against
+predicted. The sales rules no longer consult it at all.
 
 ## Working fast here
 
@@ -836,7 +856,7 @@ change can actually move what they measure.
 | anything stage-, margin- or ladder-shaped | plus the whole ladder (~2m45s) |
 
 ```bash
-npm test        # 458 tests, ~9s
+npm test        # 466 tests, ~9s
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~3s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2m45s
@@ -909,6 +929,20 @@ columns are the same machine and the same afternoon:
 (Both profit figures above predate the repossession fix and are understated by
 the double-counted basis — see the note under the 4h targets. The shipped ladder
 re-measured after it reads $113.3M cash and $274.7M profit at the same pacing.)
+
+**Re-measured again after the sales rules were re-denominated**, and the point of
+the measurement is that nothing moved: 2h32m / 6h44m / 10h33m / 42h41m / 228h07m
+against 2h30m / 6h27m / 10h34m / 42h20m / 229h24m, with $111.0M cash and $272.4M
+profit. Every default is inert by construction — the markup IS cash retail, the
+cash floor is off, the push is "their number" — so the only thing separating the
+two columns is the reshuffle from one added draw.
+
+**THAT ADDED DRAW IS WHY THIS FEATURE HAS NO A/B CONSTANT**, unlike the service
+plans and the shop. Every walk-up now draws a hidden `paymentCeiling`, and it is
+drawn unconditionally so the stream does not depend on whether the store has a
+finance desk. There is no way to switch that off and keep the same stream, so
+these numbers are a genuine cross-build comparison and a 1-3% difference on a
+rung is the reshuffle rather than the rules.
 
 **The first three rungs are identical to the minute, and that is the guard, not
 a coincidence**: neither feature exists below the big lot, and a 4h 16-seed run
@@ -983,33 +1017,16 @@ as noise and is not. The big lot is the loosest row for the same reason; it is
 the store where reach is bought partway through, so the freight the model
 averages over is not the freight in force for the whole time spent there.
 
-**`npm run sim` also prints every sales-floor stop against the feed it has to
-let through**, and this is the guard that lives outside the suite. The floors
-are hard numbers per store now, so nothing follows a retune on its own — and a
-stop's *percentage* being fine tells you nothing about whether it is a position
-worth having. Measured at 8 seeds over 350h, the share of each store's own feed
-that clears each stop:
-
-| store | Scraping by | Thin | Fair | Good | Strong | Steals only |
-|---|---|---|---|---|---|---|
-| Curbstone | 0%: 90% | 8%: 74% | 15%: 59% | 22%: 42% | 30%: 24% | 40%: 3% |
-| Small lot | 0%: 95% | 8%: 77% | 15%: 60% | 22%: 42% | 30%: 22% | 40%: 1% |
-| Big lot | 4%: 87% | 9%: 71% | 14%: 55% | 20%: 35% | 27%: 13% | 36%: 1% |
-| Halvorsen | 5%: 96% | 7%: 80% | 9%: 54% | 11%: 26% | 13%: 8% | 15%: 1% |
-| Okabe | 4%: 95% | 6%: 74% | 7%: 56% | 9%: 22% | 10%: 11% | 12%: 2% |
-| Valmont | 4%: 94% | 5%: 78% | 6%: 57% | 7%: 36% | 8%: 15% | 10%: 3% |
-
-**THE FIRST CUT OF THAT TABLE PASSED EVERY UNIT TEST AND WAS STILL WRONG**, and
-it is the reason this column exists. The three franchise ladders read
-`13%:8% 15%:1% 18%:0%` and `12%:2% 15%:0%` and `10%:3% 13%:0%` — two slider
-positions at the top of each that both meant "stop selling cars", plus a Valmont
-bottom stop at `3%:100%` that could never bite. Every one of them satisfied
-monotonic, opens-below-the-average and tops-out-under-what-the-store-can-produce,
-because the share of a real feed above a threshold is not something a closed
-form over the ask band can see. Read this column after any margin work; a stop
-at 0% or at 100% is a slider position doing nothing. Cash only — the finance
-ladder is denominated in expected collections per contract, which is a property
-of a walk-up's credit rather than of a listing, so the feed cannot measure it.
+**The sales-floor column is GONE from `npm run sim`, along with the ladders it
+guarded.** It existed because a stop's percentage told you nothing about whether
+it was a position worth having — the share of a real feed above a margin
+threshold is not something a closed form over the ask band can see, and the
+first cut of those tables shipped with five dead stops that every unit test
+passed. A share of the ask has no such problem: 87% of the sticker lets through
+the same third of buyers at every store, because the sticker is what the offers
+are drawn against. What the harness prints instead is the three rules' current
+positions (`list markup`, `cash floor`, `payment push`), so a run's report says
+on its face whether it measured the defaults.
 
 **A LOT IS ONLY AS BIG AS ITS FEED, and this is the table to read before
 touching capacity, the feed, or anything that sounds like "why is the lot
@@ -1275,33 +1292,25 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   is a named level with a fixed percentage behind it, quoted back in dollars.
   Every default still reproduces the pre-suite build exactly, which is what
   makes the migration safe.
-- **A RULE THE BUSINESS RUNS ON MUST NOT MOVE WHEN THE ECONOMY DOES.** The sales
-  floors shipped in standard deviations off the store's derived margin
-  distribution, and that was overturned for the reason the σ scale itself was
-  never able to answer: the yardstick moved with every retune, so the setting a
-  player made once and left running silently meant a different number a week
-  later. They are levels on a hard-coded per-store ladder now
-  (`STAGES[].dealFloors`), which keeps the property σ was chosen for — the same
-  level means the same posture at a curbstone and at a Valmont store — and adds
-  the one it could not give: the number does not change under the player. What
-  it costs is that the table no longer follows a retune on its own, and that is
-  paid for by a mutation-tested guard in `margins.test.ts` plus a measured
-  column in `npm run sim`.
-- **A rule the desk applies is a LEVEL; a price the buyer pays is a MARGIN.**
-  The two sales floors are stage-RELATIVE (stored as a position on the store's
-  ladder, so "better than average here" keeps meaning that when you move store)
-  and the buyer's minimum margin is ABSOLUTE (stored as a plain margin, because
-  "do not pay more than it is worth" is a price, and the default — break-even
-  against the worst case — is a specific number rather than a posture). The
-  ladder still sets the ENDS of the buy slider, which is what makes its range
-  mean something at every rung.
-- **"Take any deal" is a stop, not a small number.** Both sales floors default to
-  level 0, which is the ABSENCE of a floor rather than a lenient one. It has to
-  be its own position because the bottom stop is a real rule at every store —
-  break-even at a curbstone, 5% at a Halvorsen — so a save backfilled onto it
-  would arrive holding a floor it never agreed to and stop selling its ordinary
-  bad days. Both the v13 → v14 and v14 → v15 migrations write the off value
-  longhand for exactly this reason.
+- **A RULE THE BUSINESS RUNS ON MUST NOT MOVE WHEN THE ECONOMY DOES**, and the
+  final answer to that was to stop measuring it in something that moves. The
+  sales floors were σ positions, then hard margins per store; both needed a
+  table because a margin means different things at a curbstone and at a Valmont
+  store. A share of your own ask needs no table — the sticker carries the scale —
+  and a multiple of a customer's own payment needs none either. One ladder each,
+  and the guard shrank from a mutation-tested suite plus a harness column to five
+  assertions.
+- **The cash rule guards the ASK, not the margin, and that is a feature.** The
+  desk's job is to hold out for the sticker; whether the sticker is above cost is
+  the pricing rule's business. Price a lot to clear and it clears, at a loss, on
+  purpose — which is a real move and one the wholesaler button could only make
+  one car at a time.
+- **Pricing happens on the FULL PICTURE, buying happens on a guess.** That
+  asymmetry is the point of the markup rule: the appraisal is the game on the buy
+  side, and by the time a car is listed there is nothing left to guess, so the
+  sticker reflects what actually turned up rather than what anybody hoped for.
+  The buy ceiling is therefore derived from the list price rather than sitting
+  beside it — see the note above on the three times that has been paid for.
 - **Paper is judged on what it collects, and on its own scale.** The finance
   floor compares the contract's expected value against the metal, not the
   sticker — so raising it makes the desk write SAFER paper rather than simply
@@ -1314,13 +1323,14 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   always above 1: at a premium franchise it is 0.997, because the window markup
   is 1.15 there and collections eat more than that. Paper stops being a premium
   at the top of the ladder, which is what `bhphMultiplier` has always said.
-- **A refusal is not a walk-away.** A deal under the floor is simply not closed:
-  the buyer stands there, nothing is logged, and they leave when their own
-  patience runs out. And the desk will not COUNTER on a deal it could never
-  sign — countering costs walk-aways and buys nothing if even the asking price
-  falls short. Both have tests named for them; without the second, a strict
-  floor would read as a broken negotiator and would quietly poison the
-  walk-away rate the harness reports.
+- **A refusal is not a walk-away, and a balk is not either.** A cash offer under
+  the floor is simply not signed: the buyer stands there, nothing is logged, and
+  they leave when their own patience runs out. A financed buyer pushed past what
+  they can carry usually does the same — no paper, but the cash deal is still on
+  the table and the desk falls back to it. Only sometimes do they leave outright.
+  Both failure modes had to exist: a push that always ended the visit would make
+  the slider pure downside, and one that never did would make "all they can
+  carry" the only correct setting.
 - **A repo trigger has to cost something.** Left flat, a longer leash is strictly
   better — more chances to cure, higher expected collections, fewer defaults, and
   a financed car occupies no lot space while it is out. Repo condition damage
@@ -1523,6 +1533,14 @@ Most have a guarding test; check before "simplifying" the code around them.
   migration has to keep meaning what it meant the day it shipped, and reading
   the live constants would silently re-grade every old save after the next
   balance pass.
+- **A SALES RULE DENOMINATED IN MARGIN NEEDS A TABLE TO HOLD IT UP, and the
+  table is the tell.** The floors were rebuilt twice — σ positions, then six hard
+  numbers per store — and each rewrite added machinery to compensate for the unit
+  being wrong: a per-store table, a mutation-tested suite, and a harness column
+  that existed solely because a margin stop's percentage could not tell you
+  whether it was a position worth having. Re-denominating cash as a share of the
+  ASK deleted all three at once and needed five assertions to replace them. When
+  a rule keeps needing more scaffolding, suspect the unit before the numbers.
 - **A REPOSSESSED CAR COMES BACK ON THE BOOKS AT WHAT IS LEFT IN IT, and for a
   long time it did not.** `applyRepoDamage` moved the condition and left
   `costBasis` at the original purchase-plus-recon figure, so a car that had
@@ -1573,7 +1591,7 @@ Most have a guarding test; check before "simplifying" the code around them.
   internally consistent and simply described a different game. `shopLossRatio`
   is the measured outcome and `expectedLossRatio()` is the only place to get it.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v16**. Saves are long-lived and local to the device; "we wiped
+  Currently **v18**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4
@@ -1706,6 +1724,19 @@ need a branch preview, build it somewhere that is not the live site.
   and whether the shallower per-level step still feels like a reward. Needs a
   human playing it. `maxLevel` and `xpGrowth` are both in Office → Admin, which
   is the fastest way to try a different length.
+- **The payment push is the least-measured thing in the game.** The harness bot
+  runs it at "their number", so every shipped figure is the un-pushed economy;
+  what a player gets from pushing is bounded only by the unit test that says a
+  contract gets bigger. Worse, it is the first rule whose value depends on
+  something the harness structurally cannot see — it closes deals itself inside
+  the grace window, so it never meets the desk's version at all. Somebody has to
+  run a store overnight at "Push hard" and compare.
+- **Nobody has priced a lot away from cash retail.** The markup slider spans 0%
+  to +75% over book and every measured run sits at the default. Traffic responds
+  honestly (`prospectRate` judges the ask against retail, and dies above 1.6x),
+  so the shape of the trade is right, but where the profitable band actually
+  sits — and whether "price it under cost to clear the lot" is ever the correct
+  move rather than a mistake with a slider — is a playtest question.
 - **The five house rules are unmeasured by design.** The harness bot runs them
   all at their defaults, which is what makes the cap's measurement clean — but it
   means nothing here bounds what a player gets from setting them. The repo

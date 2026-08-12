@@ -3,16 +3,19 @@ import { StyleSheet, Text, View } from 'react-native';
 import { setBusinessPolicy, setDealPolicy } from '../../sim/actions';
 import { BALANCE } from '../../sim/balance';
 import { weeklyExpenses } from '../../sim/engine';
-import { businessPolicy, repoDamageMultiplier } from '../../sim/business';
 import {
-  buyMarginRange,
-  dealFloorIsOff,
-  dealFloorLadder,
-  stateFinanceScale,
-  stateMarginScale,
-  zOfMargin,
-  type MarginScale,
-} from '../../sim/margins';
+  OFFER_FLOOR_LEVELS,
+  OFFER_FLOOR_NAMES,
+  PAYMENT_PUSH_LEVELS,
+  PAYMENT_PUSH_NAMES,
+  businessPolicy,
+  offerFloorIsOff,
+  paymentPushIsOff,
+  repoDamageMultiplier,
+  retailMarkup,
+} from '../../sim/business';
+import { bookValue } from '../../sim/economy';
+import { buyMarginRange, stateMarginScale, zOfMargin, type MarginScale } from '../../sim/margins';
 import { activeNotes } from '../../sim/notes';
 import {
   SERVICE_PLAN_BANDS,
@@ -24,12 +27,7 @@ import {
   planBandMultiplier,
   planBandName,
 } from '../../sim/service';
-import {
-  DEAL_FLOOR_NAMES,
-  getStage,
-  typicalCarPrice,
-  typicalRetailPrice,
-} from '../../sim/stages';
+import { getStage, typicalCarPrice, typicalRetailPrice } from '../../sim/stages';
 import { carCapacity, collectionsCapacity, level } from '../../sim/upgrades';
 import type { DealPolicy, GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
@@ -207,39 +205,118 @@ export function BusinessPanel({ state }: { state: GameState }) {
         <View style={{ gap: 8 }}>
           <Label>What the desk will sign</Label>
 
-          <MarginRule
-            name={`${stage.desk.title}: cash deals`}
-            level={policy.cashFloorLevel}
-            ladder={dealFloorLadder(stage, 'cash')}
-            scale={scale}
-            gross={gross}
-            hint="The least your staff will take on a cash sale, judged against what the car cost you. They will still counter to try to get there — this is what they refuse to sign, not what they open with."
-            onChange={(next) => apply((s) => setBusinessPolicy(s, { cashFloorLevel: next }))}
-          />
+          <Card style={{ gap: 8 }}>
+            <Row style={{ justifyContent: 'space-between' }}>
+              <Text style={styles.ruleName}>{stage.desk.title}: cash offers</Text>
+              <Text
+                style={[
+                  styles.ruleValue,
+                  offerFloorIsOff(policy.offerFloorLevel) && { color: theme.colors.textDim },
+                ]}
+              >
+                {offerFloorIsOff(policy.offerFloorLevel)
+                  ? 'Any offer'
+                  : `${Math.round(offerStop(policy.offerFloorLevel) * 100)}% of ask`}
+              </Text>
+            </Row>
+            <Text style={styles.hint}>
+              How close to your sticker they have to get. The same scale the lot paints buyers with,
+              so a shopper showing red is one your desk turns down at "Nothing red". It says nothing
+              about profit — price the lot cheap and this will sell cheap.
+            </Text>
+            <Slider
+              min={0}
+              max={OFFER_FLOOR_LEVELS}
+              step={1}
+              value={Math.min(policy.offerFloorLevel, OFFER_FLOOR_LEVELS)}
+              onChange={(next) => apply((s) => setBusinessPolicy(s, { offerFloorLevel: next }))}
+              minLabel={<SliderAnchor value="Any offer" label="move the metal" />}
+              maxLabel={
+                <SliderAnchor value="Near sticker" label="turn most away" align="flex-end" />
+              }
+            />
+            <OfferNote level={policy.offerFloorLevel} gross={gross} />
+          </Card>
 
           {stage.financing ? (
-            <MarginRule
-              name={`${stage.desk.title}: financing`}
-              level={policy.financeFloorLevel}
-              // Paper has its own ladder: it grosses the window price and then
-              // collects only part of it, so an average contract is worth well
-              // over an average cash deal and a shared set of stops would leave
-              // the bottom two thirds of this slider doing nothing.
-              ladder={dealFloorLadder(stage, 'finance')}
-              scale={stateFinanceScale(state, stage, scale)}
-              gross={gross}
-              hint="The same rule for paper, judged on what the contract is expected to COLLECT rather than on what it says. Raise it and the desk stops writing deep subprime — it is an underwriting standard, not a price."
-              onChange={(next) => apply((s) => setBusinessPolicy(s, { financeFloorLevel: next }))}
-            />
+            <Card style={{ gap: 8 }}>
+              <Row style={{ justifyContent: 'space-between' }}>
+                <Text style={styles.ruleName}>{stage.desk.title}: financed deals</Text>
+                <Text
+                  style={[
+                    styles.ruleValue,
+                    paymentPushIsOff(policy.paymentPushLevel) && { color: theme.colors.textDim },
+                  ]}
+                >
+                  {paymentPushIsOff(policy.paymentPushLevel)
+                    ? 'Their number'
+                    : `+${Math.round((pushStop(policy.paymentPushLevel) - 1) * 100)}% payment`}
+                </Text>
+              </Row>
+              <Text style={styles.hint}>
+                A financed customer is buying a weekly payment; you are selling what the contract
+                collects. This is how far past their own number the desk pushes — worth more on
+                every deal that signs, and some of them will not.
+              </Text>
+              <Slider
+                min={0}
+                max={PAYMENT_PUSH_LEVELS}
+                step={1}
+                value={Math.min(policy.paymentPushLevel, PAYMENT_PUSH_LEVELS)}
+                onChange={(next) => apply((s) => setBusinessPolicy(s, { paymentPushLevel: next }))}
+                minLabel={<SliderAnchor value="Their number" label="never lose one" />}
+                maxLabel={
+                  <SliderAnchor value="All they carry" label="price some out" align="flex-end" />
+                }
+              />
+              <PushNote level={policy.paymentPushLevel} />
+            </Card>
           ) : null}
 
           <Text style={styles.footnote}>
             Neither rule touches a deal you close yourself. Grab a walk-up inside the first{' '}
-            {Math.round(BALANCE.desk.graceMs / 1000)} seconds and the price is your call, as it
-            always was.
+            {Math.round(BALANCE.desk.graceMs / 1000)} seconds and both numbers are your call, as
+            they always were.
           </Text>
         </View>
       ) : null}
+
+      {/* -------------------------------------------------------- the pricing */}
+      <View style={{ gap: 8 }}>
+        <Label>What you ask for a car</Label>
+        <Card style={{ gap: 8 }}>
+          <Row style={{ justifyContent: 'space-between' }}>
+            <Text style={styles.ruleName}>Listing markup over book</Text>
+            <Text style={styles.ruleValue}>+{Math.round(policy.listMarkup * 100)}%</Text>
+          </Row>
+          <Text style={styles.hint}>
+            Your buyer works off an appraisal and is often wrong. By the time a car is on the lot
+            there is nothing left to guess, so this prices it off what it is really worth —
+            reconditioning included. A car that cleaned up better than it looked simply lists for
+            more.
+          </Text>
+          <Slider
+            min={BALANCE.business.listMarkupMin}
+            max={BALANCE.business.listMarkupMax}
+            step={0.01}
+            value={clamp(
+              policy.listMarkup,
+              BALANCE.business.listMarkupMin,
+              BALANCE.business.listMarkupMax,
+            )}
+            onChange={(next) => apply((s) => setBusinessPolicy(s, { listMarkup: next }))}
+            minLabel={<SliderAnchor value="At book" label="clear the lot" />}
+            maxLabel={
+              <SliderAnchor
+                value={`+${Math.round(BALANCE.business.listMarkupMax * 100)}%`}
+                label="hold out"
+                align="flex-end"
+              />
+            }
+          />
+          <MarkupNote state={state} markup={policy.listMarkup} />
+        </Card>
+      </View>
 
       {/* --------------------------------------------------- service contracts */}
       {stage.serviceContracts ? (
@@ -347,75 +424,85 @@ export function BusinessPanel({ state }: { state: GameState }) {
 }
 
 /**
- * One sales floor.
+ * What a cash floor lets through, in the language of the lot.
  *
- * The slider runs over the store's own ladder: level 0 is "any deal", and each
- * stop above it is one hard number out of `STAGES[].dealFloors`. The rule ships
- * at 0, and that has to be a distinct position rather than the bottom of the
- * range — the bottom stop is break-even at a curbstone and 5% at a Halvorsen
- * store, both of which are real rules that refuse real deals. "Take anything"
- * cannot be spelled as a small number.
- *
- * What the card shows is the fixed percentage AND what it is worth against the
- * store's live distribution, because those are two different questions: the
- * first is what you are setting and the second is how picky it makes you today,
- * with your reach and your prestige edge in it.
+ * Quoted against the ASK rather than against a distribution, because that is
+ * what the rule now is. The dollar figure is what makes a percentage mean
+ * something on a Tuesday, and it is the store's typical sticker.
  */
-function MarginRule({
-  name,
-  level,
-  ladder,
-  scale,
-  gross,
-  hint,
-  onChange,
-}: {
-  name: string;
-  level: number;
-  ladder: readonly number[];
-  scale: MarginScale;
-  gross: number;
-  hint: string;
-  onChange: (level: number) => void;
-}) {
-  const off = dealFloorIsOff(level);
-  const top = ladder[ladder.length - 1] ?? 0;
-  const margin = off ? 0 : (ladder[Math.min(level, ladder.length) - 1] ?? 0);
+function OfferNote({ level, gross }: { level: number; gross: number }) {
+  if (offerFloorIsOff(level)) {
+    return (
+      <Text style={styles.footnote}>
+        No floor. Whatever walks up gets sold, at whatever they will pay — which is what the desk
+        did before this rule existed, and is still how you clear a lot in a hurry.
+      </Text>
+    );
+  }
+  const stop = offerStop(level);
+  const { strong, fair } = BALANCE.negotiation.offerRead;
+  const colour =
+    stop >= strong ? 'only the green ones' : stop >= fair ? 'green and amber' : 'everything but a deep lowball';
+  return (
+    <Text style={styles.footnote}>
+      {OFFER_FLOOR_NAMES[Math.min(level, OFFER_FLOOR_LEVELS) - 1]} — takes {colour}. On a typical{' '}
+      {money(Math.round(gross))} sticker here that is {money(Math.round(gross * stop))} or better.
+    </Text>
+  );
+}
+
+/** What a push is worth, and what it risks. */
+function PushNote({ level }: { level: number }) {
+  if (paymentPushIsOff(level)) {
+    return (
+      <Text style={styles.footnote}>
+        The desk writes whatever payment the customer walked in able to make. Nobody is ever priced
+        out, and nobody ever pays a dollar more than they offered.
+      </Text>
+    );
+  }
+  const push = pushStop(level);
+  return (
+    <Text style={styles.footnote}>
+      {PAYMENT_PUSH_NAMES[Math.min(level, PAYMENT_PUSH_LEVELS) - 1]} — about{' '}
+      {Math.round((push - 1) * 100)}% more collected on every contract that signs. Past what a
+      customer can carry they balk, and some of them leave rather than take the cash deal.
+    </Text>
+  );
+}
+
+/**
+ * What the markup implies HERE, which is the only way a single percentage can
+ * mean anything across a thousandfold ladder.
+ *
+ * A franchise buys at invoice, already well over book, so the same +20% that is
+ * a fat margin at a curbstone lists a Valmont under cost. The count of cars it
+ * would list under cost is the number that matters, and it is here rather than
+ * on a warning at listing time because listing is automatic and nobody is
+ * watching when it happens.
+ */
+function MarkupNote({ state, markup }: { state: GameState; markup: number }) {
+  const retail = retailMarkup();
+  const held = state.cars.filter((c) => c.status !== 'sold');
+  const underCost = held.filter((c) => bookValue(c) * (1 + markup) < c.costBasis).length;
+  const relative = Math.round((markup - retail) * 100);
 
   return (
-    <Card style={{ gap: 8 }}>
-      <Row style={{ justifyContent: 'space-between' }}>
-        <Text style={styles.ruleName}>{name}</Text>
-        <Text style={[styles.ruleValue, off && { color: theme.colors.textDim }]}>
-          {off ? 'Any deal' : formatMargin(margin)}
+    <View style={{ gap: 2 }}>
+      <Text style={styles.footnote}>
+        {Math.abs(relative) <= 1
+          ? 'Cash retail — what the lot has always asked. Traffic is exactly what it is used to.'
+          : relative < 0
+            ? `About ${-relative}% under cash retail. More buyers through the door, less on each one.`
+            : `About ${relative}% over cash retail. Fewer buyers, and past half again they stop coming at all.`}
+      </Text>
+      {underCost > 0 ? (
+        <Text style={styles.warning}>
+          {underCost} car{underCost > 1 ? 's' : ''} on your lot would list under what
+          {underCost > 1 ? ' they' : ' it'} cost you at this markup.
         </Text>
-      </Row>
-      <Text style={styles.hint}>{hint}</Text>
-      <Slider
-        min={0}
-        max={ladder.length}
-        step={1}
-        value={Math.min(level, ladder.length)}
-        onChange={onChange}
-        minLabel={<SliderAnchor value="Any deal" label="move the metal" />}
-        maxLabel={
-          <SliderAnchor value={formatMargin(top)} label="steals only" align="flex-end" />
-        }
-      />
-      {off ? (
-        <Text style={styles.footnote}>
-          No floor. Whatever walks up gets sold, at whatever it takes — which is what the desk did
-          before this rule existed.
-        </Text>
-      ) : (
-        <ScaleNote
-          margin={margin}
-          scale={scale}
-          gross={gross}
-          lead={DEAL_FLOOR_NAMES[Math.min(level, ladder.length) - 1]}
-        />
-      )}
-    </Card>
+      ) : null}
+    </View>
   );
 }
 
@@ -559,6 +646,18 @@ function workingCapitalMax(weeklyBill: number, restock: number): { max: number; 
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+/** The stop a cash floor level indexes, as a share of the ask. */
+function offerStop(level: number): number {
+  const stops = BALANCE.business.offerFloors;
+  return stops[Math.min(Math.round(level), stops.length) - 1] ?? 0;
+}
+
+/** The stop a payment push level indexes, as a multiple of their own payment. */
+function pushStop(level: number): number {
+  const stops = BALANCE.business.paymentPushes;
+  return stops[Math.min(Math.round(level), stops.length) - 1] ?? 1;
 }
 
 function Choice({

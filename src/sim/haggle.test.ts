@@ -9,6 +9,8 @@ import {
   readOffer,
   resolveCounter,
   roundingIncrement,
+  paymentAcceptance,
+  resolvePaymentPush,
 } from './haggle';
 import { createRng } from './rng';
 import type { Negotiation } from './types';
@@ -289,5 +291,86 @@ describe('sales desk counter', () => {
       expect(c).toBeLessThanOrEqual(n.anchor);
       expect(c % roundingIncrement(n.anchor)).toBe(0);
     }
+  });
+});
+
+/**
+ * The paper side of the desk.
+ *
+ * Financing used to be take-it-or-leave-it: the customer named a payment and you
+ * signed or you did not. It is a negotiation now, and these pin the shape of it
+ * — that pushing is always worth more per contract, that it can cost you the
+ * customer, and that a buyer who balks is not a buyer who left.
+ */
+describe('pushing a weekly payment', () => {
+  const theirs = 200;
+  const ceiling = 260;
+
+  it('is certain at their own number and falls away past what they can carry', () => {
+    expect(paymentAcceptance(theirs, theirs, ceiling)).toBe(1);
+    expect(paymentAcceptance(theirs - 50, theirs, ceiling)).toBe(1);
+
+    const odds = [210, 230, 250, ceiling, 300, 350].map((p) =>
+      paymentAcceptance(p, theirs, ceiling),
+    );
+    for (let i = 1; i < odds.length; i++) expect(odds[i]).toBeLessThan(odds[i - 1]);
+    // At exactly their ceiling it is uncomfortable rather than impossible —
+    // the same shape the cash haggle uses at the reservation price.
+    expect(paymentAcceptance(ceiling, theirs, ceiling)).toBeCloseTo(
+      BALANCE.negotiation.payment.acceptanceAtCeiling,
+      6,
+    );
+    // And well past it, essentially nobody signs.
+    expect(paymentAcceptance(ceiling * 2, theirs, ceiling)).toBeLessThan(0.02);
+  });
+
+  /**
+   * BOTH FAILURE MODES HAVE TO EXIST. If a refused push always ended the visit
+   * the slider would be pure downside and nobody would touch it; if it never
+   * did, "all they can carry" would be the only correct setting and there would
+   * be no decision at all.
+   */
+  it('loses some priced-out buyers and merely annoys the rest', () => {
+    const rng = createRng(11);
+    const skill = { ...BASE_HAGGLE_SKILL, walkChanceMult: 1 };
+    const seen = { signed: 0, balked: 0, walked: 0 };
+    for (let i = 0; i < 4_000; i++) {
+      // Just past what they can carry: far enough that most refuse, close
+      // enough that some still sign. At 1.4x nobody signs at all, which would
+      // make this a test about two outcomes wearing a three-outcome name.
+      seen[resolvePaymentPush(rng, ceiling * 1.1, theirs, ceiling, skill)] += 1;
+    }
+    expect(seen.signed).toBeGreaterThan(0);
+    expect(seen.balked).toBeGreaterThan(0);
+    expect(seen.walked).toBeGreaterThan(0);
+    // Walking is the minority outcome of a refusal, so a refused push usually
+    // leaves the cash deal on the table.
+    expect(seen.walked).toBeLessThan(seen.balked + seen.walked);
+  });
+
+  it('never refuses a push that is not a push', () => {
+    const rng = createRng(3);
+    for (let i = 0; i < 500; i++) {
+      expect(resolvePaymentPush(rng, theirs, theirs, ceiling, BASE_HAGGLE_SKILL)).toBe('signed');
+    }
+  });
+
+  it('is protected by Closing, exactly as a cash counter is', () => {
+    const walks = (mult: number) => {
+      const rng = createRng(77);
+      let walked = 0;
+      for (let i = 0; i < 3_000; i++) {
+        if (
+          resolvePaymentPush(rng, ceiling * 1.5, theirs, ceiling, {
+            ...BASE_HAGGLE_SKILL,
+            walkChanceMult: mult,
+          }) === 'walked'
+        ) {
+          walked += 1;
+        }
+      }
+      return walked;
+    };
+    expect(walks(0.6)).toBeLessThan(walks(1));
   });
 });

@@ -31,11 +31,11 @@ import { estimatedRetail, estimatedWholesale } from '../sim/appraisal';
 import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
 import { acquisitionCeiling, advance, createInitialState, expectedCollections, weeklyExpenses } from '../sim/engine';
 import { activeNotes, canWriteNote, overCapacityFactor } from '../sim/notes';
+import { listMarkup, offerFloor, paymentPush, retailMarkup } from '../sim/business';
 import { activePlans } from '../sim/service';
 import { canHireTech, canPromote, hireCost, shopRate } from '../sim/shop';
 import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level, upgradeCost } from '../sim/upgrades';
 import {
-  DEAL_FLOOR_NAMES,
   STAGES,
   getStage,
   nextStage,
@@ -45,7 +45,7 @@ import {
 import { RARITIES, RARITY_ORDER } from '../sim/rarity';
 import os from 'node:os';
 import { landedCost } from '../sim/market';
-import { dealFloorLadder, freightMoments, marginScale } from '../sim/margins';
+import { freightMoments, marginScale } from '../sim/margins';
 import { applyTuning, getTunable } from '../sim/tuning';
 import type { GameState, Rarity } from '../sim/types';
 
@@ -795,6 +795,21 @@ async function main() {
   console.log(`  portfolio          ${fmtMoney(median((s) => portfolioValue(s.notes))).padStart(12)}`);
   console.log(`  lifetime profit    ${fmtMoney(median((s) => s.stats.lifetimeProfit)).padStart(12)}`);
   console.log(`  cars sold          ${String(median((s) => s.stats.carsSold)).padStart(12)}`);
+  // The pricing rule, and where it sits against cash retail. At the default
+  // these read `+35%` and `at retail`, which is the property that says a run is
+  // comparable with everything measured before the slider existed.
+  {
+    const markup = finals[0] ? listMarkup(finals[0]) : retailMarkup();
+    const vs = markup - retailMarkup();
+    console.log(
+      `  list markup        ${`+${(markup * 100).toFixed(0)}%`.padStart(12)}` +
+        `  (${Math.abs(vs) < 0.005 ? 'at retail' : `${vs > 0 ? '+' : ''}${(vs * 100).toFixed(0)}% vs retail`})`,
+    );
+    const floor = finals[0] ? offerFloor(finals[0]) : 0;
+    console.log(
+      `  cash floor         ${(floor <= 0 ? 'any offer' : `${(floor * 100).toFixed(0)}% of ask`).padStart(12)}`,
+    );
+  }
 
   // Health of the ambiguity system. A bad-buy rate near zero means the feed is
   // still telling the player the answer; near half means it is a coin flip.
@@ -870,6 +885,20 @@ async function main() {
    * charging too much and the fix is the rate slider. The cash line alone cannot
    * tell those two apart, which is the whole reason the counter exists.
    */
+  /**
+   * THE PAYMENT PUSH, which the bot never touches — it runs every house rule at
+   * its default, so this reads "their number" on every shipped run. Printed
+   * anyway, because a zero here is the fastest way to tell a run that measured
+   * the default from one where a --set moved it.
+   */
+  const contracts = finals.reduce((n, s) => n + s.stats.financeDeals, 0);
+  if (contracts > 0) {
+    const push = finals[0] ? paymentPush(finals[0]) : 1;
+    console.log(
+      `  payment push       ${(push === 1 ? 'their number' : `+${Math.round((push - 1) * 100)}%`).padStart(12)}`,
+    );
+  }
+
   const shopJobs = finals.reduce((n, s) => n + s.stats.shopJobsDone, 0);
   if (shopJobs > 0) {
     const revenue = finals.reduce((n, s) => n + s.stats.shopRevenue, 0);
@@ -974,64 +1003,6 @@ async function main() {
       return { def, xs };
     }).filter((r) => r.xs.length > 0);
 
-    if (rows.length > 0) {
-      console.log(`\nFeed margin, by store (all seeds pooled) — measured vs. the σ scale`);
-      console.log('-'.repeat(64));
-      console.log(`  store        listings     measured           predicted`);
-      for (const { def, xs } of rows) {
-        const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
-        const variance = xs.reduce((a, b) => a + (b - mean) ** 2, 0) / xs.length;
-        // Freight as it stood while the business was actually standing here,
-        // averaged over the listings sampled — see `AppraisalTally.freight`.
-        let n = 0;
-        let fMean = 0;
-        let fSd = 0;
-        for (const t of tallies) {
-          n += t.freight[def.id].n;
-          fMean += t.freight[def.id].mean;
-          fSd += t.freight[def.id].sd;
-        }
-        const model = marginScale(def, {
-          edge: 1,
-          freight: n > 0 ? { mean: fMean / n, sd: fSd / n } : { mean: 0, sd: 0 },
-        });
-        console.log(
-          `  ${def.shortName.padEnd(11)} ${String(xs.length).padStart(7)}` +
-            `    ${(mean * 100).toFixed(1).padStart(5)}% ±${(Math.sqrt(variance) * 100).toFixed(1)}` +
-            `      ${(model.mean * 100).toFixed(1).padStart(5)}% ±${(model.sd * 100).toFixed(1)}`,
-        );
-      }
-
-      /**
-       * WHAT EACH STOP ON THE CASH SLIDER ACTUALLY REFUSES, measured.
-       *
-       * The sales floors are hard numbers per store rather than σ positions, so
-       * they no longer follow a retune on their own — and this is where that
-       * shows up. Every column is the share of the store's own feed that clears
-       * that stop, judged on the same margin the desk judges a deal on. A
-       * column at 0% is a slider position that means "stop selling cars", a
-       * first column at 100% is a stop that does nothing, and a row that has
-       * gone flat is a ladder the economy has moved out from under. There is a
-       * unit test asserting the same three shapes; this is the version that
-       * reads them off listings the game really spawned.
-       *
-       * Cash only. The finance ladder is denominated in expected collections
-       * per contract, which is a property of a walk-up's credit rather than of
-       * a listing, so the feed cannot measure it.
-       */
-      console.log(`\nCash sales floor, by store — each stop, and the share of the feed it lets through`);
-      console.log('-'.repeat(76));
-      console.log(
-        `  store        ${DEAL_FLOOR_NAMES.map((n) => n.split(' ')[0].padStart(10)).join('')}`,
-      );
-      for (const { def, xs } of rows) {
-        const cells = dealFloorLadder(def, 'cash').map((floor) => {
-          const share = xs.filter((m) => m >= floor).length / xs.length;
-          return `${(floor * 100).toFixed(0)}%:${(share * 100).toFixed(0)}%`.padStart(10);
-        });
-        console.log(`  ${def.shortName.padEnd(11)} ${cells.join('')}`);
-      }
-    }
   }
 
   const pooled = blankRarityTally();

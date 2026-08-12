@@ -5,7 +5,7 @@ import { getStage } from './stages';
 import { mintId } from './ids';
 import { customerName } from './models';
 import { buildTerms } from './notes';
-import { intRange, pickWeighted, range } from './rng';
+import { intRange, normalish, pickWeighted, range } from './rng';
 import type { Car, CreditTier, GameState, Millis, Prospect, RngState } from './types';
 
 const TIERS: readonly CreditTier[] = ['A', 'B', 'C', 'D'];
@@ -64,6 +64,18 @@ export function generateProspect(
   const terms = buildTerms(tier, price, weeks, range(rng, 0.85, 1.15));
   const downPayment = price - terms.amountFinanced;
 
+  // The most they could carry a week before they are priced out. Private, like
+  // the cash reservation, and drawn ONCE here rather than derived on read — the
+  // deal sheet's slider must not be able to re-roll it by being dragged.
+  //
+  // Drawn unconditionally so the RNG stream does not depend on whether this
+  // store has a finance desk; a curbstone prospect simply carries a number
+  // nothing ever asks for.
+  const { ceilingMean, ceilingSpread } = BALANCE.negotiation.payment;
+  const paymentCeiling =
+    terms.weeklyPayment *
+    normalish(rng, ceilingMean, ceilingSpread, 1.02, ceilingMean + ceilingSpread);
+
   return {
     id: mintId(state, 'pros'),
     carId: car.id,
@@ -72,6 +84,7 @@ export function generateProspect(
     negotiation,
     downPayment,
     financeTerms: terms,
+    paymentCeiling,
     // Stamped, never derived from expiresAt and the live patience constant —
     // the desk's grace window counts from this.
     arrivedAt: now,

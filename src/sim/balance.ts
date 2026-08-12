@@ -222,6 +222,30 @@ export const BALANCE = {
 
     /** Sales desk: where it counters, as a fraction of offer→ask. */
     deskCounterFraction: 0.55,
+
+    /**
+     * FINANCING IS A NEGOTIATION NOW, and this is its whole model.
+     *
+     * A financed buyer is not buying a car, they are buying a weekly payment.
+     * Every walk-up carries a hidden ceiling on what they can carry — drawn as a
+     * multiple of the payment their own terms imply — and pushing the payment
+     * toward it raises what the contract collects. Past it they are priced out.
+     *
+     * Mirrors the cash haggle deliberately: the same "being asked for exactly
+     * your maximum is uncomfortable" shape, so a player who has learned to read
+     * one is not starting again on the other.
+     */
+    payment: {
+      /** Hidden ceiling on what they can carry, as a multiple of their own payment. */
+      ceilingMean: 1.22,
+      ceilingSpread: 0.16,
+      /** Odds they sign at exactly their ceiling. */
+      acceptanceAtCeiling: 0.35,
+      /** How fast acceptance dies past it. */
+      stretchDecay: 4.5,
+      /** Odds a priced-out buyer walks rather than falling back to the cash deal. */
+      walkChance: 0.55,
+    },
   },
 
   // ---------------------------------------------------------------- capacities
@@ -519,10 +543,15 @@ export const BALANCE = {
       minWorkingCapital: 500,
       repoAfterMissedPayments: 3,
       minBuyMargin: 0,
-      // Both sales floors open at level 0, which is the "take any deal"
-      // position — exactly what the desk did before these existed.
-      cashFloorLevel: 0,
-      financeFloorLevel: 0,
+      // Both sales rules open at level 0 — take any offer, take their payment —
+      // which is exactly what the desk did before either existed.
+      offerFloorLevel: 0,
+      paymentPushLevel: 0,
+      // Filled in by `businessDefaults()`, which derives it from
+      // `wholesaleOfRetail` so that the shipped default IS cash retail however
+      // that constant is later retuned. The literal here is only a fallback for
+      // a caller that reads the table directly.
+      listMarkup: 0.351,
       // The plan desk opens at the standard band and the shop at the middle
       // rate. Unlike the sales floors, these two do NOT default to off: a store
       // that offers service contracts and sells none is not reproducing an
@@ -533,6 +562,40 @@ export const BALANCE = {
     },
     repoTriggerMin: 1,
     repoTriggerMax: 6,
+
+    /**
+     * WHAT THE DESK WILL TAKE ON A CASH DEAL, as a share of your own asking
+     * price.
+     *
+     * This replaced a six-number margin ladder PER STORE, and the replacement is
+     * a simplification the old design could not reach. A margin is not
+     * comparable across a thousandfold ladder — 15% is a bad day at a curbstone
+     * and an impossibility at a Valmont store — which is why those tables had to
+     * be hand-tabulated, retuned twice, and guarded by a mutation-tested suite
+     * and a harness column. A share of your OWN ask is scale-free: 87% of the
+     * sticker means the same thing at every rung, because the sticker already
+     * carries the store's scale.
+     *
+     * The stops are the bands `readOffer` already paints on the lot, so the
+     * colour that made you walk over and the rule the manager runs under are the
+     * same scale. Level 0 is the absence of a floor.
+     *
+     * NOTHING HERE GUARDS MARGIN, deliberately. Price the lot cheap, set the
+     * tolerance wide, and the desk will sell under cost — which is a real way to
+     * clear stock and is now sayable.
+     */
+    offerFloors: [0.8, 0.87, 0.93, 0.97, 1] as const,
+    /**
+     * How hard the desk pushes a financed buyer, as a multiple of the payment
+     * they walked in able to make.
+     *
+     * The same shape as the slider on the deal card, because it is the same
+     * decision: the customer is buying a weekly payment and you are selling
+     * total collected. Push too far past what they can carry and they are priced
+     * out and leave. Level 0 is "take their number", which is what the desk did
+     * before any of this existed.
+     */
+    paymentPushes: [1.05, 1.1, 1.15, 1.2, 1.3] as const,
 
     /**
      * How far below cost the BUYER's slider reaches.
@@ -547,6 +610,18 @@ export const BALANCE = {
     /** Hard bounds on the stored buy margin, for a hand-edited save. */
     buyMarginMin: -0.5,
     buyMarginMax: 0.9,
+
+    /**
+     * How far the PRICING slider reaches, as a markup over book.
+     *
+     * The bottom is under every store's cost of sale on purpose — pricing a lot
+     * to clear it is a real decision, and one the wholesaler button can only
+     * make one car at a time. The top is past the point traffic dies, so the
+     * slider contains its own punishment: `prospectRate` is zero above
+     * `maxViablePriceRatio` of retail, and retail is book + 35%.
+     */
+    listMarkupMin: 0,
+    listMarkupMax: 0.75,
   },
 
   /**

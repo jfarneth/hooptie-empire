@@ -303,3 +303,61 @@ export function readCounter(neg: Negotiation, counter: number): string {
   if (p >= 0.12) return 'Pushing it. Turn that down and they are probably gone.';
   return 'They are going to walk.';
 }
+
+// ------------------------------------------------------------ the paper side
+
+/**
+ * FINANCING IS A NEGOTIATION, and this is the whole of it.
+ *
+ * A cash buyer argues about the price of a car. A financed buyer argues about
+ * nothing — they tell you what they can pay a week, and the only question is how
+ * far past that you can push them before they are priced out. So this is
+ * deliberately simpler than `resolveCounter`: one push, one answer, no coming
+ * back with a better number. There is no better number; there is what they earn.
+ *
+ * It lives here, in the module that "works in abstract money and knows about
+ * neither cars nor GameState", because that is exactly what CLAUDE.md reserved
+ * this seam for.
+ */
+export type PaymentOutcome = 'signed' | 'balked' | 'walked';
+
+/**
+ * Odds they sign at a given weekly payment.
+ *
+ * 1 at or below the payment they walked in with, easing down to
+ * `acceptanceAtCeiling` at the most they can carry, and falling away fast past
+ * it. The same shape the cash haggle uses at the reservation price, for the same
+ * reason: being asked for exactly your maximum is uncomfortable, and most people
+ * balk rather than shrug.
+ */
+export function paymentAcceptance(payment: number, theirs: number, ceiling: number): number {
+  if (payment <= theirs) return 1;
+  const { acceptanceAtCeiling, stretchDecay } = BALANCE.negotiation.payment;
+  const room = Math.max(1e-6, ceiling - theirs);
+  const stretch = (payment - theirs) / room;
+  if (stretch <= 1) return 1 + (acceptanceAtCeiling - 1) * stretch;
+  return acceptanceAtCeiling * Math.exp(-stretchDecay * (stretch - 1));
+}
+
+/**
+ * Push the payment and find out.
+ *
+ * A buyer who will not sign either BALKS — no deal on paper, but they are still
+ * standing there and the cash option is still open — or WALKS out entirely.
+ * Both had to exist: a push that always ended the visit would make the slider
+ * pure downside and nobody would touch it, and a push that never cost anything
+ * would make "all they can carry" the only correct setting.
+ */
+export function resolvePaymentPush(
+  rng: RngState,
+  payment: number,
+  theirs: number,
+  ceiling: number,
+  skill: HaggleSkill,
+): PaymentOutcome {
+  if (chance(rng, paymentAcceptance(payment, theirs, ceiling))) return 'signed';
+  // Closing protects the deal here exactly as it does on a cash counter: the
+  // same multiplier, so levelling one skill improves both sides of the desk.
+  const walk = BALANCE.negotiation.payment.walkChance * skill.walkChanceMult;
+  return chance(rng, walk) ? 'walked' : 'balked';
+}

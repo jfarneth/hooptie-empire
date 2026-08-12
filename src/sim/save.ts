@@ -443,6 +443,55 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       }),
     };
   },
+
+  /**
+   * v17 -> v18: the two sales rules change units, and pricing becomes a rule.
+   *
+   * THE CASH FLOOR STOPS BEING A MARGIN. It was a position on a hand-tabulated
+   * per-store ladder of minimum margins; it is now a position on one scale-free
+   * ladder of "how close to the ask will you take". Those are different
+   * questions, and there is no honest arithmetic converting one to the other —
+   * a 15% margin floor at a curbstone and at a Valmont store let through
+   * completely different offers. So every save lands on **level 0, no floor**,
+   * which is what the overwhelming majority of them were already set to and is
+   * the position that changes nothing about what the desk signs. A player who
+   * had tightened it will find it loose and one slider away, which is a great
+   * deal better than being handed a rule they never chose in a unit they have
+   * never seen.
+   *
+   * The finance floor goes the same way and for the same reason, onto "take
+   * their number" — financing was not a negotiation before this, so there is no
+   * earlier push level to preserve.
+   *
+   * `listMarkup` is the one that matters for continuity, and it is written as a
+   * LITERAL: `1/0.74 - 1` expanded, at the wholesale ratio this build shipped
+   * with, which prices every car at cash retail exactly as it always was. It
+   * does not read the live constant, for the usual reason — a later retune of
+   * `wholesaleOfRetail` must not silently re-price every returning player's lot.
+   *
+   * The digits are not decoration. Rounded to 0.351 the markup is 0.026% light,
+   * which is two dollars on a seven-thousand-dollar car — small, and still a
+   * returning player's whole lot silently re-priced by a rounding error. There
+   * is a test that lists a real car and compares the sticker against
+   * `retailValue`, which is the only way that class of drift ever shows up.
+   */
+  17: (s) => {
+    const { cashFloorLevel, financeFloorLevel, ...rest } = s.business ?? {};
+    return {
+      ...s,
+      business: {
+        ...rest,
+        offerFloorLevel: 0,
+        paymentPushLevel: 0,
+        listMarkup: 0.35135135135135137,
+      },
+      // Prospects gain a hidden payment ceiling. Anyone mid-visit is dropped
+      // rather than given one: a walk-up is ephemeral by design (the v1 -> v2
+      // migration made the same call), and inventing a private number for a
+      // customer already standing on the lot is worse than letting them leave.
+      prospects: [],
+    };
+  },
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

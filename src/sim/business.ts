@@ -1,7 +1,7 @@
 import { BALANCE } from './balance';
 import { clamp } from './economy';
 import { SERVICE_PLAN_LEVELS } from './service';
-import { DEAL_FLOOR_LEVELS, SHOP_RATE_LEVELS } from './stages';
+import { SHOP_RATE_LEVELS } from './stages';
 import type { BusinessPolicy, GameState } from './types';
 
 /**
@@ -21,7 +21,24 @@ import type { BusinessPolicy, GameState } from './types';
 export function businessDefaults(): BusinessPolicy {
   // Spread rather than returned directly: BALANCE is frozen-by-convention and
   // callers put this straight onto a mutable GameState.
-  return { ...BALANCE.business.defaults };
+  //
+  // The markup is DERIVED rather than read off the table, so the shipped default
+  // is cash retail whatever `wholesaleOfRetail` is later retuned to. A literal
+  // would silently become a discount or a premium on the next balance pass — the
+  // exact drift the sales floors were rebuilt to end.
+  return { ...BALANCE.business.defaults, listMarkup: retailMarkup() };
+}
+
+/**
+ * The markup over book that reproduces cash retail.
+ *
+ * `retail = wholesale / wholesaleOfRetail`, so listing at book + 35.1% IS
+ * listing at retail. This is the hinge of the whole pricing rule: it is the
+ * default, it is where traffic is judged from, and it is where the buyer's
+ * ceiling and the list price agree.
+ */
+export function retailMarkup(): number {
+  return 1 / BALANCE.wholesaleOfRetail - 1;
 }
 
 /**
@@ -35,8 +52,9 @@ export function businessPolicy(state: Pick<GameState, 'business'>): BusinessPoli
     minWorkingCapital: set?.minWorkingCapital ?? defaults.minWorkingCapital,
     repoAfterMissedPayments: set?.repoAfterMissedPayments ?? defaults.repoAfterMissedPayments,
     minBuyMargin: set?.minBuyMargin ?? defaults.minBuyMargin,
-    cashFloorLevel: set?.cashFloorLevel ?? defaults.cashFloorLevel,
-    financeFloorLevel: set?.financeFloorLevel ?? defaults.financeFloorLevel,
+    offerFloorLevel: set?.offerFloorLevel ?? defaults.offerFloorLevel,
+    paymentPushLevel: set?.paymentPushLevel ?? defaults.paymentPushLevel,
+    listMarkup: set?.listMarkup ?? retailMarkup(),
     servicePlanBand: set?.servicePlanBand ?? defaults.servicePlanBand,
     shopRateLevel: set?.shopRateLevel ?? defaults.shopRateLevel,
   };
@@ -57,17 +75,85 @@ export function minBuyMargin(state: Pick<GameState, 'business'>): number {
   return businessPolicy(state).minBuyMargin;
 }
 
+// ------------------------------------------------------- what the desk signs
+
 /**
- * The desk's floors, as positions on the store's ladder. Resolved to a margin
- * by `dealMarginFloor` in margins.ts, which is the only place that reads the
- * table those positions index into.
+ * The stops on the cash rule, and what to call them.
+ *
+ * Named for the buyer rather than for the arithmetic, because that is how the
+ * player meets them: the lot already paints a lowball red and a near-ask green,
+ * and this rule is which of those colours the manager is allowed to sign.
  */
-export function cashFloorLevel(state: Pick<GameState, 'business'>): number {
-  return businessPolicy(state).cashFloorLevel;
+export const OFFER_FLOOR_NAMES: readonly string[] = [
+  'Anything sane',
+  'No deep lowballs',
+  'Nothing red',
+  'Green only',
+  'Sticker or near it',
+];
+
+export const OFFER_FLOOR_LEVELS = OFFER_FLOOR_NAMES.length;
+
+/**
+ * Is the cash rule switched off?
+ *
+ * Level 0 is the ABSENCE of a floor rather than a lenient one, the same
+ * distinction the old margin ladder needed: the bottom stop still refuses a
+ * genuine lowball, so a save backfilled onto it would arrive holding a rule it
+ * never agreed to. Written as a negated comparison so a NaN reads as "no rule".
+ */
+export function offerFloorIsOff(level: number): boolean {
+  return !(level >= 1);
 }
 
-export function financeFloorLevel(state: Pick<GameState, 'business'>): number {
-  return businessPolicy(state).financeFloorLevel;
+/**
+ * The least the desk will take, as a share of the ask. Zero when the rule is
+ * off, so every caller is one comparison.
+ */
+export function offerFloor(state: Pick<GameState, 'business'>): number {
+  const level = businessPolicy(state).offerFloorLevel;
+  if (offerFloorIsOff(level)) return 0;
+  const stops = BALANCE.business.offerFloors;
+  return stops[Math.min(Math.round(level), stops.length) - 1];
+}
+
+export function offerFloorLevel(state: Pick<GameState, 'business'>): number {
+  return businessPolicy(state).offerFloorLevel;
+}
+
+/** What each stop on the payment rule is called, from the desk's point of view. */
+export const PAYMENT_PUSH_NAMES: readonly string[] = [
+  'Nudge it',
+  'Push',
+  'Push hard',
+  'Stretch them',
+  'All they can carry',
+];
+
+export const PAYMENT_PUSH_LEVELS = PAYMENT_PUSH_NAMES.length;
+
+export function paymentPushIsOff(level: number): boolean {
+  return !(level >= 1);
+}
+
+/**
+ * How far past their own payment the desk will push, as a multiple. 1 is "take
+ * their number", which is what financing did before it was a negotiation.
+ */
+export function paymentPush(state: Pick<GameState, 'business'>): number {
+  const level = businessPolicy(state).paymentPushLevel;
+  if (paymentPushIsOff(level)) return 1;
+  const stops = BALANCE.business.paymentPushes;
+  return stops[Math.min(Math.round(level), stops.length) - 1];
+}
+
+export function paymentPushLevel(state: Pick<GameState, 'business'>): number {
+  return businessPolicy(state).paymentPushLevel;
+}
+
+/** What the lot prices at, as a markup over true book value. */
+export function listMarkup(state: Pick<GameState, 'business'>): number {
+  return businessPolicy(state).listMarkup;
 }
 
 /**
@@ -123,8 +209,21 @@ export function clampBusinessPolicy(patch: Partial<BusinessPolicy>, base: Busine
       repoTriggerMax,
     ),
     minBuyMargin: clamp(finite(merged.minBuyMargin, base.minBuyMargin), buyMarginMin, buyMarginMax),
-    cashFloorLevel: clampFloorLevel(merged.cashFloorLevel, base.cashFloorLevel),
-    financeFloorLevel: clampFloorLevel(merged.financeFloorLevel, base.financeFloorLevel),
+    offerFloorLevel: clampLevel(merged.offerFloorLevel, base.offerFloorLevel, 0, OFFER_FLOOR_LEVELS),
+    paymentPushLevel: clampLevel(
+      merged.paymentPushLevel,
+      base.paymentPushLevel,
+      0,
+      PAYMENT_PUSH_LEVELS,
+    ),
+    // A price, so it clamps to a range rather than to a ladder. The bottom is
+    // deliberately below anything that could turn a profit: listing under cost
+    // to clear a lot is a real move.
+    listMarkup: clamp(
+      finite(merged.listMarkup, base.listMarkup),
+      BALANCE.business.listMarkupMin,
+      BALANCE.business.listMarkupMax,
+    ),
     // The plan desk has an off position, like a sales floor. The shop's rate
     // does not: a shop with no rate is not a shop, and "closed" is already
     // spelled by owning no bays.
@@ -142,10 +241,6 @@ export function clampBusinessPolicy(patch: Partial<BusinessPolicy>, base: Busine
  * setting survives a move, which is the whole reason this is a level and not a
  * percentage.
  */
-function clampFloorLevel(value: number, fallback: number): number {
-  return clampLevel(value, fallback, 0, DEAL_FLOOR_LEVELS);
-}
-
 /**
  * A position on any of the ladders, whole-numbered.
  *

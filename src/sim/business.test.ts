@@ -1,17 +1,27 @@
 import { setBusinessPolicy, takeFinanceDeal } from './actions';
 import { BALANCE, MS_PER_GAME_WEEK } from './balance';
 import {
+  OFFER_FLOOR_LEVELS,
+  OFFER_FLOOR_NAMES,
+  PAYMENT_PUSH_LEVELS,
+  PAYMENT_PUSH_NAMES,
   businessDefaults,
   businessPolicy,
   clampBusinessPolicy,
+  offerFloor,
+  offerFloorIsOff,
+  paymentPush,
+  paymentPushIsOff,
   repoDamageMultiplier,
   repoThreshold,
+  retailMarkup,
 } from './business';
 import { generateProspect } from './customers';
 import { generateCar } from './cars';
 import { getStage, typicalCarPrice } from './stages';
 import { pessimisticRetail, pessimisticWholesale } from './appraisal';
 import {
+  acquisitionCeiling,
   advance,
   cloneState,
   createInitialState,
@@ -19,7 +29,7 @@ import {
   listCar,
   weeklyExpenses,
 } from './engine';
-import { dealFloorIsOff } from './margins';
+import { bookValue, retailValue } from './economy';
 import { getModel } from './models';
 import { activeNotes, applyDuePayment, bookRoom, canWriteNote, openNote } from './notes';
 import { appraisalSigma, haggleSkillFor } from './skills';
@@ -525,8 +535,9 @@ describe('setting the house rules', () => {
       minWorkingCapital: 500,
       repoAfterMissedPayments: BALANCE.repoAfterMissedPayments,
       minBuyMargin: 0,
-      cashFloorLevel: 0,
-      financeFloorLevel: 0,
+      offerFloorLevel: 0,
+      paymentPushLevel: 0,
+      listMarkup: retailMarkup(),
       // The two later rules are the exception to this test's name, and the
       // exception is the whole reason it is stated here: there is no "what the
       // plan desk did before it existed", because it did not exist. A store that
@@ -537,11 +548,16 @@ describe('setting the house rules', () => {
       shopRateLevel: BALANCE.business.defaults.shopRateLevel,
     });
     expect(repoThreshold(s)).toBe(BALANCE.repoAfterMissedPayments);
-    // Stated as a property rather than as a number: what the two sales floors
-    // have to be is OFF, and a later retune of the ladder must not be able to
-    // turn them on by moving a constant this assertion happens to quote.
-    expect(dealFloorIsOff(s.business.cashFloorLevel)).toBe(true);
-    expect(dealFloorIsOff(s.business.financeFloorLevel)).toBe(true);
+    // Stated as properties rather than as numbers: what the two sales rules
+    // have to be is OFF, and a later retune must not be able to turn them on by
+    // moving a constant this assertion happens to quote. The markup's invariant
+    // is different in kind — it is not "off", it is "prices at cash retail",
+    // which is what makes the pricing rule inert rather than absent.
+    expect(offerFloorIsOff(s.business.offerFloorLevel)).toBe(true);
+    expect(paymentPushIsOff(s.business.paymentPushLevel)).toBe(true);
+    expect(offerFloor(s)).toBe(0);
+    expect(paymentPush(s)).toBe(1);
+    expect(s.business.listMarkup).toBeCloseTo(1 / BALANCE.wholesaleOfRetail - 1, 10);
   });
 
   it('changes one rule without disturbing the others', () => {
@@ -667,5 +683,168 @@ describe('running costs', () => {
     expect(after.cash).toBeLessThan(0);
     // Three weeks of a $20k/week rent, minus the tenner: the whole bill.
     expect(after.cash).toBeLessThanOrEqual(10 - 3 * getStage('premiumFranchise').rentPerWeek);
+  });
+});
+
+/**
+ * THE LADDERS, GUARDED.
+ *
+ * The old per-store margin tables had a mutation-tested suite and a harness
+ * column keeping them honest, and both retired with them. What replaced them is
+ * far less to guard — one scale-free ladder each — but "less" is not "nothing",
+ * and a stop that cannot bite is still a slider position doing nothing.
+ */
+describe('the two sales ladders', () => {
+  it('runs the cash floor up the ask, and never past it', () => {
+    const stops = BALANCE.business.offerFloors;
+    expect(stops.length).toBe(OFFER_FLOOR_NAMES.length);
+    for (let i = 1; i < stops.length; i++) expect(stops[i]).toBeGreaterThan(stops[i - 1]);
+    // Every stop is a real share of the ask. Above 1 would be a rule demanding
+    // more than the sticker, which no buyer can ever satisfy.
+    expect(stops[0]).toBeGreaterThan(0);
+    expect(stops[stops.length - 1]).toBeLessThanOrEqual(1);
+  });
+
+  /**
+   * The stops have to straddle the colours the lot paints, or the rule and the
+   * read are two scales wearing one name. Measured offers run 0.80 to 1.00 of
+   * the ask, so a ladder entirely above 0.93 would refuse almost everything and
+   * one entirely below 0.87 would refuse almost nothing.
+   */
+  it('puts stops either side of an ordinary offer', () => {
+    const stops = BALANCE.business.offerFloors;
+    const { strong, fair } = BALANCE.negotiation.offerRead;
+    expect(stops.some((x) => x <= fair)).toBe(true);
+    expect(stops.some((x) => x > fair && x <= strong)).toBe(true);
+    expect(stops.some((x) => x > strong)).toBe(true);
+  });
+
+  it('runs the payment push up from their own number', () => {
+    const stops = BALANCE.business.paymentPushes;
+    expect(stops.length).toBe(PAYMENT_PUSH_NAMES.length);
+    for (let i = 1; i < stops.length; i++) expect(stops[i]).toBeGreaterThan(stops[i - 1]);
+    // Every stop asks for MORE than they offered — a push that asked for less
+    // would be a discount with a confusing name.
+    expect(stops[0]).toBeGreaterThan(1);
+  });
+
+  /**
+   * And the top stop has to be somewhere a real buyer might refuse. A ladder
+   * that topped out inside every customer's means would be five stops all
+   * saying "yes", which is the failure the old franchise ladders shipped with.
+   */
+  it('tops out past what an average buyer can carry', () => {
+    const stops = BALANCE.business.paymentPushes;
+    expect(stops[stops.length - 1]).toBeGreaterThan(BALANCE.negotiation.payment.ceilingMean);
+  });
+
+  it('clamps a hand-edited save onto both ladders', () => {
+    const base = businessDefaults();
+    for (const bad of [NaN, -5, 99, undefined as any]) {
+      const p = clampBusinessPolicy({ offerFloorLevel: bad, paymentPushLevel: bad }, base);
+      expect(p.offerFloorLevel).toBeGreaterThanOrEqual(0);
+      expect(p.offerFloorLevel).toBeLessThanOrEqual(OFFER_FLOOR_LEVELS);
+      expect(p.paymentPushLevel).toBeGreaterThanOrEqual(0);
+      expect(p.paymentPushLevel).toBeLessThanOrEqual(PAYMENT_PUSH_LEVELS);
+    }
+  });
+});
+
+/**
+ * The pricing rule.
+ *
+ * One property matters more than the rest and it is the first test: the shipped
+ * default has to price a car at cash retail EXACTLY, or every pacing baseline in
+ * CLAUDE.md silently moved on the day this landed.
+ */
+describe('what the lot asks for a car', () => {
+  const car = () => {
+    const s = cloneState(createInitialState(5, 0));
+    return generateCar(s, s.rng, getModel('civet'), 0);
+  };
+
+  it('prices at cash retail by default, to the dollar', () => {
+    const s = cloneState(createInitialState(5, 0));
+    const c = car();
+    s.cars.push(c);
+    listCar(s, c);
+    expect(c.askPrice).toBe(retailValue(c));
+  });
+
+  it('moves the sticker with the markup', () => {
+    const c = car();
+    const at = (markup: number) => {
+      const s = cloneState(createInitialState(5, 0));
+      s.business = { ...businessDefaults(), listMarkup: markup };
+      const copy = { ...c };
+      s.cars.push(copy);
+      listCar(s, copy);
+      return copy.askPrice;
+    };
+    expect(at(0.1)).toBeLessThan(at(retailMarkup()));
+    expect(at(0.6)).toBeGreaterThan(at(retailMarkup()));
+    // It is a markup over BOOK, so the arithmetic is stateable exactly.
+    expect(at(0.5)).toBe(Math.round(bookValue(c) * 1.5));
+  });
+
+  /**
+   * PRICED ON THE FULL PICTURE, which is the whole reason this rule exists. The
+   * buyer bought on a guess; by the time the car is listed the condition is
+   * known and the shop has been through it, and the sticker reflects that
+   * rather than whatever anybody hoped they were buying.
+   */
+  it('re-prices a car after the shop has improved it', () => {
+    const s = cloneState(createInitialState(5, 0));
+    const c = { ...car(), condition: 0.4 };
+    s.cars.push(c);
+    listCar(s, c);
+    const before = c.askPrice;
+
+    // Out of the shop in better shape, and listed again.
+    c.condition = 0.8;
+    c.status = 'ready';
+    listCar(s, c);
+    expect(c.askPrice).toBeGreaterThan(before);
+  });
+
+  it('will price under what the car cost, if that is what you asked for', () => {
+    const s = cloneState(createInitialState(5, 0));
+    s.business = { ...businessDefaults(), listMarkup: 0 };
+    const c = { ...car(), costBasis: 999_999 };
+    s.cars.push(c);
+    listCar(s, c);
+    expect(c.askPrice).toBeLessThan(c.costBasis);
+  });
+
+  /**
+   * AND THE BUYER FOLLOWS IT. A buyer still judging against retail would pay
+   * more for a car than the desk will list it at — the same "judge a purchase
+   * against the number the car SELLS at" bug this codebase has paid for three
+   * times, arriving through a new door.
+   */
+  it('drags the retainer buyer down with it', () => {
+    const s = cloneState(createInitialState(31, 0));
+    const listing = s.listings[0];
+    const ceilingAt = (markup: number) =>
+      acquisitionCeiling({ ...s, business: { ...businessDefaults(), listMarkup: markup } }, listing);
+
+    expect(ceilingAt(0.1)).toBeLessThan(ceilingAt(retailMarkup()));
+    expect(ceilingAt(0.6)).toBeGreaterThan(ceilingAt(retailMarkup()));
+  });
+
+  /**
+   * At the default markup the new ceiling is the old one to the dollar, because
+   * `book x (1 + retailMarkup())` IS retail. That equivalence is what makes this
+   * change inert until somebody moves the slider, and it is worth pinning
+   * because it is the reason no pacing baseline had to be re-measured for the
+   * buy side.
+   */
+  it('is the buyer that shipped before it, at the default markup', () => {
+    const s = cloneState(createInitialState(31, 0));
+    for (const listing of s.listings) {
+      const sigma = appraisalSigma(s);
+      const oldWay = pessimisticRetail(listing, sigma) * (1 - businessPolicy(s).minBuyMargin);
+      expect(acquisitionCeiling(s, listing)).toBeCloseTo(oldWay, 6);
+    }
   });
 });

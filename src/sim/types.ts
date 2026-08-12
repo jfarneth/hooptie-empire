@@ -309,6 +309,15 @@ export interface Prospect {
     weeks: number;
   };
   /**
+   * Hidden: the most they could carry per week before they are priced out.
+   *
+   * The finance side's answer to the cash haggle's `reservation`, and private
+   * for the same reason — what a customer can really afford is not something
+   * the dealer gets told. Drawn once at walk-up so pushing the slider around
+   * cannot re-roll it.
+   */
+  paymentCeiling: number;
+  /**
    * Sim time at which they walked up. Stamped at creation, never derived from
    * `expiresAt` and the live patience constant — same rule as a promotion's
    * `endsAt`, because the admin console can move the constant under a prospect
@@ -427,25 +436,43 @@ export interface BusinessPolicy {
    */
   minBuyMargin: number;
   /**
-   * How strict the sales desk is on a CASH deal, as a position on the store's
-   * own floor ladder. 0 is no floor at all; 1 to `DEAL_FLOOR_LEVELS` are the
-   * hard margins tabulated in `STAGES[].dealFloors`.
+   * The least the desk will take on a CASH deal, as a position on
+   * `BALANCE.business.offerFloors` — a share of your own asking price.
    *
-   * A LEVEL rather than a margin, because the same manager has to keep meaning
-   * the same thing at a curbstone and at a Valmont store, where an identical
-   * percentage is respectively a bad day and an impossibility. A level rather
-   * than a σ position, because the σ scale moved under the player's feet every
-   * time the economy was retuned — see the header on `dealFloors` in stages.ts.
+   * HOW CLOSE TO THE ASK, not a margin. It used to be a margin from a
+   * hand-tabulated ladder per store, because a percentage of profit means
+   * nothing across a thousandfold ladder; a share of your own sticker needs no
+   * table at all, because the sticker already carries the store's scale. The
+   * stops are the bands the lot paints buyers with, so the colour that made you
+   * walk over and the rule the manager runs under are one scale.
+   *
+   * It guards NOTHING about profit. Price the lot low and set this loose and the
+   * desk will sell under cost, on purpose.
    */
-  cashFloorLevel: number;
+  offerFloorLevel: number;
   /**
-   * The same rule for PAPER, and it is a genuinely different question: a
-   * financed deal is judged on the expected value of the contract, not on the
-   * sticker, so raising this makes the desk write safer paper rather than
-   * simply less of it. It reads off the store's finance ladder, which sits well
-   * above the cash one at every store but the last.
+   * How hard the desk pushes a financed buyer, as a position on
+   * `BALANCE.business.paymentPushes`.
+   *
+   * The mirror of the slider on the deal card: the customer is buying a weekly
+   * payment, the house is selling total collected, and a push past what they can
+   * carry prices them out. 0 is "take the payment they walked in with".
    */
-  financeFloorLevel: number;
+  paymentPushLevel: number;
+  /**
+   * What the lot lists at, as a markup over the car's TRUE wholesale value.
+   *
+   * The buyer works on an appraisal and is often wrong; by the time a car is on
+   * the lot there is nothing left to guess, so pricing is done on the full
+   * picture — including whatever the shop just put into it. The default is
+   * `1/wholesaleOfRetail - 1`, which is cash retail exactly, so a save that
+   * never touches this prices exactly as the game always did.
+   *
+   * A plain ratio rather than a level, for the reason `minBuyMargin` is one: it
+   * is a price, and "list at book plus a third" is a specific number rather than
+   * a posture.
+   */
+  listMarkup: number;
   /**
    * What the finance office charges for a service contract, as a position on
    * `SERVICE_PLAN_BANDS`. 0 is "don't sell them at all".

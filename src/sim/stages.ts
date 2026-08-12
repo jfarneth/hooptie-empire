@@ -220,8 +220,6 @@ export interface StageDef {
     /** Whether they draw a weekly wage on top. The partner does not. */
     salaried: boolean;
   };
-  /** The six stops on this store's two sales floors. See `DEAL_FLOOR_NAMES`. */
-  dealFloors: StageDealFloors;
   /**
    * Whether the finance office can sell service contracts here.
    *
@@ -286,70 +284,6 @@ export const SHOP_RATE_NAMES: readonly string[] = [
 /** How many stops a labour rate has. Levels are 1-indexed, like a sales floor. */
 export const SHOP_RATE_LEVELS = SHOP_RATE_NAMES.length;
 
-/**
- * WHAT THE DESK WILL SIGN, ONE HARD NUMBER PER SLIDER STOP.
- *
- * The two sales floors used to be set in standard deviations off a distribution
- * derived from the store's ask band. That solved the right problem — a flat
- * percentage is meaningless across a ladder that moves a thousandfold — and
- * created a worse one: the yardstick moved every time the economy did. Widen an
- * ask band, add freight, price a trim grade differently, and the setting a
- * player chose last week quietly means a different number this week, on a rule
- * they set once and then stopped looking at. A house rule has to be a promise.
- *
- * So the stops are TABULATED, per store and per side of the desk, and they are
- * the same numbers today that they were when they were written down. The cost is
- * that they no longer follow a retune on their own, and that cost is paid in
- * `stages.test.ts`: the ladder has to stay monotonic, its bottom stop has to sit
- * under what the store averages, and its top stop has to stay under the best
- * margin the store's own feed can produce. Move the economy far enough and that
- * test goes red, which is the alarm this design trades the drift for. The
- * harness prints the same check against measured listings — see the deal-floor
- * column in `npm run sim`.
- *
- * Each ladder is a share of the gross, straddling the store's average deal at
- * levels 3 and 4, so "Fair" and "Good" mean what they say wherever you stand.
- * The numbers were derived once from the shipped margin distributions and then
- * rounded to figures a person would say out loud — a slider stop that reads 15%
- * is 15%.
- *
- * PAPER GETS ITS OWN LADDER, for the reason `financeGrossMultiple` gives: a
- * contract grosses the window price and then collects only part of it, so the
- * average note at a small lot is worth 33% where the average cash deal is worth
- * 19%. One shared ladder would leave the bottom half of the finance slider
- * doing nothing. It is absent on the stage with no finance desk.
- */
-export interface StageDealFloors {
-  /** Minimum margin on a cash sale, per level, ascending. Level 1 is index 0. */
-  cash: readonly number[];
-  /** The same for a contract, judged on expected collections. Omitted where there is no desk. */
-  finance?: readonly number[];
-}
-
-/**
- * What each stop is called. Level 0 — no floor at all — is not in here: it is
- * the absence of a rule rather than a lenient one, and the panel names it
- * separately. See `dealFloorIsOff`.
- *
- * Six stops rather than the old twenty-five quarter-σ positions. A rule you set
- * once and leave running for eight hours wants stops you can name, and every
- * position here is a distinguishable posture at every store on the ladder —
- * which a quarter of a standard deviation stopped being at a franchise, where
- * four consecutive stops rounded to the same percentage.
- */
-export const DEAL_FLOOR_NAMES: readonly string[] = [
-  'Scraping by',
-  'Thin',
-  'Fair',
-  'Good',
-  'Strong',
-  'Steals only',
-];
-
-/** How many real stops a sales floor has, above the "any deal" position. */
-export const DEAL_FLOOR_LEVELS = DEAL_FLOOR_NAMES.length;
-
-/** Progression order. Index in this array is the stage's rank. */
 export const STAGE_ORDER: readonly StageId[] = [
   'curbstone',
   'smallUsed',
@@ -409,7 +343,6 @@ export const STAGES: readonly StageDef[] = [
     // Level 1 is break-even because a curbstone ask band genuinely straddles it:
     // "nothing at a loss" is a real rule here and is a no-op anywhere above the
     // big lot. No finance ladder — no finance desk.
-    dealFloors: { cash: [0, 0.08, 0.15, 0.22, 0.3, 0.4] },
     serviceContracts: false,
     sourcing: { ...OPEN_MARKET, tiers: ['beater', 'commuter'], askMin: 0.8, askMax: 1.42 },
   },
@@ -432,10 +365,6 @@ export const STAGES: readonly StageDef[] = [
     desk: { title: 'Sales manager', commission: 0.25, salaried: true },
     // Cash averages 19% here as well; paper averages 33%, because the window
     // markup is at its highest at the store that sells approval for a living.
-    dealFloors: {
-      cash: [0, 0.08, 0.15, 0.22, 0.3, 0.4],
-      finance: [0.1, 0.2, 0.28, 0.36, 0.45, 0.55],
-    },
     serviceContracts: false,
     sourcing: {
       ...OPEN_MARKET,
@@ -466,10 +395,6 @@ export const STAGES: readonly StageDef[] = [
     // first store that pays freight, which takes 2-5 points off the average
     // once the transporters are running — the ladder is set against the store
     // rather than against any one reach level, and the panel quotes both.
-    dealFloors: {
-      cash: [0.04, 0.09, 0.14, 0.2, 0.27, 0.36],
-      finance: [0.1, 0.18, 0.26, 0.33, 0.41, 0.5],
-    },
     // The first store with a finance office worth the name, and the first one
     // big enough that owing somebody a gearbox is a product rather than a
     // catastrophe. No service department yet: you sell the cover and pay an
@@ -504,10 +429,6 @@ export const STAGES: readonly StageDef[] = [
     // points. This is the store where a percentage-based rule set at a used lot
     // would have meant "sell nothing, ever" — 22% is above anything a Halvorsen
     // allocation can produce.
-    dealFloors: {
-      cash: [0.05, 0.07, 0.09, 0.11, 0.13, 0.15],
-      finance: [0.12, 0.13, 0.15, 0.17, 0.19, 0.21],
-    },
     serviceContracts: true,
     // The first store with bays behind the showroom. Rates are a real
     // franchise's: under a hundred an hour, and the volume comes from being the
@@ -532,10 +453,6 @@ export const STAGES: readonly StageDef[] = [
     bhphMultiplier: 1.22,
     creditShift: 1.6,
     desk: { title: 'Sales manager', commission: 0.1, salaried: true },
-    dealFloors: {
-      cash: [0.04, 0.06, 0.07, 0.09, 0.1, 0.12],
-      finance: [0.07, 0.09, 0.1, 0.12, 0.13, 0.15],
-    },
     serviceContracts: true,
     shop: { hourlyRates: [55, 72, 92, 118, 150], demandPerSec: 0.65 },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.2, askMax: 1.27, makeId: 'okabe' },
@@ -561,10 +478,6 @@ export const STAGES: readonly StageDef[] = [
     // truth: at 1.15 the window markup no longer covers what collections eat,
     // so a contract here grosses 0.997 of the cash deal. Paper stops being a
     // premium at the top of the ladder, and the sliders say so.
-    dealFloors: {
-      cash: [0.04, 0.05, 0.06, 0.07, 0.08, 0.1],
-      finance: [0.04, 0.05, 0.06, 0.07, 0.08, 0.1],
-    },
     serviceContracts: true,
     // Main dealer rates, and the busiest bays on the ladder. This is the store
     // where the shop matters most, and not because it is biggest: unit margin

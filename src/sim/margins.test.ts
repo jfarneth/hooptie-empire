@@ -10,9 +10,6 @@ import { retailValue } from './economy';
 import { landedCost } from './market';
 import {
   buyMarginRange,
-  dealFloorIsOff,
-  dealFloorLadder,
-  dealMarginFloor,
   freightMoments,
   financeGrossMultiple,
   financeMarginScale,
@@ -20,7 +17,7 @@ import {
   stateMarginScale,
   zOfMargin,
 } from './margins';
-import { DEAL_FLOOR_LEVELS, DEAL_FLOOR_NAMES, STAGES, getStage, stageRank } from './stages';
+import { STAGES, getStage, stageRank } from './stages';
 import type { StageId } from './types';
 
 /**
@@ -109,160 +106,6 @@ describe('the deal-margin scale', () => {
 function canEverReach(id: StageId): boolean {
   return stageRank(id) >= stageRank('largeUsed');
 }
-
-describe('the sales-floor ladder', () => {
-  /**
-   * THE PRICE OF TABULATING THE FLOORS IS THIS TEST. The stops no longer follow
-   * a retune on their own, so something has to shout when the economy has moved
-   * out from under them — otherwise a slider that reads "Fair" quietly becomes
-   * a wall, which is the failure the derived scale had in the other direction.
-   *
-   * Three properties, and each one is a different way for the table to rot:
-   * an out-of-order ladder is a slider that gets more lenient as you push it
-   * right; a bottom stop above the store's average is a "Scraping by" setting
-   * that refuses most of the lot; and a top stop above what the store's own
-   * feed can produce is a position that means "stop selling cars" rather than
-   * "hold out for a good one".
-   */
-  it('stays monotonic, lenient at the bottom and reachable at the top, at every store', () => {
-    for (const stage of STAGES) {
-      const cash = marginScale(stage);
-      const paper = financeMarginScale(cash, financeGrossMultiple(stage));
-
-      for (const [side, scale] of [
-        ['cash', cash],
-        ['finance', paper],
-      ] as const) {
-        const ladder = dealFloorLadder(stage, side);
-        // A store with no finance desk has no finance ladder, and that is the
-        // only legitimate empty one.
-        if (side === 'finance' && !stage.financing) {
-          expect(ladder).toEqual([]);
-          continue;
-        }
-        expect(ladder.length).toBe(DEAL_FLOOR_LEVELS);
-        for (let i = 1; i < ladder.length; i++) {
-          expect(ladder[i]).toBeGreaterThan(ladder[i - 1]);
-        }
-        expect(ladder[0]).toBeLessThan(scale.mean);
-        expect(ladder[ladder.length - 1]).toBeLessThan(scale.best);
-        expect(ladder[ladder.length - 1]).toBeGreaterThan(scale.mean);
-      }
-    }
-  });
-
-  /**
-   * THE LADDER HAS TO SPAN THE STORE, not sit to one side of it. Stated as
-   * "stops on both sides of an ordinary deal, at least two each way" rather
-   * than as "level 3 is under the mean and level 4 is over it", because the
-   * mean is not one number: a Halvorsen store averages 11.5% buying locally and
-   * 9.4% once the transporters are running, and a ladder pinned to either one
-   * exactly would have half its stops bunched on the far side of the other.
-   *
-   * NOTE WHAT THIS DOES NOT CATCH, because the first cut of the table proved
-   * it: three franchise ladders whose top two stops let 1% and 0% of the feed
-   * through — two slider positions that both meant "stop selling cars" — passed
-   * every assertion in this file. The share of a real feed above a threshold is
-   * not something a closed form over the ask band can see, and it is why the
-   * harness prints the ladder against measured listings. Read that column after
-   * any margin work; it is the half of this guard that lives outside the suite.
-   */
-  it('puts stops either side of an ordinary deal, at every store and any reach', () => {
-    expect(DEAL_FLOOR_NAMES.length).toBe(DEAL_FLOOR_LEVELS);
-    for (const stage of STAGES) {
-      const cash = marginScale(stage);
-      const paper = financeMarginScale(cash, financeGrossMultiple(stage));
-      for (const [side, scale] of [
-        ['cash', cash],
-        ['finance', paper],
-      ] as const) {
-        const ladder = dealFloorLadder(stage, side);
-        if (ladder.length === 0) continue;
-        // The freighted store as well as the local one: reach moves the average
-        // by a third at a big lot, and a ladder that only spans one of them is
-        // a slider that goes dead when the player buys a transporter. Only
-        // where reach is actually for sale — a curbstone driveway cannot have a
-        // transporter, and pricing its ladder as if it could would be measuring
-        // a business that does not exist.
-        const reached = canEverReach(stage.id)
-          ? scale.mean - freightMoments({ upgrades: { reach: 2 } }, stage).mean
-          : scale.mean;
-        for (const mean of [scale.mean, reached]) {
-          expect(ladder.filter((m) => m < mean).length).toBeGreaterThanOrEqual(2);
-          expect(ladder.filter((m) => m > mean).length).toBeGreaterThanOrEqual(2);
-        }
-      }
-    }
-  });
-
-  /**
-   * A FLAT PERCENTAGE WOULD BE WRONG AT BOTH ENDS, which is the whole reason
-   * this is a table rather than one list of numbers. Stated as an assertion so
-   * nobody tidies six ladders into one: the curbstone's "Good" is above
-   * anything a Valmont store can ever produce.
-   */
-  it('cannot be collapsed into one ladder shared by every store', () => {
-    const curbstone = dealMarginFloor(getStage('curbstone'), 'cash', 4);
-    expect(curbstone).toBeGreaterThan(marginScale(getStage('premiumFranchise')).best);
-  });
-
-  /**
-   * And the same name has to mean the same posture at every store, which is the
-   * property the σ scale was originally chosen for and the one thing a table
-   * could plausibly lose. "Fair" is 15% at a small lot and 6% at a Valmont
-   * store, and this is the assertion that those are the same setting: the two
-   * middle stops land within a standard deviation and a half of an ordinary
-   * deal wherever you stand. That is the honest tolerance rather than a tighter
-   * one, because the stores' spreads differ by eight times and each ladder also
-   * has to span its own store at any reach level — see above.
-   */
-  it('keeps a level meaning the same posture at every store', () => {
-    for (const level of [3, 4]) {
-      for (const stage of STAGES) {
-        const scale = marginScale(stage);
-        expect(Math.abs(zOfMargin(scale, dealMarginFloor(stage, 'cash', level)))).toBeLessThan(1.5);
-      }
-    }
-  });
-});
-
-describe('the "any deal" stop', () => {
-  it('is a distinct position, not the bottom of the ladder', () => {
-    expect(dealFloorIsOff(0)).toBe(true);
-    expect(dealFloorIsOff(1)).toBe(false);
-    expect(dealMarginFloor(getStage('curbstone'), 'cash', 0)).toBe(-Infinity);
-  });
-
-  /**
-   * WHY IT CANNOT JUST BE LEVEL 1. The bottom stop is a real rule at every
-   * store — break-even at a curbstone, 5% at a Halvorsen — so a save backfilled
-   * onto it would arrive holding a floor it never agreed to and start refusing
-   * its ordinary bad days. "Take anything" has to be its own position.
-   */
-  it('is what the game ships with, on both sales floors', () => {
-    const defaults = businessDefaults();
-    expect(dealFloorIsOff(defaults.cashFloorLevel)).toBe(true);
-    expect(dealFloorIsOff(defaults.financeFloorLevel)).toBe(true);
-
-    for (const stage of STAGES) {
-      expect(dealMarginFloor(stage, 'cash', 1)).toBeGreaterThanOrEqual(0);
-    }
-  });
-
-  it('handles a NaN out of a hand-edited save as "off" rather than as a floor', () => {
-    expect(dealFloorIsOff(NaN)).toBe(true);
-  });
-
-  it('reads a level past the end of the ladder as the top stop', () => {
-    const stage = getStage('smallUsed');
-    const ladder = dealFloorLadder(stage, 'cash');
-    expect(dealMarginFloor(stage, 'cash', 99)).toBe(ladder[ladder.length - 1]);
-  });
-
-  it('has no finance floor to enforce at a store with no finance desk', () => {
-    expect(dealMarginFloor(getStage('curbstone'), 'finance', 6)).toBe(-Infinity);
-  });
-});
 
 describe('freight is inside the yardstick', () => {
   it('is zero for a local-only lot and real once reach is bought', () => {

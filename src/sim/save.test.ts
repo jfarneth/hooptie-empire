@@ -1,11 +1,13 @@
 import { BALANCE } from './balance';
-import { SAVE_VERSION, advance, createInitialState } from './engine';
+import { SAVE_VERSION, advance, createInitialState, listCar } from './engine';
+import { generateCar } from './cars';
+import { retailValue } from './economy';
+import { getModel } from './models';
 import { activeNotes, bookRoom } from './notes';
 import { deserialize, migrate, serialize } from './save';
 import { SKILL_IDS } from './skills';
 import { landedCost, reachLevel } from './market';
-import { dealFloorIsOff } from './margins';
-import { DEAL_FLOOR_LEVELS, STAGE_ORDER, getStage } from './stages';
+import { STAGE_ORDER, getStage } from './stages';
 
 /**
  * Save compatibility is not a nice-to-have in this genre. A player can be hours
@@ -162,8 +164,13 @@ describe('migration chain', () => {
       // did: it signed whatever was in front of it. Stated in the literal
       // number rather than read off BALANCE, because the requirement is "the
       // rule is off", not "the rule matches today's default".
-      cashFloorLevel: 0,
-      financeFloorLevel: 0,
+      // v17 -> v18 lands every save on "no floor" and "their number": the units
+      // changed, and there is no honest conversion from a margin floor to a
+      // share-of-ask one. See that migration's note.
+      offerFloorLevel: 0,
+      paymentPushLevel: 0,
+      // Cash retail, which is what the lot always asked.
+      listMarkup: 0.35135135135135137,
       // The plan desk and the shop rate land on their shipped defaults rather
       // than off, which is the one place this migration chain deliberately
       // changes what a save does. See the v15 -> v16 note: a rule that never
@@ -356,34 +363,32 @@ describe('migration chain', () => {
       return migrated.business as any;
     };
 
-    // The shipped default: off stays off. Anything else would hand a lot that
-    // has been signing whatever walks up a floor it never agreed to.
+    // WHAT THE CHAIN NOW GUARANTEES, which is less than it used to and honestly
+    // so. v14 -> v15 still re-reads those σ positions onto the margin ladder,
+    // and v17 -> v18 then discards the result: the cash rule stopped being a
+    // margin at all, and there is no conversion from "15% margin" to "87% of the
+    // ask" that means anything. So the observable end state is the new off
+    // position, and the assertions that used to pin the σ mapping went with the
+    // ladder they were mapping onto — a test that can only be written against a
+    // field the chain no longer produces is a test with nothing to say.
     const untouched = from(-4, -4);
-    expect(untouched.cashFloorLevel).toBe(0);
-    expect(untouched.financeFloorLevel).toBe(0);
-    expect(dealFloorIsOff(untouched.cashFloorLevel)).toBe(true);
-    // The rules the player DID set come across unharmed.
+    expect(untouched.offerFloorLevel).toBe(0);
+    expect(untouched.paymentPushLevel).toBe(0);
+    // The rules the player DID set come across unharmed, which is the promise
+    // that actually matters to somebody reloading.
     expect(untouched.minWorkingCapital).toBe(2_500);
     expect(untouched.repoAfterMissedPayments).toBe(4);
     expect(untouched.minBuyMargin).toBe(0.05);
-    // And the dead fields do not ride along as a second, silent copy.
-    expect('minCashMarginZ' in untouched).toBe(false);
-    expect('minFinanceMarginZ' in untouched).toBe(false);
+    // And no dead field rides along as a second, silent copy.
+    for (const dead of ['minCashMarginZ', 'minFinanceMarginZ', 'cashFloorLevel', 'financeFloorLevel']) {
+      expect(dead in untouched).toBe(false);
+    }
 
-    // The ends and the middle of the old scale, in order. 0σ was the store's
-    // average deal and level 4 is the store's average deal, which is the one
-    // correspondence this mapping has to get right.
-    expect(from(-3, -3).cashFloorLevel).toBe(1);
-    expect(from(0, 0).cashFloorLevel).toBe(4);
-    expect(from(3, 3).cashFloorLevel).toBe(6);
-    expect(from(3, -4).financeFloorLevel).toBe(0);
-
-    // A hand-edited save cannot produce a level the ladder does not have.
+    // However mangled the old value, the save lands somewhere the engine can run.
     for (const z of [NaN, -99, 99, undefined as any]) {
-      const level = from(z, z).cashFloorLevel;
-      expect(Number.isInteger(level)).toBe(true);
-      expect(level).toBeGreaterThanOrEqual(0);
-      expect(level).toBeLessThanOrEqual(DEAL_FLOOR_LEVELS);
+      const business = from(z, z);
+      expect(business.offerFloorLevel).toBe(0);
+      expect(business.listMarkup).toBeGreaterThan(0);
     }
 
     const live: any = JSON.parse(JSON.stringify(createInitialState(77, 0)));
@@ -469,6 +474,52 @@ describe('migration chain', () => {
     // A tier puts 14% down: $8,600 financed implies $1,400.
     expect(migrated.notes[1].downPayment).toBe(1_400);
     expect(migrated.notes[2].downPayment).toBe(1_234);
+    expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+  });
+
+  /**
+   * v17 -> v18. The sales rules change units and pricing becomes a rule.
+   *
+   * The only continuity promise that can be kept here is the pricing one, and
+   * it is the one that matters: 0.351 over book is cash retail, so a returning
+   * lot asks exactly what it asked yesterday.
+   */
+  it('lands a v17 save on the new sales rules without re-pricing its lot', () => {
+    const v17: any = JSON.parse(JSON.stringify(createInitialState(51, 0)));
+    v17.version = 17;
+    v17.business = {
+      minWorkingCapital: 4_000,
+      repoAfterMissedPayments: 5,
+      minBuyMargin: 0.08,
+      cashFloorLevel: 4,
+      financeFloorLevel: 3,
+      servicePlanBand: 2,
+      shopRateLevel: 4,
+    };
+
+    const migrated = migrate(v17, 17);
+
+    // The units changed, so both sales rules land on their off positions.
+    expect(migrated.business.offerFloorLevel).toBe(0);
+    expect(migrated.business.paymentPushLevel).toBe(0);
+    // No dead field rides along.
+    expect('cashFloorLevel' in migrated.business).toBe(false);
+    expect('financeFloorLevel' in migrated.business).toBe(false);
+    // Everything the player set that still means something survives.
+    expect(migrated.business.minWorkingCapital).toBe(4_000);
+    expect(migrated.business.minBuyMargin).toBe(0.08);
+    expect(migrated.business.servicePlanBand).toBe(2);
+    expect(migrated.business.shopRateLevel).toBe(4);
+
+    // AND THE LOT PRICES AS IT ALWAYS DID. Stated against a real car rather
+    // than against the constant, because "0.351" is only correct in that it
+    // reproduces retail — if that ever stops being true this is the test that
+    // says so.
+    const car = generateCar(migrated, migrated.rng, getModel('civet'), 0);
+    migrated.cars.push(car);
+    listCar(migrated, car);
+    expect(car.askPrice).toBe(retailValue(car));
+
     expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
   });
 

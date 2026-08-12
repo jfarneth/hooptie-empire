@@ -206,6 +206,16 @@ export const TUNABLES: readonly TunableDef[] = [
     help: 'Compounding. Your own bays work on your own stock too.' },
   { path: 'balance.shop.reconCostPerBay', label: 'Recon cost per bay', group: 'The shop', kind: 'ratio', min: 0.5, max: 1 },
 
+  // ------------------------------------------------------ pushing a payment
+  { path: 'balance.negotiation.payment.ceilingMean', label: 'What a buyer can carry', group: 'Negotiation', kind: 'ratio', min: 1, max: 3,
+    help: 'Hidden ceiling on the weekly payment, as a multiple of the one their own terms imply. The finance side’s reservation price.' },
+  { path: 'balance.negotiation.payment.ceilingSpread', label: 'Spread on that ceiling', group: 'Negotiation', kind: 'ratio', min: 0, max: 1 },
+  { path: 'balance.negotiation.payment.acceptanceAtCeiling', label: 'Odds they sign at their limit', group: 'Negotiation', kind: 'percent', min: 0, max: 1,
+    help: 'Being asked for exactly your maximum is uncomfortable. Same argument as `acceptanceAtReservation` on the cash side.' },
+  { path: 'balance.negotiation.payment.stretchDecay', label: 'How fast that dies past the limit', group: 'Negotiation', kind: 'number', min: 0, max: 20 },
+  { path: 'balance.negotiation.payment.walkChance', label: 'Odds a priced-out buyer leaves', group: 'Negotiation', kind: 'percent', min: 0, max: 1,
+    help: 'The rest balk: no deal on paper, but the cash offer is still on the table and they are still standing there.' },
+
   // -------------------------------------------------------------- credit mix
   ...(['A', 'B', 'C', 'D'] as const).flatMap((t) => [
     { path: `balance.creditTiers.${t}.missChance`, label: `Tier ${t} — miss chance`, group: 'Credit tiers', kind: 'percent' as const, min: 0, max: 0.95 },

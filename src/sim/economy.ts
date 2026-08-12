@@ -61,9 +61,22 @@ export function valuePerConditionPoint(car: Car): number {
   return conditionFreeValue(car) * (1 - BALANCE.conditionFloorFactor);
 }
 
+/**
+ * Book value — what the trade says this car is worth, unrounded.
+ *
+ * The basis the lot PRICES from: `listCar` asks book plus the house markup, and
+ * at the default markup (`1/wholesaleOfRetail - 1`) that is cash retail to the
+ * dollar. Kept unrounded for exactly that reason — rounding here and then
+ * multiplying back up would leave the shipped default a few dollars off the
+ * retail price it is supposed to reproduce exactly.
+ */
+export function bookValue(car: Car): number {
+  return retailValue(car) * BALANCE.wholesaleOfRetail;
+}
+
 /** What it is worth to a wholesaler — what you should be paying for it. */
 export function wholesaleValue(car: Car): number {
-  return Math.round(retailValue(car) * BALANCE.wholesaleOfRetail);
+  return Math.round(bookValue(car));
 }
 
 /**

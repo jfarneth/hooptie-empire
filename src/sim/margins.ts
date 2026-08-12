@@ -343,54 +343,6 @@ export function zOfMargin(scale: MarginScale, margin: number): number {
   return scale.sd > 0 ? (margin - scale.mean) / scale.sd : 0;
 }
 
-/** Which side of the desk a floor governs. Each has its own ladder per store. */
-export type DealSide = 'cash' | 'finance';
-
-/**
- * The stops on one of this store's sales floors, ascending.
- *
- * Empty where the store has no finance desk, which is the same answer as "no
- * rule to set" and is what stops the panel drawing a slider nobody can use.
- */
-export function dealFloorLadder(stage: StageDef, side: DealSide): readonly number[] {
-  return (side === 'cash' ? stage.dealFloors.cash : stage.dealFloors.finance) ?? [];
-}
-
-/**
- * Is this setting the "any deal" stop?
- *
- * Level 0 is not a very low floor, it is the ABSENCE of one, and that
- * distinction is load bearing at both ends of the ladder. At a curbstone the
- * bottom stop is break-even, which really does refuse the ordinary bad car; at
- * a franchise it is 3-5%, which is inside the band the store sources. Either
- * way, backfilling a save onto the bottom of the ladder would hand it a rule it
- * never agreed to. Taking anything has to be its own position, and it is the
- * default, because taking anything is exactly what the desk did before these
- * rules existed.
- *
- * Written as a negated comparison so a NaN out of a hand-edited save reads as
- * "no rule" rather than as a floor nothing can clear.
- */
-export function dealFloorIsOff(level: number): boolean {
-  return !(level >= 1);
-}
-
-/**
- * The margin the desk insists on, in the same units a deal is measured in.
- *
- * `-Infinity` when the rule is off, so every caller is one comparison — and
- * likewise when the store has no ladder for that side, because a stage with no
- * finance desk cannot have a finance rule. A level past the end of the ladder
- * (a save from a build with more stops, or a hand-edited one) reads as the top
- * stop rather than as undefined.
- */
-export function dealMarginFloor(stage: StageDef, side: DealSide, level: number): number {
-  if (dealFloorIsOff(level)) return -Infinity;
-  const ladder = dealFloorLadder(stage, side);
-  if (ladder.length === 0) return -Infinity;
-  return ladder[Math.min(Math.round(level), ladder.length) - 1];
-}
-
 /**
  * What the buyer's slider spans.
  *
@@ -408,9 +360,14 @@ export function dealMarginFloor(stage: StageDef, side: DealSide, level: number):
  * to keep the stalls full" would otherwise be unsayable.
  */
 export function buyMarginRange(stage: StageDef): { min: number; max: number } {
-  const ladder = dealFloorLadder(stage, 'cash');
+  // The top used to be the last stop on the store's cash floor ladder, which no
+  // longer exists — the desk's rule is a share of the ask now, and a share of
+  // the ask says nothing about what a purchase should keep back. The best margin
+  // the store's own feed can actually produce is the honest ceiling, and it is
+  // already derived right here.
+  const scale = marginScale(stage);
   return {
     min: -BALANCE.business.buyMarginBelowCost,
-    max: ladder[ladder.length - 1] ?? BALANCE.business.buyMarginMax,
+    max: Math.max(0.05, Math.round(scale.best * 100) / 100),
   };
 }

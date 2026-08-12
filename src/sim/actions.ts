@@ -10,6 +10,7 @@ import {
   expectedFinanceValue,
   listCar,
   logEvent,
+  pushedTerms,
   registerWalkaway,
 } from './engine';
 import { wholesaleValue } from './economy';
@@ -202,8 +203,14 @@ export function counterOffer(state: GameState, prospectId: string, price: number
   });
 }
 
-export function takeFinanceDeal(state: GameState, prospectId: string): GameState {
-  return act(state, (s) => acceptFinance(s, prospectId));
+/**
+ * Write the note, at whatever payment the player has slid to.
+ *
+ * `push` defaults to 1 — their own number, which always signs — so every caller
+ * that has not learned about the slider yet behaves exactly as it did.
+ */
+export function takeFinanceDeal(state: GameState, prospectId: string, push = 1): GameState {
+  return act(state, (s) => acceptFinance(s, prospectId, 'player', push));
 }
 
 export function declineProspect(state: GameState, prospectId: string): GameState {
@@ -257,8 +264,9 @@ export function setBusinessPolicy(state: GameState, patch: Partial<BusinessPolic
       next.minWorkingCapital === current.minWorkingCapital &&
       next.repoAfterMissedPayments === current.repoAfterMissedPayments &&
       next.minBuyMargin === current.minBuyMargin &&
-      next.cashFloorLevel === current.cashFloorLevel &&
-      next.financeFloorLevel === current.financeFloorLevel &&
+      next.offerFloorLevel === current.offerFloorLevel &&
+      next.paymentPushLevel === current.paymentPushLevel &&
+      next.listMarkup === current.listMarkup &&
       next.servicePlanBand === current.servicePlanBand &&
       next.shopRateLevel === current.shopRateLevel;
     if (unchanged) return false;
@@ -847,11 +855,16 @@ export function retire(state: GameState): GameState {
   return fresh;
 }
 
-/** Expected value of the paper on this prospect, for the deal sheet. */
-export function financeExpectedValue(state: GameState, prospectId: string): number {
+/**
+ * Expected value of the paper on this prospect at a given push, for the deal
+ * sheet. Reads the same function the button writes the contract with.
+ */
+export function financeExpectedValue(state: GameState, prospectId: string, push = 1): number {
   const capFactor = overCapacityFactor(activeNotes(state.notes).length, collectionsCapacity(state));
-  return expectedFinanceValue(state, prospectId, capFactor);
+  return expectedFinanceValue(state, prospectId, capFactor, push);
 }
+
+export { pushedTerms };
 
 // ------------------------------------------------------------- admin console
 

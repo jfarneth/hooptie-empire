@@ -144,9 +144,12 @@ export function LotScreen({ state }: { state: GameState }) {
           // number, and closing the sheet would hide the reply.
           apply((s) => counterOffer(s, prospect.id, price));
         }}
-        onFinance={() => {
+        onFinance={(push) => {
           if (!prospect) return;
-          apply((s) => takeFinanceDeal(s, prospect.id));
+          // Stays open when the push is refused, for the same reason a counter
+          // does: they may have balked rather than left, and the cash side is
+          // still on the table. Closing the sheet would hide that.
+          apply((s) => takeFinanceDeal(s, prospect.id, push));
           setProspectId(null);
         }}
         onDecline={() => {

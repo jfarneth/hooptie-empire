@@ -1,4 +1,4 @@
-import { clamp01, retailValue, wholesaleValue } from './economy';
+import { bookValue, clamp01, retailValue, wholesaleValue } from './economy';
 import type { Car, Listing } from './types';
 
 /**
@@ -37,6 +37,25 @@ export function estimatedRetail(listing: Listing, sigma: number): number {
 
 export function estimatedWholesale(listing: Listing, sigma: number): number {
   return wholesaleValue(appraisedCar(listing, sigma));
+}
+
+/**
+ * Book value of the car as the feed presents it, UNROUNDED.
+ *
+ * What the buyer's ceiling is built from, because that ceiling is book times the
+ * house markup and rounding in the middle of a multiply is how "the default
+ * changes nothing" stops being exactly true. `wholesaleValue` rounds to whole
+ * dollars, which the ceiling then amplifies by 1.35 into a visible drift; this
+ * does not, so `book x (1 + retailMarkup())` is `pessimisticRetail` to the cent.
+ */
+export function estimatedBook(listing: Listing, sigma: number): number {
+  return bookValue(appraisedCar(listing, sigma));
+}
+
+/** The same, at the bad end of the band. See `pessimisticRetail`. */
+export function pessimisticBook(listing: Listing, sigma: number): number {
+  const condition = clamp01(estimatedCondition(listing, sigma) - sigma);
+  return bookValue({ ...listing.car, condition });
 }
 
 /**

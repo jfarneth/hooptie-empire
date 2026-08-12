@@ -6,11 +6,13 @@ import { TIER_BLURB } from '../../sim/customers';
 import { expectedCollections } from '../../sim/engine';
 import {
   countersRemaining,
+  paymentAcceptance,
   readCounter,
   readOffer,
   roundingIncrement,
   tellFor,
 } from '../../sim/haggle';
+import { pushedTerms } from '../../sim/actions';
 import { repoThreshold } from '../../sim/business';
 import { getStage } from '../../sim/stages';
 import { level } from '../../sim/upgrades';
@@ -44,7 +46,7 @@ export function DealSheet({
   prospect: Prospect | null;
   onCash: () => void;
   onCounter: (price: number) => void;
-  onFinance: () => void;
+  onFinance: (push: number) => void;
   onDecline: () => void;
   onClose: () => void;
 }) {
@@ -64,6 +66,10 @@ export function DealSheet({
   const openingCounter = neg ? Math.min(neg.currentOffer + step, neg.anchor) : 0;
 
   const [counter, setCounter] = useState(openingCounter);
+  // How far past their own payment we are asking. 1 is their number, which
+  // always signs — the slider opens where the old take-it-or-leave-it button
+  // used to be, so doing nothing behaves exactly as financing always did.
+  const [push, setPush] = useState(1);
 
   // Reset the slider whenever a new buyer appears or they move their number.
   const negKey = neg ? `${prospect!.id}:${neg.currentOffer}:${neg.countersMade}` : null;
@@ -72,6 +78,7 @@ export function DealSheet({
     if (negKey && negKey !== lastKey.current) {
       lastKey.current = negKey;
       setCounter(openingCounter);
+      setPush(1);
     }
   }, [negKey, openingCounter]);
 
@@ -98,14 +105,24 @@ export function DealSheet({
   const missChance = BALANCE.creditTiers[prospect.tier].missChance * capFactor;
   // Quoted against the player's own repo trigger, not the house default: this
   // number is presented as exact, so it has to be the rule they actually set.
-  const { expectedCollected, defaultProbability } = expectedCollections(
-    prospect.financeTerms.weeks,
-    prospect.financeTerms.weeklyPayment,
+
+  // Everything on the finance card is quoted at the payment currently on the
+  // slider, through the same function the button writes the contract with — a
+  // readout computed separately from the action is a readout that will
+  // eventually lie about what the button does.
+  const asked = pushedTerms(prospect, push);
+  const pushedCollections = expectedCollections(
+    asked.terms.weeks,
+    asked.payment,
     missChance,
     repoThreshold(state),
   );
-
-  const financeEv = prospect.downPayment + expectedCollected;
+  const financeEv = prospect.downPayment + pushedCollections.expectedCollected;
+  const signOdds = paymentAcceptance(
+    asked.payment,
+    prospect.financeTerms.weeklyPayment,
+    prospect.paymentCeiling,
+  );
   const cashProfit = neg.currentOffer - costBasis;
   // Follows the CURRENT offer, not the opening one: counter them up and the
   // headline goes amber and then green as they climb toward the sticker.
@@ -113,7 +130,11 @@ export function DealSheet({
   const financeEvProfit = financeEv - costBasis;
   const financeBeatsC = financeEv > neg.currentOffer;
 
-  const scheduled = Math.round(prospect.financeTerms.weeklyPayment * prospect.financeTerms.weeks);
+  const scheduled = Math.round(asked.payment * asked.terms.weeks);
+  // The top of the slider is deliberately past what most buyers can carry: the
+  // rule is "you can price them out", and a track that stopped at a safe number
+  // would make that unsayable. Rounded to a payment a person would quote.
+  const maxPush = BALANCE.business.paymentPushes[BALANCE.business.paymentPushes.length - 1];
 
   return (
     <Sheet
@@ -229,9 +250,32 @@ export function DealSheet({
             <Text style={styles.optionHeadline}>{money(prospect.downPayment)}</Text>
           </Row>
           <Text style={styles.optionNote}>
-            down today, then {money(prospect.financeTerms.weeklyPayment)}/wk ×{' '}
-            {prospect.financeTerms.weeks} at {(prospect.financeTerms.apr * 100).toFixed(1)}%
+            down today, then {money(asked.payment)}/wk × {asked.terms.weeks} at{' '}
+            {(asked.terms.apr * 100).toFixed(1)}%
+            {push > 1 ? ` — they asked for ${money(prospect.financeTerms.weeklyPayment)}` : ''}
           </Text>
+
+          {/* ------------------------------------------------ the payment push */}
+          <View style={styles.counterBlock}>
+            <Row style={{ justifyContent: 'space-between' }}>
+              <Text style={styles.counterTitle}>Weekly payment</Text>
+              <Text style={[styles.counterValue, { color: OFFER_COLOR[readPush(signOdds)] }]}>
+                {money(asked.payment)}
+              </Text>
+            </Row>
+
+            <PriceSlider
+              min={prospect.financeTerms.weeklyPayment}
+              max={Math.round(prospect.financeTerms.weeklyPayment * maxPush)}
+              step={paymentStep(prospect.financeTerms.weeklyPayment)}
+              value={asked.payment}
+              onChange={(next) => setPush(next / prospect.financeTerms.weeklyPayment)}
+              minLabel="what they offered"
+              maxLabel="all they could carry"
+            />
+
+            <Text style={styles.read}>{readPayment(signOdds, push)}</Text>
+          </View>
 
           <View style={styles.evBlock}>
             <Row style={{ justifyContent: 'space-between' }}>
@@ -243,9 +287,20 @@ export function DealSheet({
               <Text style={styles.evStrong}>{money(financeEv)}</Text>
             </Row>
             <Row style={{ justifyContent: 'space-between' }}>
+              <Text style={styles.evLabel}>Chance they sign</Text>
+              <Text
+                style={[
+                  styles.evStrong,
+                  { color: signOdds >= 0.95 ? theme.colors.money : theme.colors.warn },
+                ]}
+              >
+                {(signOdds * 100).toFixed(0)}%
+              </Text>
+            </Row>
+            <Row style={{ justifyContent: 'space-between' }}>
               <Text style={styles.evLabel}>Chance you take it back</Text>
               <Text style={[styles.evStrong, { color: theme.colors.warn }]}>
-                {(defaultProbability * 100).toFixed(0)}%
+                {(pushedCollections.defaultProbability * 100).toFixed(0)}%
               </Text>
             </Row>
           </View>
@@ -268,12 +323,12 @@ export function DealSheet({
 
           {bookOpen ? (
             <Button
-              label="Write the note"
+              label={push > 1 ? `Write it at ${money(asked.payment)}/wk` : 'Write the note'}
               sublabel={
                 financeBeatsC ? `+${money(financeEv - neg.currentOffer)} over cash` : undefined
               }
               tone={financeBeatsC ? 'primary' : 'default'}
-              onPress={onFinance}
+              onPress={() => onFinance(push)}
               style={{ marginTop: 10 }}
             />
           ) : (
@@ -286,7 +341,7 @@ export function DealSheet({
                 sublabel={`${bookSize}/${bookLimit} contracts`}
                 tone="ghost"
                 disabled
-                onPress={onFinance}
+                onPress={() => onFinance(1)}
                 style={{ marginTop: 10 }}
               />
               <Text style={styles.bookFull}>
@@ -401,3 +456,28 @@ const styles = StyleSheet.create({
   },
   lockedText: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 17, textAlign: 'center' },
 });
+
+/**
+ * The same three-colour read the lot and the cash headline use, applied to how
+ * likely this payment is to be signed. One scale across the whole sheet.
+ */
+function readPush(odds: number): 'strong' | 'fair' | 'weak' {
+  if (odds >= 0.95) return 'strong';
+  if (odds >= 0.6) return 'fair';
+  return 'weak';
+}
+
+/** Plain English for where the payment sits against what they can carry. */
+function readPayment(odds: number, push: number): string {
+  if (push <= 1) return 'Their own number. They will sign this without blinking.';
+  if (odds >= 0.95) return 'Comfortably inside what they can carry.';
+  if (odds >= 0.75) return 'A stretch, but they can probably find it.';
+  if (odds >= 0.5) return 'Tight. About even money they balk at this.';
+  if (odds >= 0.25) return 'They are close to priced out — and some of them walk rather than haggle.';
+  return 'This is more than they earn. Expect to lose them.';
+}
+
+/** Payments are quoted in dollars, so the slider should move in them. */
+function paymentStep(base: number): number {
+  return base >= 400 ? 10 : base >= 100 ? 5 : 1;
+}
