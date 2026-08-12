@@ -89,6 +89,10 @@ function CarArtBase({
     showWear ? condition : 1,
   );
 
+  const height = sprite
+    ? width * (sprite.height / sprite.width)
+    : width * (angle === 'top' ? TOP_ASPECT : SIDE_ASPECT);
+
   const trim = (layer: 'under' | 'over') =>
     trimmed ? (
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -99,14 +103,11 @@ function CarArtBase({
           source={sprite ? 'sprite' : 'vector'}
           layer={layer}
           width={width}
+          height={height}
           paint={paint}
         />
       </View>
     ) : null;
-
-  const height = sprite
-    ? width * (sprite.height / sprite.width)
-    : width * (angle === 'top' ? TOP_ASPECT : SIDE_ASPECT);
 
   return (
     <View style={{ width, height }}>

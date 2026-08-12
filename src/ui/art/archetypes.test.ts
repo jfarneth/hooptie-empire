@@ -8,7 +8,10 @@ import {
   bodyStyleOf,
   isPremium,
 } from './archetypes';
-import { COLOR_VARIANT_COUNT, renderedArchetypes, spriteFor } from './registry';
+import { COLOR_VARIANT_COUNT, renderedArchetypes, spriteFor, type CarAngle } from './registry';
+
+/** Every angle the game asks for. Both are rendered; neither may fall behind. */
+const ANGLES: CarAngle[] = ['top', 'side'];
 
 describe('archetypeForModel', () => {
   it('maps every car in the catalogue to a declared archetype', () => {
@@ -59,25 +62,36 @@ describe('registry', () => {
 
   it('misses cleanly for archetypes with no art', () => {
     for (const archetype of UNRENDERED) {
-      for (let i = 0; i < BODY_COLORS.length; i++) {
-        expect(spriteFor(archetype, 'top', i)).toBeNull();
+      for (const angle of ANGLES) {
+        for (let i = 0; i < BODY_COLORS.length; i++) {
+          expect(spriteFor(archetype, angle, i)).toBeNull();
+        }
       }
     }
   });
 
   it('has art for every archetype the catalogue can actually produce', () => {
     const reachable = ARCHETYPES.filter((a) => !UNRENDERED.includes(a as never));
-    for (const archetype of reachable) {
-      expect(spriteFor(archetype, 'top', 0)).not.toBeNull();
+    for (const angle of ANGLES) {
+      for (const archetype of reachable) {
+        expect(spriteFor(archetype, angle, 0)).not.toBeNull();
+      }
+      expect(renderedArchetypes(angle).sort()).toEqual([...reachable].sort());
     }
-    expect(renderedArchetypes('top').sort()).toEqual([...reachable].sort());
   });
 
-  it('renders the lot only — the feed keeps the vector side profile', () => {
-    expect(renderedArchetypes('side')).toHaveLength(0);
-    for (const archetype of ARCHETYPES) {
-      expect(spriteFor(archetype, 'side', 0)).toBeNull();
-    }
+  /**
+   * The two angles must carry the SAME archetypes.
+   *
+   * A half-rendered set is the one failure this table can have that nothing
+   * else catches: every archetype still draws, and the ones the second pass
+   * missed silently drop to the vector fallback — so a lot of rendered cars
+   * sits beside a feed of cartoons and the build is green. `--view=side`
+   * exists precisely to re-render one angle, and the manifest merge that makes
+   * that safe is the thing this asserts.
+   */
+  it('renders both angles for the same archetypes', () => {
+    expect(renderedArchetypes('side').sort()).toEqual(renderedArchetypes('top').sort());
   });
 
   it('carries one frame per body colour, and they are distinct', () => {

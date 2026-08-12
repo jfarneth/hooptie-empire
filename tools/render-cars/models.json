@@ -1,7 +1,9 @@
 {
   "note": [
     "Which kit model stands in for each archetype, and where that model's paint",
-    "lives in the shared palette atlas.",
+    "lives in the shared palette atlas. The camera angles are NOT here \u2014 they are",
+    "views.json, because a model mapping and a camera are different decisions and",
+    "were tangled in one file while there was only one angle.",
     "",
     "Kenney's Car Kit puts every model on one material sampling one 512x512",
     "palette texture, so a car is repainted by editing the texture rather than",
@@ -124,11 +126,5 @@
       "minSaturation": 0.35,
       "reference": "#658ed6"
     }
-  },
-  "render": {
-    "size": 256,
-    "samples": 48,
-    "marginFactor": 1.06,
-    "tiltDegrees": 12
   }
 }

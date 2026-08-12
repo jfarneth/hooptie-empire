@@ -259,10 +259,11 @@ src/ui/lot/
   layout.ts           # PURE: capacity -> slot positions. Unit-testable.
   Backdrop.tsx        # per-stage backdrop
 
-tools/render-sprites/
-  render.py           # headless Blender script
+tools/render-cars/
+  render.js           # three.js in headless Chromium — no Blender
   models/*.glb        # source models — the actual asset you own
-  config.json         # archetypes, angles, colours, resolution
+  models.json         # archetypes and paint bands
+  views.json          # the angles
 ```
 
 Three properties make this work:
@@ -283,8 +284,9 @@ from new state. This is deliberate: it means `SAVE_VERSION` stays at 7,
 objects come into play. A car parks in the same spot every render and keeps the
 same wheel variant forever, with no migration and no risk to offline catch-up.
 
-`tools/render-sprites` is a build-time tool. Blender is not an npm dependency;
-the generated atlas is committed, so a clean clone builds without it.
+`tools/render-cars` is a build-time tool. `playwright` and `three` are not in
+`package.json`; the generated frames are committed, so a clean clone builds
+without either.
 
 ---
 
@@ -371,11 +373,24 @@ Three things this shook out that the mockups did not:
 - At 62 cars there can be thirty walk-ups on screen at once. An unringed figure
   is a brown speck on tarmac, so the buyer got a ring in the accent colour.
 
-**Phase 2 — the pipeline, free assets. ✅ Done.**
-`tools/render-sprites` built against Kenney's CC0 Car Kit: `recolor.py` repaints
-the palette atlas, `render.py` renders 81 top-down frames in headless Blender,
-`pack.py` shrinks them and generates the sprite table. The lot is now rendered
-2.5D; the feed and sheets stay vector.
+**Phase 2 — the pipeline, free assets. ✅ Done, then rebuilt.**
+Built first against Kenney's CC0 Car Kit in headless Blender: `recolor.py`
+repainted the palette atlas, `render.py` rendered 81 top-down frames, `pack.py`
+shrank them and generated the sprite table. The lot went rendered 2.5D; the feed
+and the sheets stayed vector.
+
+It is `tools/render-cars` now — the same three steps through three.js in
+headless Chromium, and the Blender scripts are gone. **The reason is the whole
+lesson of this phase: a pipeline a normal checkout cannot run is a pipeline
+nobody runs.** Blender + Pillow meant the art was frozen the moment it shipped,
+which is why §"the camera moved to isometric" below spent its life recording the
+top-down angle as owed work, and why the side angle went unrendered for the
+entire life of the feature while the plan said it was optional. Rebuilt on the
+browser this repo already drives, the whole matrix re-renders in about six
+minutes from `npm i -D playwright three`.
+
+The swap was like-for-like at the top-down angle: footprints measured off the
+Blender frames and the three.js frames agree to three decimals.
 
 What the plan got wrong, and what it cost:
 
@@ -454,8 +469,23 @@ scene that pans. Both are in: the camera shrinks to fit until a car would go
 under 30px, then stops and lets the scene be panned sideways. The early stages
 never pan; a premium franchise always does.
 
-**What is still owed.** The sprites were shot at 12 degrees and cannot be re-shot
-without Blender, so they are laid on the ground plane at the right angle and the
-right foreshortening but lit from a shallower camera. Re-running
-`tools/render-sprites` with `tiltDegrees: 25` and a matching yaw is the fix, and
-it is the one piece of this change that is deferred rather than done.
+**What is still owed, and it is not what this said.** The sprites are shot at 12
+degrees, so they are laid on the ground plane at the right angle and the right
+foreshortening but lit from a shallower camera. This paragraph used to call the
+fix "re-run the tool with `tiltDegrees: 25` and a matching yaw", deferred only
+because Blender was unavailable. The tool is available now, and that fix is
+wrong.
+
+`LotScene` lays a top-down frame down through `artRotationDeg` and `artSquash`,
+so a render's own foreshortening COMPOSES with the scene's. At 12 degrees the
+pair land on 0.978 × 0.939 = 0.918 against a correct 0.906. At 25 they would
+land on 0.851 — a car squashed by 15% sitting on tarmac squashed by 9%. The
+angle would be right and the shape would be worse.
+
+Closing it properly means baking the full 25/25 projection into the frame and
+having `LotScene` stop transforming the art at all: verticals vertical, the roof
+correctly offset from the footprint, the sprite simply placed at the projected
+stall centre. That is a change to how cars are POSITIONED — new artboard,
+re-measured geometry, a different hit target — and it is worth doing. It was
+never one config value, and calling it one is what kept it looking cheap enough
+to defer indefinitely.
