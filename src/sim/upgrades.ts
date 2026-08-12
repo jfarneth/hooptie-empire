@@ -212,6 +212,23 @@ export const UPGRADES: readonly UpgradeDef[] = [
     costGrowth: 2.4,
     staff: true,
   },
+  // ---- the franchise stages -------------------------------------------------
+  {
+    id: 'serviceBays',
+    name: 'Service bay',
+    description: 'A ramp, and room for one technician to work a car at a time.',
+    category: 'capacity',
+    // A franchise store, and only a franchise store. Bays behind the showroom
+    // are what a manufacturer's contract requires and a used lot has never had.
+    stage: 'lowCostFranchise',
+    maxLevel: 6,
+    baseCost: 9_000,
+    costGrowth: 2,
+    // NOT staff, deliberately. The bay is a building; the person in it is hired
+    // separately and is on the roster in `shop.techs`, because the upgrade table
+    // has no way to say "this one has been here six weeks and is nearly
+    // certified". The techs still follow the payroll rule — see `closeTheShop`.
+  },
   {
     id: 'nightManager',
     name: 'Night manager',

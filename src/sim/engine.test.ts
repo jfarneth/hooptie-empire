@@ -5,6 +5,7 @@ import { generateCar } from './cars';
 import { wholesaleValue } from './economy';
 import { getModel } from './models';
 import { advance, cloneState, createInitialState } from './engine';
+import { hireTech } from './shop';
 import { canBuyUpgrade, carCapacity } from './upgrades';
 import { SKILL_IDS } from './skills';
 import type { GameState } from './types';
@@ -62,6 +63,22 @@ function fingerprint(s: GameState) {
     // Promotions ARE written by the tick — it expires them — so a missed clone
     // or an off-by-one in the expiry sweep shows up right here.
     promotions: s.promotions.map((p) => `${p.id}:${p.startedAt}:${p.endsAt}`),
+    // Service contracts are written every week by the claim check and the shop
+    // every second, so both belong here: this is what catches a draw that moved,
+    // went conditional, or fell on the wrong side of a slice boundary.
+    //
+    // It is NOT what catches a missed clone, and the comments above overstate
+    // that for prospects too. Mutation-tested: sharing the tech roster in
+    // `cloneState` leaves this test green, because both runs discard their
+    // history and a mutation that leaks backwards has nothing left to leak into.
+    // The guard that actually bites is the clone-isolation test in shop.test.ts
+    // and service.test.ts — same shape as the one business.ts relies on.
+    plans: s.serviceContracts.map(
+      (c) => `${c.id}:${c.status}:${c.paidOut}:${c.claims}:${c.weeksRemaining}:${c.nextCheckAt}`,
+    ),
+    techs: s.shop.techs.map((t) => `${t.id}:${t.grade}:${t.xp.toFixed(2)}:${t.jobId ?? '-'}`),
+    jobs: s.shop.jobs.map((j) => `${j.id}:${j.remainingMs}:${j.techId ?? '-'}:${j.rework}`),
+    shopWeek: `${s.shop.weekJobs}:${s.shop.weekRevenue}`,
     stats: s.stats,
   };
 }
@@ -88,6 +105,52 @@ describe('advance() tick-size invariance', () => {
     const ragged = run(createInitialState(seed, 0), 250, total / 250);
 
     expect(fingerprint(ragged)).toEqual(fingerprint(even));
+  });
+
+  /**
+   * The same property at a store that actually has a shop and a book of cover.
+   *
+   * The two tests above open at a curbstone, where `serviceContracts` and
+   * `shop` are empty for the whole run — so every field this fingerprint gained
+   * for them would compare `[]` against `[]` and pass whatever the code did.
+   * That is the "a test that asserts sum >= count cannot fail" trap, and the
+   * only fix is a fixture where the thing under test is actually running: bays
+   * staffed, cars booking in every second, plans on the book being claimed on
+   * every week.
+   */
+  it('produces identical state at a franchise with the bays and the plan desk running', () => {
+    const franchise = (seed: number): GameState => {
+      const s = createInitialState(seed, 0);
+      s.stage = 'lowCostFranchise';
+      s.cash = 20_000_000;
+      s.upgrades = {
+        serviceBays: 3,
+        autoBuy: 1,
+        autoList: 1,
+        autoRecon: 1,
+        salesDesk: 1,
+        collections: 4,
+        lot: 2,
+      };
+      s.dealPolicy = 'auto';
+      s.listings = [];
+      hireTech(s, 0);
+      hireTech(s, 2);
+      hireTech(s, 4);
+      return s;
+    };
+
+    const hour = 60 * 60 * 1000;
+    const bySecond = run(franchise(4321), 1_000, 3_600);
+    const byHour = advance(franchise(4321), hour);
+
+    // The fixture has to have exercised all three, or this is the empty-array
+    // test again wearing a franchise costume.
+    expect(byHour.stats.shopJobsDone).toBeGreaterThan(50);
+    expect(byHour.stats.plansSold).toBeGreaterThan(0);
+    expect(byHour.stats.planPayouts).toBeGreaterThan(0);
+
+    expect(fingerprint(bySecond)).toEqual(fingerprint(byHour));
   });
 
   it('carries sub-tick time instead of dropping it', () => {

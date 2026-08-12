@@ -1,5 +1,6 @@
 import { BALANCE } from './balance';
 import { clamp } from './economy';
+import { shopReconMods } from './shop';
 import { getStage } from './stages';
 import { level } from './upgrades';
 import { extraSlots, supplyMultiplier } from './market';
@@ -344,11 +345,26 @@ export function haggleSkillFor(state: Pick<GameState, 'skills'>): HaggleSkill {
   };
 }
 
-export function reconModsFor(state: Pick<GameState, 'skills' | 'upgrades'>): ReconMods {
+/**
+ * `stage` is optional so the pure skill/upgrade path stays callable from a
+ * fixture that has no store, but every real caller passes a whole state: the
+ * service department's bays are part of what the shop can do, and a recon
+ * quoted without them is wrong at three stages out of six.
+ */
+export function reconModsFor(
+  state: Pick<GameState, 'skills' | 'upgrades'> & Partial<Pick<GameState, 'stage'>>,
+): ReconMods {
   const mechanic = Math.pow(BALANCE.reconMsPerMechanicLevel, level(state, 'mechanic'));
+  // Your own bays work on your own stock. Multiplicative with the mechanic
+  // upgrade and with Wrenching, which is the house rule wherever money and
+  // practice touch one axis: splitting the axis between them is how you
+  // silently nerf something a player has already paid for.
+  const shop = state.stage
+    ? shopReconMods({ stage: state.stage, upgrades: state.upgrades })
+    : { speedMult: 1, costMult: 1 };
   return {
     maxLift: reconMaxLift(state),
-    costMult: reconCostMultiplier(state),
-    speedMult: mechanic * reconSpeedMultiplier(state),
+    costMult: reconCostMultiplier(state) * shop.costMult,
+    speedMult: mechanic * reconSpeedMultiplier(state) * shop.speedMult,
   };
 }

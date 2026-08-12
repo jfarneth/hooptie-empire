@@ -164,6 +164,12 @@ describe('migration chain', () => {
       // rule is off", not "the rule matches today's default".
       cashFloorLevel: 0,
       financeFloorLevel: 0,
+      // The plan desk and the shop rate land on their shipped defaults rather
+      // than off, which is the one place this migration chain deliberately
+      // changes what a save does. See the v15 -> v16 note: a rule that never
+      // existed has no earlier behaviour to reproduce.
+      servicePlanBand: 3,
+      shopRateLevel: 3,
     });
     expect(migrated.cash).toBe(412_000);
     expect(migrated.upgrades).toEqual({ lot: 3, collections: 2 });
@@ -391,6 +397,53 @@ describe('migration chain', () => {
    * existed never had one, and back-dating a grand opening onto a business that
    * has been trading for hours would just be free traffic.
    */
+  /**
+   * v15 -> v16.
+   *
+   * Both blocks backfill EMPTY, which is the honest answer rather than the
+   * convenient one: a plan is a contract somebody signed on a specific Tuesday,
+   * and back-dating cover onto cars sold six hours ago would invent liabilities
+   * the player never took on and income they never received.
+   */
+  it('gives a v15 save an empty plan book and a closed shop', () => {
+    const v15: any = JSON.parse(JSON.stringify(createInitialState(77, 0)));
+    v15.version = 15;
+    v15.stage = 'largeUsed';
+    v15.cash = 2_000_000;
+    // A v15 save has none of this, and the engine reads all of it on the very
+    // next tick.
+    delete v15.serviceContracts;
+    delete v15.shop;
+    delete v15.business.servicePlanBand;
+    delete v15.business.shopRateLevel;
+    for (const key of [
+      'plansSold',
+      'planIncome',
+      'planPayouts',
+      'shopRevenue',
+      'shopJobsDone',
+      'shopReworks',
+      'shopTurnedAway',
+    ]) {
+      delete v15.stats[key];
+    }
+
+    const migrated = migrate(v15, 15);
+
+    expect(migrated.serviceContracts).toEqual([]);
+    expect(migrated.shop).toEqual({ techs: [], jobs: [], weekRevenue: 0, weekJobs: 0 });
+    // The stats have to be numbers, not undefined: `undefined + 1` is NaN for
+    // the rest of the run, and the away summary reads every one of them.
+    expect(migrated.stats.plansSold).toBe(0);
+    expect(migrated.stats.shopRevenue).toBe(0);
+    // The two new rules land on the shipped defaults rather than off. See the
+    // migration's own note for why this one deliberately changes behaviour.
+    expect(migrated.business.servicePlanBand).toBe(3);
+    expect(migrated.business.shopRateLevel).toBe(3);
+    // And the run keeps going, which is the only thing that really matters.
+    expect(() => advance(migrated, 10 * 60 * 1000)).not.toThrow();
+  });
+
   it('gives a v9 save no promotions rather than a back-dated one', () => {
     const v9: any = JSON.parse(JSON.stringify(createInitialState(92, 0)));
     v9.version = 9;

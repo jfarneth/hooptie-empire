@@ -140,6 +140,119 @@ export interface Note {
   openedAt: Millis;
 }
 
+export type ServiceContractStatus = 'active' | 'expired' | 'void';
+
+/**
+ * A service contract: a note run backwards.
+ *
+ * The customer pays once, up front, and the dealership owes the repairs for the
+ * life of the plan. So where a `Note` is an asset that collects, this is a
+ * LIABILITY that pays out — same weekly beat, same clock on the save, opposite
+ * sign. That symmetry is the whole reason it is modelled as an object rather
+ * than as a lump of margin at the point of sale: a plan you sold two hours ago
+ * has to be able to cost you money tonight, while the app is closed.
+ *
+ * Priced off the car's risk and nothing else (see `planPrice` in service.ts), so
+ * a rough car costs the customer MORE — which is the right way round, and is
+ * what makes selling plans on beaters a real decision rather than free money.
+ */
+export interface ServiceContract {
+  id: string;
+  /**
+   * The car it covers. Kept so a repossession can void the plan: the customer
+   * and the car are both gone, and the house stops owing repairs on it.
+   */
+  carId: string;
+  carLabel: string;
+  customerName: string;
+  /** What the customer paid for the plan, in full, at signing. */
+  price: number;
+  /**
+   * What the plan was expected to cost when it was written.
+   *
+   * Stamped rather than derived on read, same rule as a promotion's `endsAt`:
+   * the admin console can move the claim constants under a plan already in
+   * force, and the sheet's "expected margin" line would silently re-price a
+   * contract nobody can renegotiate.
+   */
+  expectedPayout: number;
+  /** Dollars of claims paid so far. */
+  paidOut: number;
+  claims: number;
+  weeksTotal: number;
+  weeksRemaining: number;
+  /** When the next weekly claim check falls due. On the save, so it survives. */
+  nextCheckAt: Millis;
+  status: ServiceContractStatus;
+  openedAt: Millis;
+}
+
+/**
+ * One technician on the bench.
+ *
+ * Techs are NOT on the upgrade table, because the table has no way to say "this
+ * particular one has been here six weeks and is nearly certified". They are
+ * staff all the same, and they follow the payroll rule: a move releases them.
+ */
+export interface ServiceTech {
+  id: string;
+  name: string;
+  /** Index into `TECH_GRADES` in shop.ts. 0 is entry level. */
+  grade: number;
+  /** Labour hours completed, lifetime. What promotion is earned with. */
+  xp: number;
+  hiredAt: Millis;
+  /** The job on their bench, or null when they are waiting for work. */
+  jobId: string | null;
+}
+
+/** A car booked into the service department. */
+export interface ServiceJob {
+  id: string;
+  label: string;
+  /** Labour hours the job is billed at. */
+  hours: number;
+  /**
+   * What it bills for, stamped on arrival. Stamped rather than derived from the
+   * live shop rate for the reason every clock on this save is stamped: moving
+   * the rate slider must not re-price a car already up on the ramp.
+   */
+  price: number;
+  arrivedAt: Millis;
+  remainingMs: number;
+  totalMs: number;
+  /** The tech working it, or null while it waits in the queue. */
+  techId: string | null;
+  /**
+   * A comeback. It occupies the bench exactly like real work and bills nothing,
+   * which is the entire cost of employing a cheap technician.
+   */
+  rework: boolean;
+}
+
+/**
+ * The service department's live entities.
+ *
+ * Only what is happening right now. Every lifetime total lives on `Stats` with
+ * the rest of the scoreboard, so a move — which releases the techs and sends the
+ * queue home — cannot quietly reset the numbers the player has been watching.
+ */
+export interface ShopState {
+  techs: ServiceTech[];
+  jobs: ServiceJob[];
+  /**
+   * Billed since the last weekly bill.
+   *
+   * The shop's money lands per job and silently — a hundred and thirty ledger
+   * lines a week would leave the log showing nothing else — so these accumulate
+   * and `stepBills` writes the one honest weekly total. They are also what the
+   * panel's "this week" readout is, which is the number a player setting a
+   * labour rate actually wants.
+   */
+  weekRevenue: number;
+  weekJobs: number;
+}
+
 export type NegotiationStatus = 'open' | 'accepted' | 'walked';
 
 /**
@@ -324,6 +437,26 @@ export interface BusinessPolicy {
    * above the cash one at every store but the last.
    */
   financeFloorLevel: number;
+  /**
+   * What the finance office charges for a service contract, as a position on
+   * `SERVICE_PLAN_BANDS`. 0 is "don't sell them at all".
+   *
+   * A BAND, not a price. The price of any one plan is the car's risk and is not
+   * the player's to set — a plan on a 200,000-mile beater costs what it costs —
+   * so what the slider moves is the markup over that, and the attach rate moves
+   * against it. Cheap plans sell to a third of the lot at a thin margin; dear
+   * ones sell to one buyer in twelve and keep half. See `service.ts`.
+   */
+  servicePlanBand: number;
+  /**
+   * The shop's labour rate, as a position on `STAGES[].shop.hourlyRates`.
+   *
+   * Same shape as the sales floors and for the same reason: a rate is a promise
+   * the business runs on for hours at a time, so the stops are hard numbers per
+   * store rather than a share of something that moves. There is no "off" stop —
+   * a shop with no rate is not a shop.
+   */
+  shopRateLevel: number;
 }
 
 export interface Stats {
@@ -346,6 +479,32 @@ export interface Stats {
    * morning line is built from its delta.
    */
   commissionPaid: number;
+
+  /**
+   * The service contract book, in totals.
+   *
+   * `planIncome` and `planPayouts` are both already inside `lifetimeProfit`;
+   * they are kept apart because the ratio between them IS the product — a plan
+   * desk running at a 65% loss ratio is working and one at 110% is a disaster,
+   * and neither is visible in a single net number. The harness reads exactly
+   * these three.
+   */
+  plansSold: number;
+  planIncome: number;
+  planPayouts: number;
+
+  /**
+   * The service department, in totals.
+   *
+   * `shopTurnedAway` is the one that earns its place on the panel: a shop with
+   * customers queueing out of the door and no bay to put them in looks
+   * identical, from the cash line, to a shop nobody wants — and the fix for the
+   * two is opposite.
+   */
+  shopRevenue: number;
+  shopJobsDone: number;
+  shopReworks: number;
+  shopTurnedAway: number;
 }
 
 /** Things that happened during a slice of simulation, for the away summary. */
@@ -366,6 +525,9 @@ export interface SimEvent {
     | 'promotion'
     | 'appraisal'
     | 'expense'
+    | 'plan-sold'
+    | 'plan-claim'
+    | 'shop'
     | 'loan'
     | 'retire'
     | 'admin';
@@ -439,6 +601,13 @@ export interface GameState {
   listings: Listing[];
   prospects: Prospect[];
   notes: Note[];
+  /**
+   * Service contracts sold, live and recently closed. The other side of the
+   * book: `notes` collect, these pay out. See service.ts.
+   */
+  serviceContracts: ServiceContract[];
+  /** The service department's benches and queue. See shop.ts. */
+  shop: ShopState;
   /** Upgrade id -> level owned. */
   upgrades: Record<string, number>;
   /** Proficiencies earned by playing. See skills.ts. */

@@ -153,6 +153,17 @@ the small lot plateaued at ~23 cars whatever its capacity, and a midsize
 franchise ran **43% full with nothing worth buying on the feed 100% of the
 time** — paving another row bought literally nothing. See the Verify section.
 
+**The finance office sells cover, and the franchises have bays.** Two features
+that only make sense together: `src/sim/service.ts` is the **service contract**,
+a note run backwards — the customer pays once and the house owes the repairs for
+the life of the plan — offered from the big lot up. `src/sim/shop.ts` is the
+**service department**, available at the franchises, where technicians on
+benches bill labour by the hour. `docs/service-plan.md` is the design record and
+carries every measurement. The short version is in the section below, and the
+one thing to internalise before touching either is that **the loss ratio is the
+product**: a plan desk is priced to lose 65 cents in the dollar, and that number
+is measured over whole contracts rather than asserted anywhere.
+
 **Promotions** are temporary boosts the business runs under, and there is
 currently one: every new business opens on a **grand opening** that doubles
 walk-up traffic for its first twenty minutes. `src/sim/promotions.ts` is the
@@ -310,10 +321,14 @@ Consequences to respect:
   that means prospects (`negotiation`, `financeTerms`), `business`, and `skills`,
   which is a record of objects and needs `cloneSkills`, not a spread. The
   tick-invariance test is the guard; keep its fingerprint covering new fields.
-  Note that the fingerprint only bites for fields the *tick* writes — `business`
-  is set by actions only, so its real guard is the clone-isolation test in
-  `business.test.ts`. Anything else in that shape needs the same treatment.
-  `promotions` is in the fingerprint because the tick expires them.
+  `promotions` is in the fingerprint because the tick expires them, and
+  `serviceContracts` and `shop` are in it because the tick writes both.
+  **THE FINGERPRINT IS NOT WHAT CATCHES A MISSED CLONE**, and the comment there
+  used to claim it was. Mutation-tested: sharing the tech roster in `cloneState`
+  leaves it green, because both runs discard their history and a mutation that
+  leaks backwards has nothing left to leak into. What actually bites is the
+  clone-isolation test — one per nested block, in `business.test.ts`,
+  `shop.test.ts` and `service.test.ts`. Anything new in that shape needs one.
 
 ## Promotions
 
@@ -346,6 +361,91 @@ Three rules the module is built on, all easy to break:
 Starting one that is already running **extends** it rather than stacking a
 second copy — two grand openings would double traffic twice, which is not what
 "run it again" means to anybody.
+
+## Cover, and the bays behind the showroom
+
+Two features that only mean anything together. `docs/service-plan.md` is the
+design record with every measurement; these are the rules that break if you
+touch them.
+
+**A SERVICE CONTRACT IS A NOTE RUN BACKWARDS.** A `Note` is an asset — the
+customer owes you, you collect weekly, worst case you take the car back. A
+`ServiceContract` is the mirror: paid for once at signing, and the house owes
+the repairs weekly for the life of the plan. That is why it is a real object on
+the save rather than margin booked at the point of sale — a plan sold two hours
+ago has to be able to cost money tonight, with the app closed. Offered from the
+**big lot** up (`STAGES[].serviceContracts`).
+
+- **Price is the car's RISK, and the player does not set it.** Expected claims
+  index to `conditionFreeValue` — the same basis recon cost uses, for the same
+  reason — times a condition-risk term running 0.6 clean to 2.2 rough. So **cover
+  on a beater costs the customer more**, ~16% of retail against ~7% on a clean
+  car. That inversion is the product. What the player sets is the MARKUP.
+- **The margin is a derivation, not an assertion.** Nothing anywhere adds a
+  profit: the price is expected claims over `targetLossRatio`, and the 35% is
+  what is left when the claims are paid.
+- **`targetLossRatio` is MEASURED, not aimed at, and `capRecovery` is why.** The
+  150% lifetime cap eats 26% of expected claim dollars and has no closed form, so
+  pricing that ignored it would overcharge by a third and quietly deliver 45% on
+  a product sold as 35%. `service.test.ts` measures the realised ratio over
+  thousands of whole contracts and goes red if either drifts. **Do not restate
+  the arithmetic in a test** — that is precisely how `financeGrossMultiple` was
+  wrong for months.
+- **The cap is load-bearing and bites a quarter of claimed-on plans.** Measured:
+  26% of plans never claim, 35% cost more than they sold for, 24% reach the cap.
+  A warranty that quietly stops paying on the plans claimed hardest is on theme
+  and is deliberately never shown to the customer.
+- **`attachElasticity` is `1/(1 − targetLossRatio)`, not a taste.** That puts the
+  peak of expected dollars exactly on the Standard band, so both ends of the
+  slider are real trades. Move the loss ratio and this must move with it; there
+  is a test.
+- **Opening a shop moves that optimum down to the cheap bands**, because the
+  house stops paying an independent garage retail to honour its own paper. That
+  is emergent from pricing both features off one number, and it is the nicest
+  thing about them.
+- **The term is the buyer's own** (`financeTerms.weeks`, drawn for every walk-up
+  whether or not they finance). **A repossession tears the plan up** — the
+  customer and the car are both gone, which makes the worst borrowers the
+  cheapest to cover. **The desk's commission never sees plan money**, because a
+  plan's profit is made over eight months of not being claimed on and paying a
+  cut on the day would be paying commission on a liability.
+
+**THE SHOP'S CONSTRAINT IS BENCHES**, which is a constraint this game has never
+had — the lot is bound by stalls and cash. Available at the franchises, opened by
+buying the first `serviceBays`; there is no free bay, so "does this business have
+a service department" is one question with one answer.
+
+- **Demand belongs to the store, capacity belongs to you.** A bay does not create
+  customers, it lets you serve the ones being turned away. Demand scaling with
+  bays would make paving print money — the same mistake the lot's traffic model
+  exists to avoid.
+- **The rate is the dial and capacity is what makes it a decision.** Underprice a
+  small shop and the queue overflows; overprice a big one and six technicians sit
+  on full wages. The right rate is a function of how much bench you have, so it
+  moves every time you hire. Rates are hard numbers per store, same argument as
+  the sales floors.
+- **A cheap technician is not cheap.** Grade buys speed AND fewer comebacks
+  (15% → 2%), and a comeback holds a bench and bills nothing. Speed climbs faster
+  than wage on purpose: an entry tech is the better buy **per dollar of payroll**
+  and a certified one is the better buy **per bench**, so which you want depends
+  on whether you are short of money or short of bays — and that flips over the
+  life of a store.
+- **Wages derive from the store's own rate**, never tabulated. A shop billing
+  $160 an hour pays more than one billing $72, and the two cannot drift apart
+  because there is only one of them. Same argument `wageOfCost` makes.
+- **Technicians are STAFF and a move releases them**, experience and all — the
+  rule is "would this person have to be hired again", and a Certified III who
+  spent forty game weeks learning your bays would. `StageMovePreview.techsReleased`
+  puts it in front of the button. **The plans do NOT go**: cover is paper, and
+  paper moves intact exactly like the loan book, so you carry the liability to a
+  store without the bays you used to have.
+- **`shopLossRatio` is the number every readout quotes, and it is NOT
+  `targetLossRatio × shopClaimMultiplier`.** Cheaper claims hit the cap less
+  often, so a 37% cut in repair cost is a 23% improvement in the loss ratio —
+  0.65 × 0.63 is 0.41 and the measured answer is 0.50. The panel quoted the
+  product for exactly one build and told the player the house keeps 59% of a plan
+  when it keeps 50%. `expectedLossRatio()` is the only correct source, and there
+  is a test named for it.
 
 ## The lot is a scene, and cars are drawn through one seam
 
@@ -736,7 +836,7 @@ change can actually move what they measure.
 | anything stage-, margin- or ladder-shaped | plus the whole ladder (~2m45s) |
 
 ```bash
-npm test        # 388 tests, ~8s
+npm test        # 447 tests, ~10s
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~3s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2m45s
@@ -790,6 +890,52 @@ the minute on every rung and to the dollar on end cash, which is the property to
 preserve: the two new rules default to "any deal" and cost the sim nothing until
 somebody moves one. A 16-seed 4h run diffs byte-identically against the build
 before them.
+
+**Service contracts and the service department moved it, and here is the whole
+of what they moved.** Measured at `--hours=350 --seeds=8` against the build
+immediately before them, run in a `git worktree` at the same time so the two
+columns are the same machine and the same afternoon:
+
+| | before | with plans + the shop |
+|---|---|---|
+| Small used dealership | 2h30m | 2h30m |
+| Large used dealership | 6h29m | 6h29m |
+| Low-cost franchise | 10h32m | 10h22m |
+| Midsize franchise | 39h21m | **42h12m** |
+| Premium franchise | 210h13m | **230h58m** |
+| end cash | $101.4M | **$110.7M** |
+| lifetime profit | $124.2M | **$159.0M** |
+
+**The first three rungs are identical to the minute, and that is the guard, not
+a coincidence**: neither feature exists below the big lot, and a 4h 16-seed run
+diffs BYTE-IDENTICALLY against the previous build. Both carry an A/B constant
+that consumes no RNG when zeroed (`balance.service.attachRate`,
+`balance.shop.demandScale`), and the attach roll is skipped *before* it draws
+rather than drawn and failed — a roll that always loses still moves the stream.
+
+The top two rungs are **7-10% later** while lifetime profit is **28% higher**,
+which reads like a contradiction and is not: the bot buys bays and hires against
+the same cash it would otherwise be saving for the next store. Later and richer
+is the same trade as later and alive, and it is the trade this file has taken
+before.
+
+`npm run sim` prints both features now:
+
+```
+  service plans            536612  (231 live, $112,493,892 taken)
+  plan loss ratio           50.0%  (target 65%, still filling)
+  shop revenue       $186,130,227  (640222 jobs, 6.0 techs)
+  shop rework                2.2%  turned away 0%
+```
+
+**Read `plan loss ratio` against `targetLossRatio`, and read it knowing it is
+flattered mid-run by construction** — plans sold in the last few game months
+have taken the money and not yet had time to be claimed on, so it converges from
+below. It reads 50% here rather than 65% because the run ends with a service
+department, which is the feature working. **`turned away` is the one to read
+first on the shop**: a high count is short of BENCHES and wants a bay, a low
+count with idle techs is charging too much and wants the rate slider. The cash
+line cannot tell those two apart, which is the whole reason the counter exists.
 
 Every rung is 5-15% later and the top one is a different game: it used to arrive
 at 264h and flatline at −$45.2M, and it now arrives at 315h with +$7.4M, a $1.9M
@@ -1093,6 +1239,13 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   nothing is running, because this is a state the game is briefly in rather than
   a permanent fixture, and it is deliberately not pressable — there is nothing
   to open yet, and a control that no-ops teaches players to stop tapping.
+- **The plan desk and the shop rate default ON, unlike every other house rule.**
+  Every rule before them defaulted to the behaviour the game had before it
+  existed, which is what made them safe to migrate. There is no "what the plan
+  desk did before it existed" — a store offering cover and selling none is not
+  an earlier build, it is a feature nobody found. What reproduces the earlier
+  build is the A/B constant, which consumes no RNG at all. The v15 → v16
+  migration therefore writes the shipped defaults longhand and says so.
 - **House rules are sliders whose ENDS are derived per store.** This panel
   shipped as rows of discrete chips, on the argument that a limit survives an
   eight-hour absence in a way a fine-grained dial does not. That argument was
@@ -1354,8 +1507,33 @@ Most have a guarding test; check before "simplifying" the code around them.
   migration has to keep meaning what it meant the day it shipped, and reading
   the live constants would silently re-grade every old save after the next
   balance pass.
+- **A CAP THAT CAN BE EXCEEDED IS NOT A CAP.** The service plan's 150% ceiling
+  rounded its last payment instead of flooring it, so a plan priced at $667 paid
+  out $1,001 against a $1,000.50 limit. One dollar, and it makes the number the
+  entire product is priced against a suggestion — the same class of bug
+  `humanizePrice` was fixed for. Floor on the way out, always.
+- **A NEW REVENUE STREAM CAN MAKE THE LADDER SLOWER, and the harness bot is how
+  you find out.** The service department shipped with a bot that filled every
+  bay and promoted everybody the moment they were eligible. Wages are paid
+  whether or not there is a car on the ramp, and a certified tech who finishes
+  the day's work by lunchtime costs two and a half times an entry one to do it —
+  measured, that ran a Halvorsen shop at **−$10.4k a week against a +$6.5k
+  optimum** and pushed the premium franchise out from 210h to **276h**. A feature
+  that adds $163M of revenue and makes the business poorer is not a balance
+  problem, it is a policy problem, and it is the same shape as the bot rebuilding
+  the office before it stocked the lot. The bot now staffs against queued work
+  and lets idle hands go. **The trap is still there for a player** — that is the
+  decision — which is why the panel carries a one-line diagnosis instead of a
+  utilisation percentage.
+- **A readout must quote the number the game delivers, not the lever times the
+  target.** The plan panels multiplied `targetLossRatio` by `shopClaimMultiplier`
+  and told the player the house keeps 59% of a service contract when it keeps
+  50%: cheaper claims run into the cap less often, so the two are not related by
+  multiplication. Found by screenshot, not by a test — the arithmetic was
+  internally consistent and simply described a different game. `shopLossRatio`
+  is the measured outcome and `expectedLossRatio()` is the only place to get it.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v15**. Saves are long-lived and local to the device; "we wiped
+  Currently **v16**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4
@@ -1503,8 +1681,25 @@ need a branch preview, build it somewhere that is not the live site.
   and better" is exactly the shape of a setting that reads as an upgrade and
   costs you money. Somebody has to leave one running overnight at Good or Strong
   and compare.
+- **Nothing measures a player who prices cover away from Standard**, and nothing
+  measures one who buys certified technicians in rather than growing them. The
+  bot runs the plan band at its default and hires entry-only, which makes every
+  shipped number the CONSERVATIVE case: a player doing either gets more, and
+  nobody knows how much more. The elasticity puts the expected-value optimum on
+  the middle band by construction; whether the ends *feel* like real choices is a
+  playtest question, and it is the same caveat the two sales floors carry.
+- **Nobody has run a shop at either end of the rate slider.** The panel's
+  diagnosis line ("work is queueing and every bench is full") is the design's
+  answer to a player who cannot tell an under-priced shop from an under-staffed
+  one, and no human has read it. The over-staffing trap that cost the harness
+  $10k a week is still there for a player to walk into, deliberately.
+- **The plan desk is invisible at the moment of sale.** Cover is sold on the
+  deal sheet's behalf without the player seeing it happen; it appears in the
+  ledger and on the Plans tab afterwards. Whether that reads as the finance
+  office doing its job or as money appearing from nowhere needs a human.
 - **A fourth skill for the paper side** — collections, levelled by payments taken
-  and repos worked — is the obvious next one. `skills` is a `Record` so it needs
+  and repos worked — is the obvious next one, and the shop makes a fifth
+  obvious too: technicians level and the player does not level alongside them. `skills` is a `Record` so it needs
   no reshaping, and skill levels are the natural carry-over currency if a
   prestige layer ever lands.
 - **Tone.** The repossession loop is mechanically the best thing in the game and

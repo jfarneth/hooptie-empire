@@ -317,6 +317,181 @@ export const BALANCE = {
    */
   overCapacityMissPenaltyCap: 2.2,
 
+  // ------------------------------------------------------ service contracts
+  /**
+   * The plan desk. A note in reverse: paid for once, owed for months.
+   *
+   * THE WHOLE PRODUCT IS THE LOSS RATIO. A plan is priced at its expected claims
+   * divided by `targetLossRatio`, so the 35% margin is a property of the
+   * derivation rather than a number asserted somewhere and hoped for. Move
+   * `targetLossRatio` and the price moves; the payouts do not, because they are
+   * a fact about the car.
+   *
+   * `attachRate` is the A/B constant. At 0 the attach roll is skipped before it
+   * draws, so `--set=balance.service.attachRate=0` reproduces the pre-plan build
+   * on a byte-identical RNG stream — the same trick `market.supplyScale` uses.
+   */
+  service: {
+    /** Share of buyers who take a plan at the standard price band. */
+    attachRate: 0.2,
+    /**
+     * Share of the plan price the house actually pays back out in claims,
+     * MEASURED over the life of a contract. 35% margin, which is what was asked
+     * for.
+     *
+     * This is the realised figure, not the one the arithmetic would give you if
+     * the cap did not exist — see `capRecovery`, which is what reconciles the
+     * two. The distinction is not pedantry: a constant named for a target the
+     * game misses by ten points is exactly the kind of number that gets quoted
+     * in a comment for a year and is wrong the whole time.
+     */
+    targetLossRatio: 0.65,
+    /**
+     * Share of expected claim dollars that survives the 150% cap.
+     *
+     * MEASURED, and it has to be, because there is no closed form: whether a
+     * plan hits its cap depends on the whole path of its claims. At the shipped
+     * shape the cap eats about a quarter of contracts and 26% of expected
+     * claim dollars, and pricing that ignored it would overcharge for cover by
+     * a third.
+     *
+     * `service.test.ts` measures the realised loss ratio against
+     * `targetLossRatio` and goes red if this drifts — which it will the moment
+     * anybody touches the claim shape or the cap, and that alarm is the entire
+     * reason this is a named constant rather than a rounder number quietly
+     * baked into the price.
+     */
+    capRecovery: 0.74,
+    /**
+     * What a claim costs when your own bays do the work.
+     *
+     * Measured to land the realised loss ratio at 50% — fifteen POINTS better
+     * than 65%, which is the reading that agrees with "makes service plan
+     * profit average 50%". Read as: your own shop honours the paper at cost
+     * where an independent garage charges you retail to do it.
+     */
+    shopClaimMultiplier: 0.63,
+    /**
+     * The loss ratio that multiplier actually DELIVERS, measured.
+     *
+     * 0.65 x 0.63 is 0.41, and that is not the answer — smaller claims run into
+     * the cap less often, so cutting the cost of a claim by a third improves the
+     * realised ratio by rather less than a third. Every readout quotes THIS
+     * number, because a panel that multiplied the lever would have told the
+     * player the house keeps 59% of a plan when it keeps 50%.
+     *
+     * Held honest the same way `capRecovery` is: service.test.ts measures whole
+     * contracts against it, so moving the multiplier without re-measuring goes
+     * red rather than quietly making the UI lie.
+     */
+    shopLossRatio: 0.5,
+    /**
+     * Hard ceiling on what one plan can cost, as a multiple of what it sold for.
+     *
+     * Never advertised and never shown: the plan is sold as cover, and a
+     * customer does not get told the house stops paying. What it protects is the
+     * tail — without it a single transmission on a legendary-trim truck can cost
+     * more than a week of trading, which is not variance, it is a crash.
+     */
+    payoutCap: 1.5,
+    /** Odds a claim lands in any given game week of cover. */
+    claimChancePerWeek: 0.05,
+    /**
+     * What the average claim costs, as a share of the car's condition-free
+     * value, per unit of condition risk.
+     *
+     * Indexed to `conditionFreeValue` for the reason recon cost is — bodywork on
+     * a 200,000-mile beater does not cost what bodywork on a new car costs, and
+     * a plan that priced off the model's showroom value would be unsellable at
+     * the bottom of the ladder and free money at the top.
+     */
+    claimCostOfValue: 0.03,
+    /** Claim risk multiplier on a showroom car, and on a rough one. */
+    riskAtClean: 0.6,
+    riskAtRough: 2.2,
+    /**
+     * Shape of a single claim, as a multiple of the average one: `min + k·u³`.
+     *
+     * Cubed on purpose. Most repair orders are small and the mean is carried by
+     * the rare one that is not, so the typical claim comes in around half the
+     * average and the top of the range is 3.5x it — a single bill bigger than
+     * the whole plan. A uniform draw has the right mean and the wrong feel, and
+     * the feel is the product: this is the thing that is supposed to have high
+     * variability.
+     */
+    claimShapeMin: 0.15,
+    claimShapeSpan: 3.4,
+    /**
+     * How hard the attach rate reacts to the price band.
+     *
+     * 2.9 is not a taste: it is `1/(1 - targetLossRatio)`, which puts the peak of
+     * `attach x (band - lossRatio)` exactly on the standard band. So pricing at
+     * the middle is the best expected dollars per car sold, and both ends trade
+     * volume against margin around it. It moves when the shop opens — at a 0.5
+     * loss ratio the optimum slides down to the cheap bands, so owning a service
+     * department makes it correct to sell plans cheaper and sell more of them.
+     */
+    attachElasticity: 2.9,
+    /** Nobody sells a plan to everybody, whatever the price. */
+    maxAttachRate: 0.6,
+    /** Closed plans kept for the sheet's history, same rule as closed notes. */
+    closedPlanHistory: 30,
+  },
+
+  // ----------------------------------------------------- service department
+  /**
+   * The shop. Bays, technicians, and a labour rate the player sets.
+   *
+   * It is deliberately A SIDELINE — measured at 15-18% of a franchise store's
+   * weekly gross when fully built — because it lands on the three rungs the
+   * ladder is most fragile at. See docs/service-plan.md for the sizing, and note
+   * that `demandScale` is the A/B constant: at 0 no customer ever arrives and
+   * not one draw is consumed.
+   */
+  shop: {
+    /** Scales every store's walk-in service demand. The A/B knob. */
+    demandScale: 1,
+    /**
+     * How much demand moves when the rate does.
+     *
+     * The decision this creates only exists because capacity is finite: under-
+     * price a small shop and the bays fill with work you cannot get to, so the
+     * revenue is capped at what the benches can turn while the rate is low.
+     * Overprice a big one and the techs sit idle on full wages. The right rate
+     * is therefore a function of how many bays you have staffed, and it moves
+     * every time you hire.
+     */
+    rateElasticity: 1.2,
+    /** Labour hours on a repair order: `min + span·u²`, so most are small. */
+    jobHoursMin: 0.6,
+    jobHoursSpan: 5.5,
+    /** Sim ms one labour hour takes an entry-level tech. A game day is 8 of them. */
+    msPerLabourHour: 2_500,
+    /** Repair orders that can wait for a bench, per bay. Past this they go elsewhere. */
+    queuePerBay: 2,
+    /** A comeback takes this share of the original job, and bills nothing. */
+    reworkDuration: 0.6,
+    /**
+     * A tech's weekly wage: billable hours at the store's own reference rate,
+     * times this.
+     *
+     * Derived from the shop's rate rather than tabulated, the same way
+     * `wageOfCost` derives a hire's wage from its price — a store that bills
+     * $160 an hour pays its people more than one that bills $72, and neither
+     * figure can drift out of step with the other.
+     */
+    wageShareOfBillings: 0.42,
+    /** Billable hours a week a wage is quoted against. */
+    wageHoursPerWeek: 50,
+    /** Signing on costs this many weeks of the wage. Promotion, by contrast, is free. */
+    hireWeeks: 4,
+    /** Labour hours a tech has to turn to earn each grade. Cumulative. */
+    promoteAtHours: [0, 80, 300, 800, 1_800],
+    /** Recon speed and cost per bay, compounding. The shop works on your own stock too. */
+    reconSpeedPerBay: 0.95,
+    reconCostPerBay: 0.97,
+  },
+
   // ------------------------------------------------------- business management
   /**
    * The house rules a player can set, and the range they can set them over.
@@ -335,6 +510,13 @@ export const BALANCE = {
       // position — exactly what the desk did before these existed.
       cashFloorLevel: 0,
       financeFloorLevel: 0,
+      // The plan desk opens at the standard band and the shop at the middle
+      // rate. Unlike the sales floors, these two do NOT default to off: a store
+      // that offers service contracts and sells none is not reproducing an
+      // earlier build, it is a feature nobody found. The A/B constants above are
+      // what reproduce the earlier build.
+      servicePlanBand: 3,
+      shopRateLevel: 3,
     },
     repoTriggerMin: 1,
     repoTriggerMax: 6,

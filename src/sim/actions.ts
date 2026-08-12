@@ -15,6 +15,15 @@ import {
 import { wholesaleValue } from './economy';
 import { countersRemaining, resolveCounter } from './haggle';
 import { activeNotes, overCapacityFactor } from './notes';
+import {
+  TECH_GRADES,
+  TOP_GRADE,
+  canHireTech,
+  canPromote,
+  closeTheShop,
+  hireCost,
+  hireTech,
+} from './shop';
 import { loanBalance, retirementPreview, sharkOffer } from './prestige';
 import { getStage, nextStage, stageRank, typicalCarPrice, type StageDef } from './stages';
 import { applyTuning, coerceTunable, defaultValue, getTunable, pruneTuning } from './tuning';
@@ -249,7 +258,9 @@ export function setBusinessPolicy(state: GameState, patch: Partial<BusinessPolic
       next.repoAfterMissedPayments === current.repoAfterMissedPayments &&
       next.minBuyMargin === current.minBuyMargin &&
       next.cashFloorLevel === current.cashFloorLevel &&
-      next.financeFloorLevel === current.financeFloorLevel;
+      next.financeFloorLevel === current.financeFloorLevel &&
+      next.servicePlanBand === current.servicePlanBand &&
+      next.shopRateLevel === current.shopRateLevel;
     if (unchanged) return false;
     s.business = next;
     return true;
@@ -300,6 +311,14 @@ export interface StageMovePreview {
   allowed: boolean;
   /** Employees who do not come with you, by name, at their current level. */
   staffLost: { name: string; level: number }[];
+  /**
+   * Technicians released, which the upgrade table cannot express because they
+   * are a roster rather than a level. Named separately on the preview for the
+   * same reason `staffLost` exists at all: a confirmation that under-warns is as
+   * wrong as one that over-warns, and losing a Certified III is the single
+   * sharpest cost of moving once a shop is running.
+   */
+  techsReleased: number;
   /** Contracts on the book against the collections desk you would be left with. */
   bookAfter: { active: number; capacity: number };
   /**
@@ -381,6 +400,7 @@ export function stageMovePreview(state: GameState, targetId?: StageId): StageMov
     affordable,
     allowed: direction !== 'stay' && affordable,
     staffLost,
+    techsReleased: state.shop?.techs.length ?? 0,
     bookAfter: {
       active: activeNotes(state.notes).length,
       capacity: collectionsCapacity(afterMove),
@@ -550,6 +570,18 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
     // think the desk was still running.
     if (s.dealPolicy !== 'manual') s.dealPolicy = 'manual';
 
+    // The technicians are staff too, and they follow the same rule the rest of
+    // the payroll does: at a new store they would have to be hired again. Their
+    // experience goes with them, which is the sharpest single cost of a move
+    // once a shop is running — and it is why `staffLost` on the preview has to
+    // name them before the button is pressed.
+    //
+    // THE PLANS DO NOT GO. Service contracts are paper, and paper moves with the
+    // business exactly like the loan book does — you still owe those customers
+    // their repairs, and you will be honouring them at the new store without the
+    // bays you used to have. That asymmetry is the point of it.
+    const techsReleased = closeTheShop(s);
+
     // The lot does not come with you. Sold before the staff are released so the
     // ledger reads in the order the day would have happened: you clear the
     // forecourt, then you hand back the keys.
@@ -605,6 +637,13 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
         label: `Payroll reset — rehiring ${released.length} at the new store.`,
       });
     }
+    if (techsReleased > 0) {
+      logEvent(s, {
+        t: s.t,
+        kind: 'shop',
+        label: `The bays are empty — ${techsReleased} technician${techsReleased > 1 ? 's' : ''} let go.`,
+      });
+    }
     return true;
   });
 }
@@ -613,6 +652,87 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
 export function advanceStage(state: GameState): GameState {
   const next = nextStage(state.stage);
   return next ? moveToStage(state, next.id) : state;
+}
+
+// -------------------------------------------------------- the service bays
+
+/**
+ * Take somebody on.
+ *
+ * A bench each, so the roster can never outgrow the building — the same shape as
+ * every other capacity rule in this game. Hiring in at grade costs a signing fee
+ * (`hireCost`); growing your own costs nothing but the hours, which is the trade
+ * the whole roster is built around.
+ */
+export function hireServiceTech(state: GameState, grade: number): GameState {
+  return act(state, (s) => {
+    if (!canHireTech(s)) return false;
+    const rung = Math.min(Math.max(0, Math.round(grade)), TOP_GRADE);
+    const cost = hireCost(getStage(s.stage), rung);
+    if (s.cash < cost) return false;
+
+    s.cash -= cost;
+    s.stats.lifetimeProfit -= cost;
+    const tech = hireTech(s, rung);
+    logEvent(s, {
+      t: s.t,
+      kind: 'shop',
+      label: `Hired ${tech.name} — ${TECH_GRADES[rung].name}`,
+      amount: -cost,
+    });
+    return true;
+  });
+}
+
+/**
+ * Move somebody up.
+ *
+ * Free, and the player's call rather than automatic. That is the decision: the
+ * wage goes up the moment you tap it and the throughput only pays back while
+ * there is work on the ramp, so promoting the whole roster in a quiet shop is a
+ * genuine mistake rather than a formality.
+ */
+export function promoteServiceTech(state: GameState, techId: string): GameState {
+  return act(state, (s) => {
+    const tech = s.shop.techs.find((t) => t.id === techId);
+    if (!tech || !canPromote(tech)) return false;
+
+    tech.grade = Math.min(TOP_GRADE, Math.round(tech.grade) + 1);
+    logEvent(s, {
+      t: s.t,
+      kind: 'shop',
+      label: `${tech.name} made ${TECH_GRADES[tech.grade].name.toLowerCase()}`,
+    });
+    return true;
+  });
+}
+
+/**
+ * Let somebody go.
+ *
+ * Whatever was on their bench goes back to the front of the queue rather than
+ * out of the door — the customer is still waiting for their car, and losing the
+ * job with the tech would be a way to make a repair order disappear. It is
+ * re-timed when the next tech picks it up, because the grade doing the work is
+ * the grade that prices it.
+ */
+export function dismissServiceTech(state: GameState, techId: string): GameState {
+  return act(state, (s) => {
+    const tech = s.shop.techs.find((t) => t.id === techId);
+    if (!tech) return false;
+
+    if (tech.jobId !== null) {
+      const job = s.shop.jobs.find((j) => j.id === tech.jobId);
+      if (job) {
+        job.techId = null;
+        job.remainingMs = 0;
+        job.totalMs = 0;
+      }
+    }
+    s.shop.techs = s.shop.techs.filter((t) => t.id !== techId);
+    logEvent(s, { t: s.t, kind: 'shop', label: `${tech.name} left the shop` });
+    return true;
+  });
 }
 
 // ------------------------------------------------------------ the shark

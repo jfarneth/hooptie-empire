@@ -222,8 +222,69 @@ export interface StageDef {
   };
   /** The six stops on this store's two sales floors. See `DEAL_FLOOR_NAMES`. */
   dealFloors: StageDealFloors;
+  /**
+   * Whether the finance office can sell service contracts here.
+   *
+   * A capability, asked of the stage and never inferred from its id — same rule
+   * `financing` follows. It starts at the big lot: a curbstoner selling a
+   * warranty on a driveway beater is not a business, it is a fraud, and the
+   * small lot is still hand-to-mouth enough that owing somebody a gearbox for
+   * eight months is a way to die rather than a product.
+   */
+  serviceContracts: boolean;
+  /**
+   * The service department, where there is one. Undefined below the franchises,
+   * which is the capability check — `stage.shop !== undefined`.
+   */
+  shop?: StageShop;
   sourcing: StageSourcing;
 }
+
+/**
+ * What a service department is worth at this store.
+ *
+ * HARD NUMBERS PER STORE, for the reason the sales floors are: a labour rate is
+ * a rule the business runs on for hours at a time, and one denominated in a
+ * share of something that moves would quietly mean a different thing after
+ * every retune. The stops were derived once against each store's measured
+ * weekly gross — see docs/service-plan.md — and rounded to figures a shop would
+ * actually put on the wall.
+ */
+export interface StageShop {
+  /**
+   * Labour rate stops, ascending, in dollars an hour. The MIDDLE stop is the
+   * reference: demand is quoted at it, and every other stop is a departure
+   * from it.
+   */
+  hourlyRates: readonly number[];
+  /**
+   * Repair orders arriving per second at the reference rate, before the
+   * player's rate moves it.
+   *
+   * Sized so a fully built shop at the middle rate is roughly at capacity —
+   * which is what makes the rate slider a decision rather than a dial. A small
+   * shop should charge more and turn nobody away; a maxed one can cut the rate
+   * and fill six benches.
+   */
+  demandPerSec: number;
+}
+
+/**
+ * What each labour rate stop is called. Middle stop is the going rate; the ends
+ * are a deliberate posture. Unlike a sales floor there is no "off" — a shop
+ * without a rate is not a shop, it is a closed shop, which is what having no
+ * bays already means.
+ */
+export const SHOP_RATE_NAMES: readonly string[] = [
+  'Cut-price',
+  'Under the going rate',
+  'Going rate',
+  'Dealer rate',
+  'Main dealer rate',
+];
+
+/** How many stops a labour rate has. Levels are 1-indexed, like a sales floor. */
+export const SHOP_RATE_LEVELS = SHOP_RATE_NAMES.length;
 
 /**
  * WHAT THE DESK WILL SIGN, ONE HARD NUMBER PER SLIDER STOP.
@@ -349,6 +410,7 @@ export const STAGES: readonly StageDef[] = [
     // "nothing at a loss" is a real rule here and is a no-op anywhere above the
     // big lot. No finance ladder — no finance desk.
     dealFloors: { cash: [0, 0.08, 0.15, 0.22, 0.3, 0.4] },
+    serviceContracts: false,
     sourcing: { ...OPEN_MARKET, tiers: ['beater', 'commuter'], askMin: 0.8, askMax: 1.42 },
   },
   {
@@ -374,6 +436,7 @@ export const STAGES: readonly StageDef[] = [
       cash: [0, 0.08, 0.15, 0.22, 0.3, 0.4],
       finance: [0.1, 0.2, 0.28, 0.36, 0.45, 0.55],
     },
+    serviceContracts: false,
     sourcing: {
       ...OPEN_MARKET,
       tiers: ['beater', 'commuter', 'family', 'truck'],
@@ -407,6 +470,12 @@ export const STAGES: readonly StageDef[] = [
       cash: [0.04, 0.09, 0.14, 0.2, 0.27, 0.36],
       finance: [0.1, 0.18, 0.26, 0.33, 0.41, 0.5],
     },
+    // The first store with a finance office worth the name, and the first one
+    // big enough that owing somebody a gearbox is a product rather than a
+    // catastrophe. No service department yet: you sell the cover and pay an
+    // independent garage retail to honour it, which is exactly why the loss
+    // ratio is 65% here and 50% once you have your own bays.
+    serviceContracts: true,
     sourcing: {
       ...OPEN_MARKET,
       tiers: ['commuter', 'family', 'truck', 'luxury'],
@@ -439,6 +508,11 @@ export const STAGES: readonly StageDef[] = [
       cash: [0.05, 0.07, 0.09, 0.11, 0.13, 0.15],
       finance: [0.12, 0.13, 0.15, 0.17, 0.19, 0.21],
     },
+    serviceContracts: true,
+    // The first store with bays behind the showroom. Rates are a real
+    // franchise's: under a hundred an hour, and the volume comes from being the
+    // only Halvorsen dealer in town.
+    shop: { hourlyRates: [45, 58, 72, 90, 115], demandPerSec: 0.5 },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.16, askMax: 1.24, makeId: 'halvorsen' },
   },
   {
@@ -462,6 +536,8 @@ export const STAGES: readonly StageDef[] = [
       cash: [0.04, 0.06, 0.07, 0.09, 0.1, 0.12],
       finance: [0.07, 0.09, 0.1, 0.12, 0.13, 0.15],
     },
+    serviceContracts: true,
+    shop: { hourlyRates: [55, 72, 92, 118, 150], demandPerSec: 0.65 },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.2, askMax: 1.27, makeId: 'okabe' },
   },
   {
@@ -489,6 +565,12 @@ export const STAGES: readonly StageDef[] = [
       cash: [0.04, 0.05, 0.06, 0.07, 0.08, 0.1],
       finance: [0.04, 0.05, 0.06, 0.07, 0.08, 0.1],
     },
+    serviceContracts: true,
+    // Main dealer rates, and the busiest bays on the ladder. This is the store
+    // where the shop matters most, and not because it is biggest: unit margin
+    // here is 6.8% against the big lot's 18.6%, so a dollar of labour is worth
+    // nearly three times as much of a car as it is further down.
+    shop: { hourlyRates: [95, 125, 160, 205, 265], demandPerSec: 1 },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.23, askMax: 1.29, makeId: 'valmont' },
   },
 ];

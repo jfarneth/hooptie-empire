@@ -3,12 +3,13 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MS_PER_GAME_WEEK } from '../../sim/balance';
 import { portfolioValue } from '../../sim/economy';
 import { activeNotes, remainingScheduled } from '../../sim/notes';
+import { activePlans, expectedLossRatio, hasServiceDept, planExposure } from '../../sim/service';
 import { getStage } from '../../sim/stages';
 import { collectionsCapacity } from '../../sim/upgrades';
-import type { GameState, Note } from '../../sim/types';
+import type { GameState, Note, ServiceContract } from '../../sim/types';
 import { TIER_COLOR, duration, money, moneyShort, theme } from '../theme';
 import { HUD_HEIGHT } from '../components/Hud';
-import { Card, Chip, EmptyState, Label, Meter, Row } from '../components/ui';
+import { Button, Card, Chip, EmptyState, Label, Meter, Row } from '../components/ui';
 
 /**
  * The book. Once this screen has more on it than the lot does, the player has
@@ -16,12 +17,28 @@ import { Card, Chip, EmptyState, Label, Meter, Row } from '../components/ui';
  * arc of the business.
  */
 export function NotesScreen({ state }: { state: GameState }) {
-  if (!getStage(state.stage).financing) {
+  const stage = getStage(state.stage);
+  const [tab, setTab] = React.useState<'paper' | 'plans'>('paper');
+
+  if (!stage.financing) {
     return (
       <EmptyState
         title="No finance desk yet"
         hint="Buy the lot and you can start carrying the paper yourself instead of handing the customer to a bank."
       />
+    );
+  }
+
+  // Two books, and they are mirror images: one collects and one pays out. The
+  // segmented control rather than a second tab in the nav, because they are the
+  // same kind of object — contracts on the save with a weekly beat — and a
+  // player thinking about one is usually thinking about the other.
+  if (stage.serviceContracts && tab === 'plans') {
+    return (
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <BookTabs tab={tab} onChange={setTab} />
+        <PlansTab state={state} />
+      </ScrollView>
     );
   }
 
@@ -37,6 +54,7 @@ export function NotesScreen({ state }: { state: GameState }) {
 
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      {stage.serviceContracts ? <BookTabs tab={tab} onChange={setTab} /> : null}
       <Card style={{ gap: 10 }}>
         <Row style={{ justifyContent: 'space-between' }}>
           <View>
@@ -114,6 +132,190 @@ export function NotesScreen({ state }: { state: GameState }) {
         </>
       ) : null}
     </ScrollView>
+  );
+}
+
+function BookTabs({
+  tab,
+  onChange,
+}: {
+  tab: 'paper' | 'plans';
+  onChange: (tab: 'paper' | 'plans') => void;
+}) {
+  return (
+    <Row gap={6}>
+      <Button
+        label="Paper"
+        tone={tab === 'paper' ? 'primary' : 'ghost'}
+        onPress={() => onChange('paper')}
+        style={{ flex: 1 }}
+      />
+      <Button
+        label="Plans"
+        tone={tab === 'plans' ? 'primary' : 'ghost'}
+        onPress={() => onChange('plans')}
+        style={{ flex: 1 }}
+      />
+    </Row>
+  );
+}
+
+/**
+ * The other book.
+ *
+ * A note is an asset that collects; a service contract is a liability that pays
+ * out. The screen is deliberately laid out the same way as the paper side, with
+ * one number the paper side has no equivalent of: the LOSS RATIO, which is the
+ * whole product. A book returning 65% of what it took is working exactly as
+ * designed, and one returning 110% is a desk writing cover on cars it should
+ * not be.
+ */
+function PlansTab({ state }: { state: GameState }) {
+  const live = activePlans(state.serviceContracts);
+  const closed = state.serviceContracts.filter((c) => c.status !== 'active');
+  const income = state.stats.planIncome;
+  const paid = state.stats.planPayouts;
+  const ratio = income > 0 ? paid / income : 0;
+  const shop = hasServiceDept(state);
+  const target = expectedLossRatio(state);
+
+  return (
+    <>
+      <Card style={{ gap: 10 }}>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <View>
+            <Label>Taken in</Label>
+            <Text style={styles.headline}>{money(income)}</Text>
+            <Text style={styles.sub}>{state.stats.plansSold} plans sold</Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Label>Paid out</Label>
+            <Text style={[styles.headline, { color: theme.colors.danger }]}>{money(paid)}</Text>
+            <Text style={styles.sub}>in claims</Text>
+          </View>
+        </Row>
+
+        <View style={{ gap: 4 }}>
+          <Row style={{ justifyContent: 'space-between' }}>
+            <Text style={styles.metaLabel}>Of every dollar taken</Text>
+            <Text
+              style={[
+                styles.metaValue,
+                { color: ratio > 1 ? theme.colors.danger : theme.colors.money },
+              ]}
+            >
+              {Math.round(ratio * 100)}¢ paid back out
+            </Text>
+          </Row>
+          <Meter
+            progress={Math.min(1, ratio)}
+            color={ratio > 1 ? theme.colors.danger : theme.colors.money}
+          />
+          <Text style={styles.sub}>
+            {income === 0
+              ? 'Nothing sold yet. Cover is offered on every car you sell.'
+              : `Around ${Math.round(target * 100)}¢ is what to expect over a full book${
+                  shop ? ', with your own bays doing the work' : ''
+                }. A young book always looks better than it is — the money comes in first and the claims come later.`}
+          </Text>
+        </View>
+
+        <Row style={{ justifyContent: 'space-between' }}>
+          <Stat label="In force" value={String(live.length)} />
+          <Stat label="Kept" value={moneyShort(income - paid)} tone={theme.colors.money} />
+          <Stat
+            label="Exposure"
+            value={moneyShort(planExposure(state.serviceContracts))}
+            tone={theme.colors.warn}
+          />
+          <Stat label="Closed" value={String(state.stats.plansSold - live.length)} />
+        </Row>
+      </Card>
+
+      <Label>In force ({live.length})</Label>
+      {live.length === 0 ? (
+        <EmptyState
+          title="No cover in force"
+          hint="A share of your buyers take a service contract when they buy the car. Set what it costs in Office → Business."
+        />
+      ) : (
+        live.map((c) => <PlanRow key={c.id} plan={c} now={state.t} />)
+      )}
+
+      {closed.length > 0 ? (
+        <>
+          <Label>History</Label>
+          {closed
+            .slice(-12)
+            .reverse()
+            .map((c) => (
+              <PlanRow key={c.id} plan={c} now={state.t} />
+            ))}
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function PlanRow({ plan, now }: { plan: ServiceContract; now: number }) {
+  const used = plan.paidOut / Math.max(1, plan.price);
+  const closed = plan.status !== 'active';
+  const underwater = plan.paidOut > plan.price;
+
+  const statusColor = underwater
+    ? theme.colors.danger
+    : plan.status === 'void'
+      ? theme.colors.textDim
+      : plan.status === 'expired'
+        ? theme.colors.money
+        : theme.colors.textDim;
+
+  return (
+    <View style={[styles.note, closed && styles.noteClosed]}>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Text style={styles.noteName} numberOfLines={1}>
+          {plan.customerName}
+        </Text>
+        <Text style={[styles.noteStatus, { color: statusColor }]}>
+          {plan.status === 'void'
+            ? 'TORN UP'
+            : plan.status === 'expired'
+              ? 'RAN OUT'
+              : plan.claims === 0
+                ? 'UNUSED'
+                : `${plan.claims} CLAIM${plan.claims > 1 ? 'S' : ''}`}
+        </Text>
+      </Row>
+
+      <Text style={styles.noteCar} numberOfLines={1}>
+        {plan.carLabel}
+      </Text>
+
+      {/* Against the PRICE, not against the cap: the line a player cares about
+          is the one where this plan stopped making money. */}
+      <Meter
+        progress={Math.min(1, used)}
+        color={underwater ? theme.colors.danger : theme.colors.money}
+        height={3}
+      />
+
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Text style={styles.noteMeta}>
+          {money(plan.price)} in · {money(plan.paidOut)} out
+        </Text>
+        <Text style={[styles.noteCollected, underwater && { color: theme.colors.danger }]}>
+          {underwater ? '-' : ''}
+          {money(Math.abs(plan.price - plan.paidOut))}
+        </Text>
+      </Row>
+
+      {!closed ? (
+        <Text style={styles.noteDue}>
+          {plan.weeksRemaining} of {plan.weeksTotal} weeks left · next check in{' '}
+          {duration(Math.max(0, plan.nextCheckAt - now))}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 

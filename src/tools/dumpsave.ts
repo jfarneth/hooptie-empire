@@ -15,10 +15,11 @@
  * inventing state.
  */
 import { writeFileSync } from 'node:fs';
-import { moveToStage, purchaseUpgrade, setDealPolicy } from '../sim/actions';
+import { hireServiceTech, moveToStage, purchaseUpgrade, setDealPolicy } from '../sim/actions';
 import { advance, createInitialState } from '../sim/engine';
 import { serialize } from '../sim/save';
 import type { StageId } from '../sim/types';
+import { canHireTech } from '../sim/shop';
 import { canBuyUpgrade } from '../sim/upgrades';
 
 const [, , wanted = 'smallUsed', out = 'save.json', minutesArg = '45'] = process.argv;
@@ -31,6 +32,16 @@ state = moveToStage(state, wanted as StageId);
 // the point is a representative store, not an endgame one.
 for (const id of ['autoBuy', 'autoList', 'autoRecon', 'scout', 'mechanic', 'salesDesk', 'lot']) {
   if (canBuyUpgrade(state, id)) state = purchaseUpgrade(state, id);
+}
+// A franchise store with the bays shut is half a store, and the service panel is
+// the thing most likely to need looking at. Three benches and three technicians
+// at different grades, so the roster shows a promotion in progress rather than
+// three identical rows.
+for (let i = 0; i < 3; i++) {
+  if (canBuyUpgrade(state, 'serviceBays')) state = purchaseUpgrade(state, 'serviceBays');
+}
+for (const grade of [0, 1, 3]) {
+  if (canHireTech(state)) state = hireServiceTech(state, grade);
 }
 // A hired desk on 'manual' is a desk that is not turned on — and with the
 // grace window it is also a lot where every walk-up waits for a player who is

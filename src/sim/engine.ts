@@ -16,7 +16,17 @@ import {
   minBuyMargin,
   minWorkingCapital,
   repoThreshold,
+  servicePlanBand,
+  shopRateLevel,
 } from './business';
+import {
+  claimCostMultiplier,
+  maybeSellPlan,
+  pruneClosedPlans,
+  stepDuePlans,
+  voidPlansForCar,
+} from './service';
+import { bayCount, shopPayroll, shopRate, stepShop } from './shop';
 import { dealMarginFloor } from './margins';
 import { generateProspect } from './customers';
 import { deskCounter, resolveCounter } from './haggle';
@@ -69,9 +79,9 @@ import {
 } from './upgrades';
 import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
-import type { Car, GameState, Listing, Millis, SimEvent, SkillId } from './types';
+import type { Car, GameState, Listing, Millis, Prospect, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 15;
+export const SAVE_VERSION = 16;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -151,6 +161,8 @@ function blankState(seed: number, wallNow: number): GameState {
     listings: [],
     prospects: [],
     notes: [],
+    serviceContracts: [],
+    shop: { techs: [], jobs: [], weekRevenue: 0, weekJobs: 0 },
     upgrades: {},
     skills: blankSkills(),
     dealPolicy: 'manual',
@@ -169,6 +181,13 @@ function blankState(seed: number, wallNow: number): GameState {
       totalCollected: 0,
       lifetimeProfit: 0,
       commissionPaid: 0,
+      plansSold: 0,
+      planIncome: 0,
+      planPayouts: 0,
+      shopRevenue: 0,
+      shopJobsDone: 0,
+      shopReworks: 0,
+      shopTurnedAway: 0,
     },
     events: [],
     prestige: { count: 0, points: 0, history: [] },
@@ -217,6 +236,11 @@ function step(s: GameState): void {
   stepListings(s);
   stepProspects(s);
   stepNotes(s);
+  // The other side of the book, on the same weekly beat and with the opposite
+  // sign. Placed straight after the notes for that reason, and before the bill
+  // so a week's claims and a week's rent land in the order the week happened.
+  stepServicePlans(s);
+  stepServiceDept(s);
   stepBills(s);
   stepAutomation(s);
 }
@@ -261,6 +285,21 @@ function stepBills(s: GameState): void {
   s.nextBillAt += MS_PER_GAME_WEEK;
 
   const bill = weeklyExpenses(s);
+
+  // The shop's week, in one line. Its money already landed, job by job, as the
+  // cars went out — see `stepServiceDept` for why none of that is logged
+  // individually. This is the ledger's honest account of it, and it is written
+  // before the bill so the takings read above the wages that produced them.
+  if (s.shop.weekJobs > 0) {
+    logEvent(s, {
+      t: s.t,
+      kind: 'shop',
+      label: `Service department — ${s.shop.weekJobs} job${s.shop.weekJobs > 1 ? 's' : ''} billed`,
+      amount: s.shop.weekRevenue,
+    });
+    s.shop.weekRevenue = 0;
+    s.shop.weekJobs = 0;
+  }
 
   // Rent, wages and floorplan are paid out of cash, and cash does not go
   // Charged IN FULL, whatever the balance says afterwards. Rent and wages used
@@ -311,6 +350,14 @@ export interface WeeklyExpenses {
   rent: number;
   payroll: number;
   floorplan: number;
+  /**
+   * The technicians. Kept apart from `payroll` because the two answer different
+   * questions: the sales side is overhead against the cars, and this is the
+   * direct cost of a department that bills for its own time. A shop losing money
+   * and a lot losing money need opposite fixes, and one merged number hides
+   * which one is happening.
+   */
+  shopPayroll: number;
   /** The shark's weekly payment, when a loan is out. */
   debtService: number;
   total: number;
@@ -340,7 +387,20 @@ export function weeklyExpenses(s: GameState): WeeklyExpenses {
   // straight into the hole the reserve exists to prevent.
   const debtService = s.loan ? s.loan.paymentAmount : 0;
 
-  return { rent, payroll, floorplan, debtService, total: rent + payroll + floorplan + debtService };
+  // The benches. In the total for the same reason everything else is: the
+  // working-capital floor and the harness both have to see the whole bill, and a
+  // department whose wages were invisible to the reserve would be a way to walk
+  // into exactly the hole the reserve exists to prevent.
+  const shopWages = shopPayroll(s);
+
+  return {
+    rent,
+    payroll,
+    floorplan,
+    shopPayroll: shopWages,
+    debtService,
+    total: rent + payroll + floorplan + shopWages + debtService,
+  };
 }
 
 // ------------------------------------------------------------------ recon
@@ -576,6 +636,21 @@ function repossess(s: GameState, carId: string, customer: string, label: string)
   s.stats.lifetimeProfit -= fee;
   s.stats.reposCompleted += 1;
 
+  // The cover goes with the customer. They are not driving it any more and the
+  // house has no reason to go on paying to repair a car sitting on its own lot
+  // for somebody who stopped paying for it two months ago. It also means the
+  // worst borrowers are the cheapest to cover, which is a genuinely nice thing
+  // to find on the ledger.
+  for (const voided of voidPlansForCar(s.serviceContracts, carId)) {
+    logEvent(s, {
+      t: s.t,
+      kind: 'plan-claim',
+      label: `Cover on ${voided.carLabel} torn up with the repo — kept ${
+        '$' + Math.max(0, voided.price - voided.paidOut).toLocaleString()
+      }`,
+    });
+  }
+
   const car = s.cars.find((c) => c.id === carId);
   if (!car) {
     logEvent(s, { t: s.t, kind: 'repo', label: `Repo: ${label} (${customer})`, amount: -fee });
@@ -627,6 +702,74 @@ function repossess(s: GameState, carId: string, customer: string, label: string)
  */
 function overLotCapacity(s: GameState): boolean {
   return s.cars.filter((c) => c.status !== 'sold').length > carCapacity(s);
+}
+
+// -------------------------------------------------- service contracts
+
+/**
+ * A week of cover, on every plan in force.
+ *
+ * The mirror image of `stepNotes`: same clock, same beat, money going the other
+ * way. Most weeks nothing happens on most plans, which is the product working —
+ * roughly a quarter of contracts run their whole term and never cost a penny,
+ * and the ones that do cost are lumpy on purpose.
+ *
+ * Claims are charged IN FULL whatever the balance says, like every other bill.
+ * A house that stopped honouring its own paper when the till ran low would be
+ * the floored-expenses bug again in a different costume.
+ */
+function stepServicePlans(s: GameState): void {
+  if (s.serviceContracts.length === 0) return;
+
+  const claims = stepDuePlans(s.serviceContracts, s.t, s.rng, claimCostMultiplier(s));
+  if (claims.length === 0) return;
+
+  for (const claim of claims) {
+    if (claim.cost <= 0) continue;
+    s.cash -= claim.cost;
+    s.stats.lifetimeProfit -= claim.cost;
+    s.stats.planPayouts += claim.cost;
+    logEvent(s, {
+      t: s.t,
+      kind: 'plan-claim',
+      label: `Claim on ${claim.contract.carLabel} — ${claim.contract.customerName}`,
+      amount: -claim.cost,
+    });
+  }
+
+  s.serviceContracts = pruneClosedPlans(s.serviceContracts);
+}
+
+// -------------------------------------------------- service department
+
+/**
+ * One second of the bays.
+ *
+ * The money lands here silently, per job, and the ledger line for it is written
+ * once a week by `stepBills`. That is a deliberate exception to "a balance that
+ * moves with no line in the ledger is a bug waiting to be misdiagnosed": a busy
+ * Valmont shop turns over a hundred and thirty repair orders a game week, which
+ * against a sixty-entry ring buffer would mean the ledger showed nothing else
+ * ever again. One honest weekly total says the same thing and leaves the log
+ * readable.
+ */
+function stepServiceDept(s: GameState): void {
+  const stage = getStage(s.stage);
+  if (!stage.shop || bayCount(s) === 0) return;
+
+  const rate = shopRate(stage, shopRateLevel(s));
+  const result = stepShop(s, rate);
+
+  for (const { job } of result.billed) {
+    s.cash += job.price;
+    s.stats.lifetimeProfit += job.price;
+    s.stats.shopRevenue += job.price;
+    s.stats.shopJobsDone += 1;
+    s.shop.weekRevenue += job.price;
+    s.shop.weekJobs += 1;
+  }
+  s.stats.shopReworks += result.reworked.length;
+  s.stats.shopTurnedAway += result.turnedAway;
 }
 
 // ------------------------------------------------------------- automation
@@ -1015,6 +1158,17 @@ export function cloneState(s: GameState): GameState {
       negotiation: { ...p.negotiation },
     })),
     notes: s.notes.map((n) => ({ ...n })),
+    // The tick writes to both of these every week, so a shared array or a shared
+    // entry would leak backwards through history and corrupt offline catch-up —
+    // the same failure `prospects` and `promotions` are spelled out for. The
+    // shop needs its two arrays copied as well as the block itself. The `??`
+    // covers a fixture written before either existed.
+    serviceContracts: (s.serviceContracts ?? []).map((c) => ({ ...c })),
+    shop: {
+      ...(s.shop ?? { weekRevenue: 0, weekJobs: 0 }),
+      techs: (s.shop?.techs ?? []).map((t) => ({ ...t })),
+      jobs: (s.shop?.jobs ?? []).map((j) => ({ ...j })),
+    },
     upgrades: { ...s.upgrades },
     // Each skill is a nested object, so the record needs cloning entry by entry
     // for the same reason prospects do.
@@ -1156,6 +1310,8 @@ function acceptCash(s: GameState, prospectId: string, closer: DealCloser = 'play
     payCommission(s, commissionOn(s, profit, price), carLabel(car));
   }
 
+  sellServicePlan(s, prospect, car);
+
   removeCar(s, car.id);
   s.prospects.splice(idx, 1);
   return true;
@@ -1202,12 +1358,43 @@ function acceptFinance(s: GameState, prospectId: string, closer: DealCloser = 'p
     payCommission(s, commissionOn(s, profitAtSigning, prospect.downPayment), label);
   }
 
+  sellServicePlan(s, prospect, car);
+
   // The car leaves the lot but stays in state so a repo can bring it back.
   car.status = 'sold';
   car.askPrice = 0;
   car.listedAt = null;
   s.prospects.splice(idx, 1);
   return true;
+}
+
+/**
+ * Offer this buyer a service contract, and book it if they take it.
+ *
+ * Called from both `acceptCash` and `acceptFinance` — the two functions every
+ * sale goes through — so cover is as likely to be sold at four in the morning by
+ * the sales manager as by the player at the sheet.
+ *
+ * THE COMMISSION DOES NOT SEE THIS MONEY, deliberately. The desk's cut is a
+ * share of the profit on the CAR at signing, and a plan's profit is not made at
+ * signing: it is made over eight months of not being claimed on, and it can turn
+ * out to be a loss. Paying a percentage of it on the day would be paying a
+ * commission on a liability.
+ */
+function sellServicePlan(s: GameState, prospect: Prospect, car: Car): void {
+  const contract = maybeSellPlan(s, prospect, car, carLabel(car), servicePlanBand(s));
+  if (!contract) return;
+
+  s.cash += contract.price;
+  s.stats.lifetimeProfit += contract.price;
+  s.stats.planIncome += contract.price;
+  s.stats.plansSold += 1;
+  logEvent(s, {
+    t: s.t,
+    kind: 'plan-sold',
+    label: `${contract.customerName} took the ${contract.weeksTotal}-week cover on ${contract.carLabel}`,
+    amount: contract.price,
+  });
 }
 
 /** Drop a car that is gone for good (cash sale). */

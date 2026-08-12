@@ -20,6 +20,7 @@ import { HUD_HEIGHT } from '../components/Hud';
 import { Button, Chip, Label, Row } from '../components/ui';
 import { AdminPanel } from '../components/AdminPanel';
 import { BusinessPanel } from '../components/BusinessPanel';
+import { ServicePanel } from '../components/ServicePanel';
 import { RetirePanel } from '../components/RetirePanel';
 import { SkillCard } from '../components/SkillCard';
 
@@ -30,12 +31,13 @@ const CATEGORY_TITLE: Record<string, string> = {
   finance: 'The book',
 };
 
-type OfficeTab = 'upgrades' | 'skills' | 'business' | 'retire' | 'admin';
+type OfficeTab = 'upgrades' | 'skills' | 'business' | 'service' | 'retire' | 'admin';
 
 const TAB_LABEL: Record<OfficeTab, string> = {
   upgrades: 'Upgrades',
   skills: 'Skills',
   business: 'Business',
+  service: 'Service',
   retire: 'Retire',
   admin: 'Admin',
 };
@@ -84,6 +86,8 @@ export function UpgradesScreen({ state }: { state: GameState }) {
         </View>
       ) : tab === 'business' ? (
         <BusinessPanel state={state} />
+      ) : tab === 'service' ? (
+        <ServicePanel state={state} />
       ) : tab === 'retire' ? (
         <RetirePanel state={state} />
       ) : tab === 'admin' ? (
@@ -180,6 +184,6 @@ const styles = StyleSheet.create({
   description: { color: theme.colors.textDim, fontSize: 12, lineHeight: 16 },
   buyButton: { minWidth: 104 },
   tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  tab: { flexGrow: 1, flexBasis: 70, paddingHorizontal: 6 },
+  tab: { flexGrow: 1, flexBasis: 92, paddingHorizontal: 6 },
   skillsHint: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 16 },
 });

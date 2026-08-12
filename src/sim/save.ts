@@ -363,6 +363,52 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       },
     };
   },
+
+  /**
+   * v15 -> v16: service contracts and the service department.
+   *
+   * Both blocks backfill EMPTY, which is the honest answer rather than a
+   * convenient one. A plan is a contract somebody signed on a specific Tuesday,
+   * and back-dating cover onto cars sold six hours ago would be inventing
+   * liabilities the player never took on and — worse — income they never
+   * received. The bays are the same: `serviceBays` is an upgrade, and `level()`
+   * already reads a missing key as zero, so a returning save arrives at a
+   * franchise with a closed shop and the price of the first bench in front of
+   * it. Both keys still have to EXIST rather than be left undefined, because
+   * `cloneState` maps them on every tick.
+   *
+   * The stats gain seven zeroes for the same reason: the away summary and the
+   * harness both read them, and `undefined + 1` is NaN for the rest of the run.
+   *
+   * The two new house rules are backfilled to the SHIPPED DEFAULTS rather than
+   * to off, and that is a deliberate departure from how the sales floors were
+   * migrated. A floor defaulting to off reproduced what the desk did before it
+   * existed; there is no "what the plan desk did before it existed", because it
+   * did not exist. A returning player at the big lot starts selling cover on the
+   * next car they sell, at the standard price, which is the feature arriving —
+   * and one slider says so. Written out longhand for the usual reason: a
+   * migration has to keep meaning what it meant the day it shipped.
+   */
+  15: (s) => ({
+    ...s,
+    serviceContracts: [],
+    shop: { techs: [], jobs: [], weekRevenue: 0, weekJobs: 0 },
+    business: {
+      ...(s.business ?? {}),
+      servicePlanBand: 3,
+      shopRateLevel: 3,
+    },
+    stats: {
+      ...s.stats,
+      plansSold: 0,
+      planIncome: 0,
+      planPayouts: 0,
+      shopRevenue: 0,
+      shopJobsDone: 0,
+      shopReworks: 0,
+      shopTurnedAway: 0,
+    },
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

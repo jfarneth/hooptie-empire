@@ -526,6 +526,14 @@ describe('setting the house rules', () => {
       minBuyMargin: 0,
       cashFloorLevel: 0,
       financeFloorLevel: 0,
+      // The two later rules are the exception to this test's name, and the
+      // exception is the whole reason it is stated here: there is no "what the
+      // plan desk did before it existed", because it did not exist. A store that
+      // offers cover and sells none is not reproducing an older build, it is a
+      // feature nobody found. What reproduces the older build is
+      // `balance.service.attachRate = 0`, which consumes no RNG at all.
+      servicePlanBand: BALANCE.business.defaults.servicePlanBand,
+      shopRateLevel: BALANCE.business.defaults.shopRateLevel,
     });
     expect(repoThreshold(s)).toBe(BALANCE.repoAfterMissedPayments);
     // Stated as a property rather than as a number: what the two sales floors

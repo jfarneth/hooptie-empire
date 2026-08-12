@@ -15,6 +15,16 @@ import {
 } from '../../sim/margins';
 import { activeNotes } from '../../sim/notes';
 import {
+  SERVICE_PLAN_BANDS,
+  SERVICE_PLAN_LEVELS,
+  attachChance,
+  expectedLossRatio,
+  hasServiceDept,
+  planBandIsOff,
+  planBandMultiplier,
+  planBandName,
+} from '../../sim/service';
+import {
   DEAL_FLOOR_NAMES,
   getStage,
   typicalCarPrice,
@@ -136,8 +146,10 @@ export function BusinessPanel({ state }: { state: GameState }) {
           <Text style={styles.expensesNote}>
             Your bills run {money(bill.total)} a week right now
             {bill.debtService > 0
-              ? ` — ${money(bill.rent + bill.payroll + bill.floorplan)} of costs and ${money(bill.debtService)} to the shark.`
-              : ` (rent ${money(bill.rent)}, payroll ${money(bill.payroll)}, floorplan ${money(bill.floorplan)}).`}
+              ? ` — ${money(bill.total - bill.debtService)} of costs and ${money(bill.debtService)} to the shark.`
+              : ` (rent ${money(bill.rent)}, payroll ${money(bill.payroll)}, floorplan ${money(bill.floorplan)}${
+                  bill.shopPayroll > 0 ? `, the bays ${money(bill.shopPayroll)}` : ''
+                }).`}
           </Text>
           <Slider
             min={0}
@@ -226,6 +238,54 @@ export function BusinessPanel({ state }: { state: GameState }) {
             {Math.round(BALANCE.desk.graceMs / 1000)} seconds and the price is your call, as it
             always was.
           </Text>
+        </View>
+      ) : null}
+
+      {/* --------------------------------------------------- service contracts */}
+      {stage.serviceContracts ? (
+        <View style={{ gap: 8 }}>
+          <Label>What cover costs</Label>
+          <Card style={{ gap: 8 }}>
+            <Row style={{ justifyContent: 'space-between' }}>
+              <Text style={styles.ruleName}>Service contract pricing</Text>
+              <Text
+                style={[
+                  styles.ruleValue,
+                  planBandIsOff(policy.servicePlanBand) && { color: theme.colors.textDim },
+                ]}
+              >
+                {planBandName(policy.servicePlanBand)}
+              </Text>
+            </Row>
+            <Text style={styles.hint}>
+              What a plan costs is the car's risk, not your call — cover on a rough one is dearer
+              because it will be claimed on. What you set is the markup, and the share of buyers who
+              say yes moves against it.
+            </Text>
+            <Slider
+              min={0}
+              max={SERVICE_PLAN_LEVELS}
+              step={1}
+              value={Math.min(policy.servicePlanBand, SERVICE_PLAN_LEVELS)}
+              onChange={(next) => apply((s) => setBusinessPolicy(s, { servicePlanBand: next }))}
+              minLabel={<SliderAnchor value="Don't sell" label="no cover" />}
+              maxLabel={
+                <SliderAnchor
+                  value={SERVICE_PLAN_BANDS[SERVICE_PLAN_LEVELS - 1].name}
+                  label="fewest takers"
+                  align="flex-end"
+                />
+              }
+            />
+            {planBandIsOff(policy.servicePlanBand) ? (
+              <Text style={styles.footnote}>
+                No cover offered. The margin goes with it — and so does the risk: a bad plan costs
+                you half again what it sold for.
+              </Text>
+            ) : (
+              <PlanNote state={state} band={policy.servicePlanBand} />
+            )}
+          </Card>
         </View>
       ) : null}
 
@@ -356,6 +416,42 @@ function MarginRule({
         />
       )}
     </Card>
+  );
+}
+
+/**
+ * What this band means, in the two numbers a player can act on: how many buyers
+ * take it, and what the house keeps if the book behaves.
+ *
+ * The margin quoted is the one the loss ratio implies at THIS band, not the
+ * headline 35% — pricing under cost is a real position on this slider (the
+ * bottom band sits below the loss ratio) and the panel has to say so rather
+ * than quietly reporting the middle band's number everywhere.
+ */
+function PlanNote({ state, band }: { state: GameState; band: number }) {
+  const odds = attachChance(state, band);
+  const multiplier = planBandMultiplier(band);
+  const loss = expectedLossRatio(state);
+  const margin = multiplier > 0 ? 1 - loss / multiplier : 0;
+
+  return (
+    <View style={{ gap: 2 }}>
+      <Text style={styles.footnote}>
+        About {Math.round(odds * 100)} buyers in a hundred take it, and the house keeps roughly{' '}
+        {Math.round(margin * 100)}% of what they pay — averaged over a book, not on any one plan.
+      </Text>
+      {hasServiceDept(state) ? (
+        <Text style={styles.footnote}>
+          Your own bays honour the claims, which is worth fifteen points of that margin. It also
+          means the cheaper bands pay better here than they would without a shop.
+        </Text>
+      ) : null}
+      {margin < 0 ? (
+        <Text style={styles.warning}>
+          Priced under what the claims cost. You are buying customers with your own money.
+        </Text>
+      ) : null}
+    </View>
   );
 }
 

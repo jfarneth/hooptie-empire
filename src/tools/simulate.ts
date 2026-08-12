@@ -13,7 +13,9 @@ import {
   buyListing,
   canAdvanceStage,
   counterOffer,
+  hireServiceTech,
   listForSale,
+  promoteServiceTech,
   purchaseUpgrade,
   setDealPolicy,
   startRecon,
@@ -29,6 +31,8 @@ import { estimatedRetail, estimatedWholesale } from '../sim/appraisal';
 import { portfolioValue, retailValue, wholesaleValue } from '../sim/economy';
 import { acquisitionCeiling, advance, createInitialState, expectedCollections, weeklyExpenses } from '../sim/engine';
 import { activeNotes, canWriteNote, overCapacityFactor } from '../sim/notes';
+import { activePlans } from '../sim/service';
+import { canHireTech, canPromote, hireCost, shopRate } from '../sim/shop';
 import { UPGRADES, canBuyUpgrade, carCapacity, collectionsCapacity, level, upgradeCost } from '../sim/upgrades';
 import {
   DEAL_FLOOR_NAMES,
@@ -61,6 +65,9 @@ const UPGRADE_PRIORITY = [
   'lot',
   'reach',
   'collections',
+  // Bays before the finance-side hires: they are the only line on the table that
+  // pays for itself twice, in labour billed and in claims honoured at cost.
+  'serviceBays',
   'repoMan',
   'underwriting',
   'nightManager',
@@ -300,6 +307,55 @@ function botTurn(state: GameState, appraisal: AppraisalTally, stay = false): Gam
       }
       s = buyListing(s, l.id);
     }
+  }
+
+  // 4b. Staff the bays, and move people up when they have earned it.
+  //
+  // Without this the harness would buy service bays and then measure an empty
+  // building — the same class of blind spot as the retainer buyer's reserve,
+  // which the bot never called and therefore never saw frozen. The bot hires at
+  // ENTRY only and promotes from within, which is the cheap play and therefore
+  // the conservative measurement: a player who buys certified techs in gets more
+  // than this run reports, never less.
+  // STAFF TO THE WORK, NOT TO THE BAYS. The first cut of this filled every bench
+  // and promoted everybody the moment they were eligible, which is the single
+  // worst policy available: a wage is paid whether or not there is a car on the
+  // ramp, and a certified tech who finishes the day's work by lunchtime costs
+  // two and a half times an entry one to do it. Measured, that ran a Halvorsen
+  // shop at -$10.4k a week against a +$6.5k optimum and pushed the premium
+  // franchise out from 210h to 276h — a new revenue stream that made the ladder
+  // SLOWER. Same shape as the bug where the bot rebuilt the office before it
+  // stocked the lot.
+  //
+  // So: hands are added only while work is actually backing up, and speed is
+  // bought only when there is no bench left to add. That is what the panel's
+  // diagnosis line tells a player to do, so the harness and the advice agree.
+  if (getStage(s.stage).shop) {
+    const queued = s.shop.jobs.filter((j) => j.techId === null).length;
+    const idle = s.shop.techs.filter((t) => t.jobId === null).length;
+    if (queued > 0 && idle === 0) {
+      if (canHireTech(s) && s.cash - hireCost(getStage(s.stage), 0) > float) {
+        s = hireServiceTech(s, 0);
+      } else {
+        // Every bay is full and the queue is still growing: buy throughput.
+        // One at a time, so the wage bill climbs only as fast as the work does.
+        const ready = s.shop.techs.find((t) => canPromote(t));
+        if (ready) s = promoteServiceTech(s, ready.id);
+      }
+    }
+    // AND IT NEVER FIRES ANYBODY, which was measured rather than assumed. The
+    // obvious other half — let a tech go when the bays are quiet — was tried and
+    // is far worse than the over-staffing it fixes: arrivals are Poisson, so a
+    // three-bench shop is genuinely idle for stretches of every game hour, and a
+    // rule keyed on that oscillates. Each cycle pays a fresh four-week signing
+    // fee and throws away every hour the departing tech had banked, so nobody
+    // ever certifies. Measured at 8 seeds over 350h it took the midsize
+    // franchise from 42h to 109h, never reached the premium store at all, and
+    // ended $31.7M in the hole with a 7.5% comeback rate.
+    //
+    // Which is worth knowing as a PLAYER-FACING fact and not just a harness one:
+    // letting somebody go throws away their experience, so a shop is cheaper to
+    // slightly over-staff than to manage tightly.
   }
 
   // 5. Reinvest — but stop and save once the next store is genuinely in reach,
@@ -776,6 +832,57 @@ async function main() {
   const written = median((s) => s.stats.financeDeals);
   if (written > 0) {
     console.log(`  default rate       ${((defaults / written) * 100).toFixed(1).padStart(11)}%`);
+  }
+
+  /**
+   * The plan desk, pooled rather than medianed.
+   *
+   * THE LOSS RATIO IS THE ONLY NUMBER THAT MATTERS HERE, and it is pooled
+   * because it is a property of a book of contracts rather than of a run: a
+   * per-seed median over a handful of plans would be dominated by whether that
+   * seed happened to draw a gearbox. Read it against `targetLossRatio` — a book
+   * running well under it has a `capRecovery` that has drifted, and one running
+   * over it is a product being sold at a loss.
+   *
+   * Note the ratio measured mid-run is FLATTERED, and by construction rather
+   * than by accident: plans sold in the last few game months have taken the
+   * money and not yet had time to be claimed on. It converges from below.
+   */
+  const plansSold = finals.reduce((n, s) => n + s.stats.plansSold, 0);
+  if (plansSold > 0) {
+    const income = finals.reduce((n, s) => n + s.stats.planIncome, 0);
+    const paid = finals.reduce((n, s) => n + s.stats.planPayouts, 0);
+    const live = finals.reduce((n, s) => n + activePlans(s.serviceContracts).length, 0);
+    console.log(
+      `  service plans      ${String(plansSold).padStart(12)}  (${(live / seeds).toFixed(0)} live, ${fmtMoney(income / seeds)} taken)`,
+    );
+    console.log(
+      `  plan loss ratio    ${((paid / Math.max(1, income)) * 100).toFixed(1).padStart(11)}%` +
+        `  (target ${(BALANCE.service.targetLossRatio * 100).toFixed(0)}%, still filling)`,
+    );
+  }
+
+  /**
+   * The service department.
+   *
+   * `turned away` is the one to read first. A shop with a high count is short of
+   * BENCHES and the fix is a bay; a shop with a low count and idle techs is
+   * charging too much and the fix is the rate slider. The cash line alone cannot
+   * tell those two apart, which is the whole reason the counter exists.
+   */
+  const shopJobs = finals.reduce((n, s) => n + s.stats.shopJobsDone, 0);
+  if (shopJobs > 0) {
+    const revenue = finals.reduce((n, s) => n + s.stats.shopRevenue, 0);
+    const rework = finals.reduce((n, s) => n + s.stats.shopReworks, 0);
+    const away = finals.reduce((n, s) => n + s.stats.shopTurnedAway, 0);
+    const techs = finals.reduce((n, s) => n + s.shop.techs.length, 0);
+    console.log(
+      `  shop revenue       ${fmtMoney(revenue / seeds).padStart(12)}  (${(shopJobs / seeds).toFixed(0)} jobs, ${(techs / seeds).toFixed(1)} techs)`,
+    );
+    console.log(
+      `  shop rework        ${((rework / shopJobs) * 100).toFixed(1).padStart(11)}%` +
+        `  turned away ${((away / Math.max(1, away + shopJobs)) * 100).toFixed(0)}%`,
+    );
   }
 
   /**
