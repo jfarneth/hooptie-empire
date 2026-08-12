@@ -15,6 +15,7 @@ import {
 import { SKILLS } from '../../sim/skills';
 import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
+import { ADMIN_ENABLED } from '../devTools';
 import { money, moneyShort, theme } from '../theme';
 import { HUD_HEIGHT } from '../components/Hud';
 import { Button, Chip, Label, Row } from '../components/ui';
@@ -43,6 +44,16 @@ const TAB_LABEL: Record<OfficeTab, string> = {
 };
 
 /**
+ * The tabs this build actually has. Admin is a development tool rather than a
+ * feature — see `ADMIN_ENABLED` — and it is filtered out of the row here rather
+ * than rendered disabled, because a visible tab that does nothing teaches
+ * players to stop tapping. Same argument the promotion tray makes.
+ */
+const OFFICE_TABS = (Object.keys(TAB_LABEL) as OfficeTab[]).filter(
+  (id) => id !== 'admin' || ADMIN_ENABLED,
+);
+
+/**
  * The office: the things that are true about the business rather than about any
  * one car. What money buys, what the work has taught you, the rules the place
  * runs under while you are not in it — and, on the last tab, the constants the
@@ -63,7 +74,7 @@ export function UpgradesScreen({ state }: { state: GameState }) {
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.tabs}>
-        {(Object.keys(TAB_LABEL) as OfficeTab[]).map((id) => (
+        {OFFICE_TABS.map((id) => (
           <Button
             key={id}
             label={TAB_LABEL[id]}
@@ -90,7 +101,7 @@ export function UpgradesScreen({ state }: { state: GameState }) {
         <ServicePanel state={state} />
       ) : tab === 'retire' ? (
         <RetirePanel state={state} />
-      ) : tab === 'admin' ? (
+      ) : tab === 'admin' && ADMIN_ENABLED ? (
         <AdminPanel state={state} />
       ) : (
         <>

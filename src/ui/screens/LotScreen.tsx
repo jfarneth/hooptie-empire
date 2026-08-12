@@ -89,9 +89,16 @@ export function LotScreen({ state }: { state: GameState }) {
         <View style={styles.below}>
           {held === 0 ? (
             <Card>
+              {/* Says what the feed says. This read "look for anything priced
+                  under wholesale" for a long time, which is the rule the buyer
+                  was fixed for NOT following — the ask band straddles retail
+                  break-even on purpose, so under-wholesale describes a sliver
+                  of a feed the store's own economy calls profitable. It was the
+                  first instruction a new player ever got. */}
               <Text style={styles.hint}>
                 Nothing on the lot yet. Head to <Text style={styles.hintStrong}>Buy</Text> and pick
-                something up — look for anything priced under wholesale.
+                something up — <Text style={styles.hintStrong}>est. vs retail</Text> is what a car
+                should make you, and it is a range because condition is only ever an estimate.
               </Text>
             </Card>
           ) : null}

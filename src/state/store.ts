@@ -51,6 +51,12 @@ interface GameStore {
   state: GameState | null;
   ready: boolean;
   awaySummary: AwaySummary | null;
+  /**
+   * True when `load` found no save and dealt a fresh opening hand. The coach
+   * marks read this: somebody with forty hours on the book does not need the
+   * game explained to them just because the build that added it shipped.
+   */
+  isNewGame: boolean;
   /** Real wall-clock ms at the last tick, for computing true elapsed time. */
   lastTickAt: number;
 
@@ -77,13 +83,19 @@ export const useGame = create<GameStore>((set, get) => ({
   state: null,
   ready: false,
   awaySummary: null,
+  isNewGame: false,
   lastTickAt: Date.now(),
 
   load: async () => {
     const { state: loaded, elapsedMs } = await readSave();
 
     if (!loaded) {
-      set({ state: createInitialState(makeSeed(), Date.now()), ready: true, lastTickAt: Date.now() });
+      set({
+        state: createInitialState(makeSeed(), Date.now()),
+        ready: true,
+        isNewGame: true,
+        lastTickAt: Date.now(),
+      });
       return;
     }
 
@@ -127,7 +139,7 @@ export const useGame = create<GameStore>((set, get) => ({
       };
     }
 
-    set({ state: next, ready: true, awaySummary: summary, lastTickAt: Date.now() });
+    set({ state: next, ready: true, isNewGame: false, awaySummary: summary, lastTickAt: Date.now() });
   },
 
   tick: () => {
