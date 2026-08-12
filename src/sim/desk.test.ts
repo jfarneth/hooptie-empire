@@ -301,8 +301,8 @@ describe('the grab window against a buyer\'s patience', () => {
    * is deliberate and it is the reason this test exists rather than a comment.
    */
   it('leaves the desk time to reach even the least patient buyer', () => {
-    // The shortest life `generateProspect` can draw — see its `expiresAt`.
-    const shortestPatience = BALANCE.prospectLifetimeMs * 0.7;
+    // Patience is flat now — see `generateProspect`'s `expiresAt`.
+    const shortestPatience = BALANCE.prospectLifetimeMs;
     // Strictly less, and by at least the tick the desk needs to act on.
     expect(BALANCE.desk.graceMs + TICK_MS).toBeLessThanOrEqual(shortestPatience);
   });
@@ -316,7 +316,7 @@ describe('the grab window against a buyer\'s patience', () => {
   it('still closes a walk-up who is on the shortest fuse in the game', () => {
     const { s, prospect } = lotWithWalkUp();
     const live = s.prospects.find((p) => p.id === prospect.id)!;
-    live.expiresAt = live.arrivedAt + BALANCE.prospectLifetimeMs * 0.7;
+    live.expiresAt = live.arrivedAt + BALANCE.prospectLifetimeMs;
 
     const after = advance(s, BALANCE.prospectLifetimeMs);
     expect(after.stats.carsSold).toBe(s.stats.carsSold + 1);

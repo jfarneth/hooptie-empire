@@ -131,7 +131,7 @@ export const TUNABLES: readonly TunableDef[] = [
 
   // ----------------------------------------------------------------- the desk
   { path: 'balance.desk.graceMs', label: 'Grab window before staff close', group: 'The desk', kind: 'ms', min: 0, max: 60_000,
-    help: 'How long you have to take a walk-up yourself and keep the staff\u2019s cut. 30s is as high as this safely goes \u2014 the least patient buyer leaves at 31.5s, and past that the impatient tail walks off unserved.' },
+    help: 'How long you have to take a walk-up yourself and keep the staff\u2019s cut. Must stay under buyer patience (45s) or customers walk off unserved.' },
 
   // -------------------------------------------------------------- negotiation
   { path: 'balance.negotiation.fullPriceChance', label: 'Pays full price without haggling', group: 'Negotiation', kind: 'percent', min: 0, max: 1 },

@@ -91,13 +91,11 @@ export const BALANCE = {
      * therefore how long the player has to grab the deal and keep the whole
      * margin. The incentive for active play, in milliseconds.
      *
-     * THIS IS AS HIGH AS IT CAN SAFELY GO. Prospect patience is 45s +/-30%, so
-     * the least patient buyer in the game leaves at 31.5s: at 30s the desk gets
-     * its shot with about a second and a half to spare, and it resolves a whole
-     * haggle inside one tick, so nothing is lost. Push it past ~31s and the
-     * impatient tail starts walking off the lot unserved — which costs the sale
-     * outright rather than moving who closes it, and offline that is the entire
-     * night's takings for those buyers.
+     * MUST STAY UNDER PATIENCE. Prospect patience is a flat 45s (no jitter —
+     * every customer runs the identical clock), and `stepProspects` sweeps the
+     * expired before the desk acts, so a window at or past 45s does not move
+     * who closes the deal, it deletes the deal. At 30s the desk gets its shot
+     * with a comfortable margin and resolves the whole haggle inside one tick.
      *
      * Raised from 20s: half a minute is a realistic amount of time to notice a
      * buyer, open the sheet and work the slider, where 20s rewarded reflexes

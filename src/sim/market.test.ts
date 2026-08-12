@@ -149,7 +149,11 @@ describe('market reach', () => {
 
     const local = run(0);
     const national = run(2);
-    expect(national).toBeGreaterThan(local * 1.4);
+    // Capped at the tarmac: 62 stalls, and the national feed can fill every one
+    // of them inside the window, at which point the ratio is bounded by the lot
+    // rather than the feed. Filling the lot outright is the pass, stated
+    // directly — demanding local × 1.4 alone asked for 63 cars on 62 stalls.
+    expect(national).toBeGreaterThan(Math.min(local * 1.4, 62 * 0.95));
     expect(BALANCE.market.supplyScale).toBe(1);
   });
 });

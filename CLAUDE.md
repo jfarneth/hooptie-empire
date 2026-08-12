@@ -107,19 +107,17 @@ taps while the app is closed, so overnight sales all pay the cut, and the
 measured wake-up at a curbstone fell from $1.09M to $526k — the "sleep past two
 stores" bug, dead. `docs/offline-plan.md` is the full measurement record.
 
-**Thirty seconds is the ceiling, and the constant that sets it lives in another
-section of `balance.ts`.** Prospect patience is 45s ±30%, so the least patient
-buyer in the game leaves at 31.5s — and `stepProspects` sweeps the expired
-*before* `stepAutomation` runs the desk. A window at or past that floor does not
-change who closes the deal, it deletes the deal: nobody serves that buyer at
-all, and offline it is the whole night's takings for the impatient tail. Two
-tests in `desk.test.ts` hold the line, one on the inequality and one on the
-behaviour, and both go red at 32s. The window was 20s and is 30s because half a
-minute is long enough to notice a buyer, open the sheet and work the slider,
-where 20s rewarded reflexes. **The harness cannot see this change at all** — the
-bot closes on its own turn whether the window is 20s or 30s, so a continuous run
-diffs byte-identically; the only thing the window could have moved is buyers
-expiring in the gap, which is the thing those two tests forbid.
+**Every customer runs the identical clock, and the grace window must stay under
+it.** Prospect patience is a flat 45s — the ±30% jitter is gone, because the one
+timer the player races should not feel arbitrary — and `stepProspects` sweeps
+the expired *before* `stepAutomation` runs the desk. A grace window at or past
+45s does not change who closes the deal, it deletes the deal: nobody serves that
+buyer at all, and offline it is the whole night's takings. Two tests in
+`desk.test.ts` hold the line, one on the inequality and one on the behaviour.
+The window was 20s and is 30s because half a minute is long enough to notice a
+buyer, open the sheet and work the slider, where 20s rewarded reflexes. **The
+harness cannot see the window at all** — the bot closes on its own turn whatever
+it is set to.
 
 **A walk-up's offer is colour-coded on the lot: red lowball, amber ordinary,
 green near your ask.** `readOffer` in `haggle.ts` is the whole of it, and the

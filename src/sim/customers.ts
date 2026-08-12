@@ -5,7 +5,7 @@ import { getStage } from './stages';
 import { mintId } from './ids';
 import { customerName } from './models';
 import { buildTerms } from './notes';
-import { intRange, nextFloat, pickWeighted, range } from './rng';
+import { intRange, pickWeighted, range } from './rng';
 import type { Car, CreditTier, GameState, Millis, Prospect, RngState } from './types';
 
 const TIERS: readonly CreditTier[] = ['A', 'B', 'C', 'D'];
@@ -76,7 +76,12 @@ export function generateProspect(
     // the desk's grace window counts from this.
     arrivedAt: now,
     claimed: false,
-    expiresAt: now + BALANCE.prospectLifetimeMs * (0.7 + nextFloat(rng) * 0.6),
+    // Flat, no jitter: every customer runs the identical clock. 30s for the
+    // player (desk.graceMs), the desk closes on the next tick, and one the desk
+    // cannot serve leaves at exactly this. It used to be ±30%, which made the
+    // one timer the player races feel arbitrary — and the jittered floor
+    // (31.5s) is what capped the grace window so tightly.
+    expiresAt: now + BALANCE.prospectLifetimeMs,
   };
 }
 
