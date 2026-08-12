@@ -131,10 +131,14 @@ export const TUNABLES: readonly TunableDef[] = [
 
   // ----------------------------------------------------------------- the desk
   { path: 'balance.desk.graceMs', label: 'Grab window before staff close', group: 'The desk', kind: 'ms', min: 0, max: 60_000,
-    help: 'How long you have to take a walk-up yourself and keep the staff\u2019s cut. Above ~30s the slowest buyers leave before the desk reaches them.' },
+    help: 'How long you have to take a walk-up yourself and keep the staff\u2019s cut. 30s is as high as this safely goes \u2014 the least patient buyer leaves at 31.5s, and past that the impatient tail walks off unserved.' },
 
   // -------------------------------------------------------------- negotiation
   { path: 'balance.negotiation.fullPriceChance', label: 'Pays full price without haggling', group: 'Negotiation', kind: 'percent', min: 0, max: 1 },
+  { path: 'balance.negotiation.offerRead.strong', label: 'Buyer reads green at', group: 'Negotiation', kind: 'ratio', min: 0.5, max: 1.2,
+    help: 'Share of your ask at which a walk-up is drawn green on the lot. A read, not a rule \u2014 it changes no price.' },
+  { path: 'balance.negotiation.offerRead.fair', label: 'Buyer reads red below', group: 'Negotiation', kind: 'ratio', min: 0.3, max: 1.1,
+    help: 'Below this share of your ask the walk-up is drawn red. Between the two they are amber.' },
   { path: 'balance.negotiation.maxOpeningDiscount', label: 'Deepest opening discount', group: 'Negotiation', kind: 'percent', min: 0, max: 0.9 },
   { path: 'balance.negotiation.roomMean', label: 'Haggling room, mean', group: 'Negotiation', kind: 'ratio', min: 0, max: 1,
     help: 'Where the hidden reservation sits between their offer and your ask.' },

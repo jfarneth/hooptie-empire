@@ -39,6 +39,28 @@ export const TIER_COLOR: Record<string, string> = {
 };
 
 /**
+ * How an offer reads at a glance: red lowball, amber ordinary, green near the
+ * sticker. See `readOffer` in haggle.ts for where the bands are and why.
+ *
+ * These ARE the semantic money/warn/danger colours rather than a fourth ramp,
+ * and that is deliberate — unlike a trim grade, an offer is a thing that is
+ * good or bad for the business, which is exactly what those three already mean
+ * everywhere else in the game.
+ */
+export const OFFER_COLOR: Record<string, string> = {
+  lowball: '#e0685a',
+  fair: '#e3b341',
+  strong: '#4ec97e',
+};
+
+/** What the colour says, for the screen reader and the legend. */
+export const OFFER_LABEL: Record<string, string> = {
+  lowball: 'lowball',
+  fair: 'a fair offer',
+  strong: 'near your ask',
+};
+
+/**
  * The colour a car fades toward as it wears out, and how far.
  *
  * Exported because two renderers have to agree on it: the vector drawing blends

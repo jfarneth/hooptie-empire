@@ -6,6 +6,7 @@ import {
   deskCounter,
   humanizePrice,
   openNegotiation,
+  readOffer,
   resolveCounter,
   roundingIncrement,
 } from './haggle';
@@ -97,6 +98,65 @@ describe('opening offers', () => {
       expect(n.reservation).toBeGreaterThanOrEqual(n.openingOffer - 0.001);
       expect(n.reservation).toBeLessThanOrEqual(n.anchor + 0.001);
     }
+  });
+});
+
+describe('reading an offer at a glance', () => {
+  it('splits at the two thresholds, against the ask', () => {
+    const ask = 10_000;
+    expect(readOffer(ask, ask)).toBe('strong');
+    expect(readOffer(ask * CFG.offerRead.strong, ask)).toBe('strong');
+    expect(readOffer(ask * (CFG.offerRead.strong - 0.001), ask)).toBe('fair');
+    expect(readOffer(ask * CFG.offerRead.fair, ask)).toBe('fair');
+    expect(readOffer(ask * (CFG.offerRead.fair - 0.001), ask)).toBe('lowball');
+    expect(readOffer(0, ask)).toBe('lowball');
+  });
+
+  /**
+   * ALL THREE COLOURS HAVE TO TURN UP, or the lot has painted itself one shade
+   * and taught the player to stop looking. Measured against offers the real
+   * negotiation model opens with rather than against the thresholds restated —
+   * the same trap `financeGrossMultiple` fell into, where a derivation tested
+   * against itself agreed with a broken value by construction.
+   */
+  it('paints all three colours across the offers the model actually opens with', () => {
+    const rng = createRng(4242);
+    const seen: Record<string, number> = { lowball: 0, fair: 0, strong: 0 };
+    for (let i = 0; i < 4_000; i++) {
+      const n = openNegotiation(rng, 12_500, 1, BASE_HAGGLE_SKILL);
+      seen[readOffer(n.openingOffer, n.anchor)] += 1;
+    }
+    // A tenth of the lot at the least, or the colour is decoration.
+    for (const read of ['lowball', 'fair', 'strong']) {
+      expect(seen[read] / 4_000).toBeGreaterThan(0.1);
+    }
+    // Amber is the ordinary case, which is what makes red and green mean
+    // something when they show up.
+    expect(seen.fair).toBeGreaterThan(seen.strong);
+    expect(seen.fair).toBeGreaterThan(seen.lowball);
+  });
+
+  /**
+   * The read is against YOUR ASK, so an optimistic sticker really does draw
+   * redder buyers — the overpricing lowball and the colour are the same fact
+   * seen twice, and that is the property that keeps the signal honest when the
+   * player reprices a car rather than making it a fixed opinion about the car.
+   */
+  it('turns a lot redder when the sticker goes up', () => {
+    const count = (overpricing: number) => {
+      const rng = createRng(808);
+      let red = 0;
+      for (let i = 0; i < 2_000; i++) {
+        const n = openNegotiation(rng, 12_500, overpricing, BASE_HAGGLE_SKILL);
+        if (readOffer(n.openingOffer, n.anchor) === 'lowball') red += 1;
+      }
+      return red;
+    };
+    expect(count(1.4)).toBeGreaterThan(count(1.0));
+  });
+
+  it('reads an unpriced car as ordinary rather than dividing by zero', () => {
+    expect(readOffer(5_000, 0)).toBe('fair');
   });
 });
 

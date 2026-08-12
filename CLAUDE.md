@@ -100,12 +100,39 @@ the minus sign; what he keeps is a schedule nothing but retirement stops.
 **Sales staff work for a cut.** The `salesDesk` upgrade is the curbstone
 **business partner** (no salary, 50% of profit on deals he closes) and the
 salaried **sales manager** above (thinning cut per stage, in `STAGES[].desk`).
-Staff wait out a 20-second grace window (`BALANCE.desk.graceMs`) before closing
+Staff wait out a 30-second grace window (`BALANCE.desk.graceMs`) before closing
 any walk-up — grab the deal yourself inside it and every dollar is yours. That
 one asymmetry is both the active-play incentive and the offline brake: nobody
 taps while the app is closed, so overnight sales all pay the cut, and the
 measured wake-up at a curbstone fell from $1.09M to $526k — the "sleep past two
 stores" bug, dead. `docs/offline-plan.md` is the full measurement record.
+
+**Thirty seconds is the ceiling, and the constant that sets it lives in another
+section of `balance.ts`.** Prospect patience is 45s ±30%, so the least patient
+buyer in the game leaves at 31.5s — and `stepProspects` sweeps the expired
+*before* `stepAutomation` runs the desk. A window at or past that floor does not
+change who closes the deal, it deletes the deal: nobody serves that buyer at
+all, and offline it is the whole night's takings for the impatient tail. Two
+tests in `desk.test.ts` hold the line, one on the inequality and one on the
+behaviour, and both go red at 32s. The window was 20s and is 30s because half a
+minute is long enough to notice a buyer, open the sheet and work the slider,
+where 20s rewarded reflexes. **The harness cannot see this change at all** — the
+bot closes on its own turn whether the window is 20s or 30s, so a continuous run
+diffs byte-identically; the only thing the window could have moved is buyers
+expiring in the gap, which is the thing those two tests forbid.
+
+**A walk-up's offer is colour-coded on the lot: red lowball, amber ordinary,
+green near your ask.** `readOffer` in `haggle.ts` is the whole of it, and the
+bands (0.87 and 0.93 of the ask) are measured rather than picked round — with
+cars listed at retail the opening offer runs 0.80–1.00 with a median of 0.895,
+so that splits about 33/47/20 and amber is the ordinary case. It is a READ, not
+a rule: nothing in the sim consults it and no price moves. Two things about it
+worth keeping. It is measured **against your ask**, so overpricing a car really
+does draw redder buyers — the overpricing lowball and the colour are the same
+fact seen twice — and it is deliberately **not** a function of profit, which
+would go green on a car you stole whatever the buyer was doing. The deal sheet
+paints the cash headline the same three colours, so the thing that made you walk
+over means one thing on both screens.
 
 **How long a car sits is a property of the STORE, not of the game.**
 `STAGES[].trafficPerCar` is walk-up traffic per listed car, 1.0 at the curbstone
@@ -711,7 +738,7 @@ change can actually move what they measure.
 | anything stage-, margin- or ladder-shaped | plus the whole ladder (~2m45s) |
 
 ```bash
-npm test        # 381 tests, ~8s
+npm test        # 388 tests, ~8s
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~3s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2m45s

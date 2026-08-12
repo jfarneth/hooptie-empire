@@ -141,6 +141,41 @@ export function openNegotiation(
 }
 
 /**
+ * HOW AN OFFER READS AT A GLANCE: a lowball, an ordinary offer, or as close to
+ * the sticker as this business gets.
+ *
+ * This exists because the lot is a scene rather than a list. At a franchise
+ * there can be thirty buyers on screen at once, every one of them a figure
+ * beside a car, and the only way to tell a $91,000 offer from a $78,000 one was
+ * to open thirty deal sheets. A colour on the shopper turns that into a glance,
+ * which is what the lot screen is for.
+ *
+ * MEASURED AGAINST THE ASK, not against retail or cost, for two reasons. It is
+ * the number the player set and the number on the windscreen, so the comparison
+ * is one they can make standing there — the "what a real operator could know"
+ * line, and this side of it by a mile, because the customer said the number out
+ * loud. And it stays honest under a repriced car: overpricing already pushes
+ * opening offers down as a share of the ask (see `openNegotiation`), so a car
+ * with an optimistic sticker really does draw redder buyers.
+ *
+ * Deliberately NOT a function of profit. A read denominated in margin would go
+ * green on a car you stole and red on one you overpaid for, whatever the buyer
+ * in front of you was doing — which is a fact about the purchase, is already on
+ * the deal sheet in dollars, and is not what "is this a good offer" means with
+ * somebody standing at the bonnet.
+ */
+export type OfferRead = 'lowball' | 'fair' | 'strong';
+
+export function readOffer(offer: number, anchor: number): OfferRead {
+  // A car with no ask cannot be lowballed. Reads as ordinary rather than
+  // dividing by zero and painting the whole lot one colour.
+  if (!(anchor > 0)) return 'fair';
+  const ratio = offer / anchor;
+  if (ratio >= CFG.offerRead.strong) return 'strong';
+  return ratio >= CFG.offerRead.fair ? 'fair' : 'lowball';
+}
+
+/**
  * Odds this buyer accepts a counter at `counter`.
  *
  * Monotonically non-increasing in `counter` — asking for more can never make
