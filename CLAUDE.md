@@ -966,19 +966,27 @@ is the pure read over them and `docs`-free because the rules are short:
   one produces a car with `undefined` where its ledger should be and every figure
   downstream reads NaN.
 
-**Reports is a new Office tab, and the line against Business is levers against
-readouts.** Business is the five house rules — things you set, that the place
-then runs under while you are away. Reports is what that produced. The Business
-panel was already the longest screen in the game before a table of sixty cars
-went anywhere near it, and the index shape means the next report (the ledger,
-plan performance) is one card and one component and touches nothing else. The
-weekly books live there too, alongside the HUD readout that already opened them.
+**THE HUD IS THE ONLY WAY IN, and the office tab that used to hold an index of
+these is gone.** The lot counter opens the ageing report exactly as the margin
+readout opens the books, and both are the same move: the HUD shows a LEVEL, and
+one tap gets you the thing behind it. How full is not the same question as how
+long it has been full, and a lot pinned at capacity for a week is either a
+healthy business or a stall nobody wants — which the count cannot tell you on
+its own.
 
-**The HUD's lot counter opens it, exactly as the margin readout opens the
-books.** How full is not the same question as how long it has been full, and a
-lot pinned at capacity for a week is either a healthy business or a stall nobody
-wants. Office → Reports is where you go looking for the report; the HUD is where
-you notice it.
+A Reports tab shipped first, on a levers-against-readouts argument that is still
+right about what belongs in the office and was wrong about where a readout goes.
+Both reports already hung off the HUD, so the index was a third click to reach
+something two taps away on every screen in the game, and a second front door to
+a room that already had one. What is left in the office is what money buys, what
+the work has taught you, and the rules the place runs under — things you go
+there to CHANGE. Things you go to LOOK at live on the glass above every screen.
+
+The cost of deleting it is discoverability, which is what the caret beside the
+count is for. The book readout next to it does not have one and must not get
+one: a caret is the difference between a number and a door, and it means nothing
+if every number wears one. A future report needs a level on the HUD to hang off,
+or it needs the index back — not a third pattern.
 
 **A row opens the car**, through `CarSheetHost` — the five action callbacks
 `CarSheet` needs, wired once, so a second surface cannot open it with a subtly
