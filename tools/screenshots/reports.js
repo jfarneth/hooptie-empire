@@ -128,6 +128,37 @@ async function main() {
   await page.getByRole('button', { name: /on the lot$/ }).first().click();
   await page.waitForTimeout(700);
   await shoot('car-from-report');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
+  // Drop focus before the next shot. A clicked row keeps the browser's focus
+  // ring, which is a white outline sitting exactly where the buyer border goes
+  // — on a phone it does not exist at all, and in a screenshot it looks like
+  // the feature is painting the wrong colour.
+  await page.evaluate(() => document.activeElement?.blur?.());
+  await page.waitForTimeout(200);
+
+  // A row with a buyer on it takes the offer's colour and opens the DEAL. The
+  // game is ticking, so this is a matter of waiting for one to walk up rather
+  // than of arranging one — a walk-up's patience is 45 seconds and the desk
+  // takes it after 30, so the window is real but it comes around often.
+  const buyerRow = page.getByRole('button', { name: /Open the deal\.$/ }).first();
+  try {
+    await buyerRow.waitFor({ timeout: 90_000 });
+    await shoot('ageing-buyer');
+    // And the row itself, which is usually below the fold — that is the whole
+    // reason the pills are pinned above the table rather than left to the
+    // border alone.
+    // A wheel, not scrollIntoViewIfNeeded: the sheet's scroller is a React
+    // Native ScrollView and Playwright decides the row is already "in view".
+    await page.mouse.wheel(0, 700);
+    await page.waitForTimeout(400);
+    await shoot('ageing-buyer-row');
+    await buyerRow.click();
+    await page.waitForTimeout(800);
+    await shoot('deal-from-report');
+  } catch {
+    console.log('  (no walk-up inside 90s — buyer rows not photographed)');
+  }
 
   await browser.close();
   server.close();

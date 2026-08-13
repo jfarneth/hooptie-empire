@@ -775,7 +775,8 @@ must keep doing:
   stall lands on the tail of the car in the row in front, which put price tags on
   the wrong cars until it was caught in a screenshot.
 
-**A car with a buyer standing at it opens the DEAL, not the car.** Tapping a
+**A car with a buyer standing at it opens the DEAL, not the car**, on the lot
+and in the ageing report alike. Tapping a
 parked car normally opens the inventory sheet; while a prospect is beside it,
 the same tap opens the deal sheet instead. Two reasons, and both matter: the
 shopper figure is a ~30px target next to a car that fills its stall, so the
@@ -943,8 +944,41 @@ count is from PURCHASE and the car sheet's is from LISTING**, which is a real
 difference — time in the shop — and the footnote reconciles them rather than
 leaving "60d" and "57 days on the lot" a tap apart with no explanation.
 
+**A ROW WITH A BUYER ON IT OPENS THE DEAL, NOT THE CAR**, painted the colour of
+what they are offering. That is the rule the lot already followed and the same
+three `readOffer` colours, so the thing that makes you walk over means one thing
+on three screens now. It is also the honest answer to what an inventory sheet is
+for: you cannot reprice, unlist or wholesale a car with a customer looking over
+the wing.
+
+- **THE BORDER MEANS EXACTLY ONE THING, and old stock had to give it up.** A
+  stale row used to carry a border too, in `accentDim`; a fair offer is
+  `warn`. Two rows outlined in nearly the same amber meaning two completely
+  different things, with the third line the only way to tell — the same class of
+  mistake as the repossession banner's "Carrying". Staleness says itself through
+  the day count, which is already in the warning colour and is the number the
+  player is reading anyway.
+- **The table's order does not move for a buyer.** They are pinned in their own
+  strip above it instead, as tappable pills. A premium lot draws walk-ups
+  constantly and rows inserting above the one you are reading would shove the
+  report out from under your thumb every few seconds — and a buyer is not a fact
+  about your inventory to be sorted alongside the others, it is a customer with
+  a 45-second clock on them. The strip also solves the real problem the border
+  alone does not: on a 46-car lot the coloured row is usually below the fold.
+- **`DealSheetHost` exists for a sharper reason than `CarSheetHost` does.**
+  Opening a deal CLAIMS it and closing it RELEASES it; a second surface that
+  opened the sheet without claiming would hand that walk-up back to the sales
+  desk mid-negotiation, silently and only sometimes, which is not a bug anybody
+  finds by looking. `useOpenDeal` is exported beside it because the two halves
+  are one contract.
+- **A colour is a glance, not the information.** The lot can afford colour alone
+  — there is nowhere on a 34px sprite to write "a fair offer" — but a report is
+  fifteen near-identical outlines, so rows carry an `OFFER_CHIP`
+  (LOWBALL / FAIR / NEAR ASK) and the screen reader gets `OFFER_LABEL`.
+
 `tools/screenshots/reports.js` is how any of this gets reviewed, and it found
-what a test could not: the same word meaning two things on one screen. The car
+what a test could not: the same word meaning two things on one screen, and then
+the stale border colliding with the fair-offer one. The car
 sheet's repossession banner quoted the basis and called it "Carrying" while the
 cost trail underneath called floorplan interest "carrying" — $41,022 and $1,313,
 both correct, both labelled the same. It names what the customer paid back now,

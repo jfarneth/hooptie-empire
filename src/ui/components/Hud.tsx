@@ -9,6 +9,7 @@ import type { GameState } from '../../sim/types';
 import { formatMargin, marginColor, money, moneyShort, theme } from '../theme';
 import { BooksSheet } from './BooksSheet';
 import { CarSheetHost } from './CarSheetHost';
+import { DealSheetHost, useOpenDeal } from './DealSheetHost';
 import { InventoryAgeSheet } from './InventoryAgeSheet';
 
 /**
@@ -30,6 +31,8 @@ export function Hud({ state }: { state: GameState }) {
   const [booksOpen, setBooksOpen] = useState(false);
   const [ageingOpen, setAgeingOpen] = useState(false);
   const [carId, setCarId] = useState<string | null>(null);
+  const [prospectId, setProspectId] = useState<string | null>(null);
+  const openDeal = useOpenDeal(setProspectId);
 
   // Last week that actually closed, never the one in progress: "this week so
   // far" over four sales is noise, and a headline that jumped about every time
@@ -110,9 +113,15 @@ export function Hud({ state }: { state: GameState }) {
         visible={ageingOpen}
         state={state}
         onSelectCar={setCarId}
+        onSelectProspect={openDeal}
         onClose={() => setAgeingOpen(false)}
       />
       <CarSheetHost state={state} carId={carId} onClose={() => setCarId(null)} />
+      <DealSheetHost
+        state={state}
+        prospectId={prospectId}
+        onClose={() => setProspectId(null)}
+      />
     </View>
   );
 }
