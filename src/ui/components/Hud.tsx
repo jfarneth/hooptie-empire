@@ -85,25 +85,34 @@ export function Hud({ state }: { state: GameState }) {
           </View>
         ) : null}
 
-        {/* The lot counter opens the ageing report, exactly as the margin
-            readout opens the books. Both are the same move: the HUD shows a
-            level, and one tap gets you the thing behind it — how full is not
-            the same question as how long it has been full, and a lot pinned at
-            capacity for a week is either a healthy business or a stall nobody
-            wants, which this number cannot tell you on its own. It is also
-            where the report belongs for discovery; Office → Reports is where
-            you go looking for it, this is where you notice it. */}
+        {/* THE LOT COUNTER IS THE WAY INTO THE AGEING REPORT, exactly as the
+            margin readout is the way into the books. Both are the same move: the
+            HUD shows a level, and one tap gets you the thing behind it — how
+            full is not the same question as how long it has been full, and a lot
+            pinned at capacity for a week is either a healthy business or a stall
+            nobody wants, which this number cannot tell you on its own.
+
+            It is also the ONLY way in now. The reports had an index in the
+            office for a while and it was a third click to reach something that
+            was already two taps away on every screen in the game. What that
+            costs is discoverability, which is why the count carries a caret and
+            the book beside it does not: the caret is the difference between a
+            number and a door, and on the one readout that is now a door it has
+            to be there. */}
         <Pressable
           onPress={() => setAgeingOpen(true)}
-          hitSlop={8}
+          hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel={`${held} of ${capacity} stalls filled. Open the ageing report.`}
           style={({ pressed }) => [styles.stat, pressed && { opacity: 0.6 }]}
         >
           <Text style={styles.statLabel}>LOT</Text>
-          <Text style={styles.statValue}>
-            {held}/{capacity}
-          </Text>
+          <View style={styles.statRow}>
+            <Text style={styles.statValue}>
+              {held}/{capacity}
+            </Text>
+            <Text style={styles.caret}>›</Text>
+          </View>
           <Text style={styles.statSub}>{state.stats.carsSold} sold</Text>
         </Pressable>
       </View>
@@ -167,6 +176,15 @@ const styles = StyleSheet.create({
   },
   right: { flexDirection: 'row', gap: 16 },
   stat: { alignItems: 'flex-end', gap: 1 },
+  statRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  caret: {
+    color: theme.colors.textFaint,
+    fontSize: 15,
+    fontWeight: '700',
+    // The glyph sits high in its box; nudged so it reads as centred on the
+    // number rather than floating above it.
+    marginTop: -2,
+  },
   statLabel: { color: theme.colors.textFaint, fontSize: 9, fontWeight: '700', letterSpacing: 0.8 },
   statValue: {
     color: theme.colors.text,

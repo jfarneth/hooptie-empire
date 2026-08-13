@@ -1,8 +1,13 @@
 /**
- * Photograph the Reports tab and the inventory ageing report.
+ * Photograph the two reports and the ways into them.
  *
  *   npx expo export --platform web --output-dir /tmp/web
  *   node tools/screenshots/reports.js /tmp/web /tmp/shots [stage]
+ *
+ * Both live behind the HUD — the margin readout opens the books, the lot counter
+ * opens the ageing report — so this drives them from the glass rather than
+ * through the office, which is where they used to have an index and no longer
+ * do.
  *
  * The ageing report is a table of every car on the lot, and the only things
  * that can go wrong with it are things a test cannot see: a row that wraps to
@@ -90,18 +95,11 @@ async function main() {
     console.log(`  ${path.basename(file)}`);
   };
 
-  // The bottom nav is Lot / Buy / Notes / Office. Exact text, because "Buy"
-  // also matches the header "BUY HERE PAY HERE".
-  await page.getByText('Office', { exact: true }).click();
-  await page.waitForTimeout(400);
-  await page.getByText('Reports', { exact: true }).click();
-  await page.waitForTimeout(500);
-  await shoot('index');
+  await shoot('hud');
 
-  // The weekly books, and its departmental tiles — the other half of the
-  // Reports index, and the part that only looks right on a store running all
-  // four lines at once.
-  await page.getByText('Weekly books', { exact: true }).click();
+  // The HUD's margin readout opens the books. Its departmental tiles only look
+  // right on a store running all four lines at once.
+  await page.getByText('NET', { exact: true }).click();
   await page.waitForTimeout(700);
   await shoot('books');
   await page.mouse.wheel(0, 600);
@@ -114,7 +112,9 @@ async function main() {
   await page.waitForTimeout(500);
   await page.evaluate(() => document.activeElement?.blur?.());
 
-  await page.getByText('Inventory ageing', { exact: true }).click();
+  // ...and the lot counter opens the ageing report. By its accessibility label,
+  // because "23/36" is not something a text selector should be matching on.
+  await page.getByRole('button', { name: /stalls filled/ }).click();
   await page.waitForTimeout(700);
   await shoot('ageing');
 
@@ -175,6 +175,22 @@ async function main() {
   } catch {
     console.log('  (no walk-up inside 90s — buyer rows not photographed)');
   }
+
+  // And the office, which is where an index of these used to be. Photographed
+  // because deleting a tab changes how the row above it wraps, and that is a
+  // thing only a screenshot can check.
+  // One Escape per sheet: the deal opens OVER the ageing report and both are
+  // modals, so a single press leaves a backdrop swallowing every click on the
+  // tab bar. The third is a harmless no-op when the buyer branch was skipped.
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(350);
+  }
+  // The bottom nav is Lot / Buy / Notes / Office. Exact text, because "Buy"
+  // also matches the header "BUY HERE PAY HERE".
+  await page.getByText('Office', { exact: true }).click();
+  await page.waitForTimeout(600);
+  await shoot('office');
 
   await browser.close();
   server.close();
