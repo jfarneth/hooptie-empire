@@ -6,6 +6,7 @@ import type { GameState } from '../../sim/types';
 import { formatMargin, marginColor, money, theme } from '../theme';
 import { BooksSheet } from './BooksSheet';
 import { CarSheetHost } from './CarSheetHost';
+import { DealSheetHost, useOpenDeal } from './DealSheetHost';
 import { InventoryAgeSheet } from './InventoryAgeSheet';
 import { Label } from './ui';
 
@@ -28,6 +29,8 @@ type ReportId = 'ageing' | 'books';
 export function ReportsPanel({ state }: { state: GameState }) {
   const [open, setOpen] = useState<ReportId | null>(null);
   const [carId, setCarId] = useState<string | null>(null);
+  const [prospectId, setProspectId] = useState<string | null>(null);
+  const openDeal = useOpenDeal(setProspectId);
 
   const lines = inventoryReport(state);
   const totals = inventoryTotals(lines);
@@ -81,16 +84,23 @@ export function ReportsPanel({ state }: { state: GameState }) {
         visible={open === 'ageing'}
         state={state}
         onSelectCar={setCarId}
+        onSelectProspect={openDeal}
         onClose={() => setOpen(null)}
       />
       <BooksSheet visible={open === 'books'} state={state} onClose={() => setOpen(null)} />
       {/*
-        A sibling of the report rather than a child of it, so the inventory
+        Siblings of the report rather than children of it, so the inventory
         sheet stays open underneath: tapping a six-week-old car, repricing it and
         coming straight back to the next one is the whole workflow this report
-        exists to make possible.
+        exists to make possible. Same for a walk-up — close the deal and the
+        list you were working is still there, with the next buyer on it.
       */}
       <CarSheetHost state={state} carId={carId} onClose={() => setCarId(null)} />
+      <DealSheetHost
+        state={state}
+        prospectId={prospectId}
+        onClose={() => setProspectId(null)}
+      />
     </View>
   );
 }

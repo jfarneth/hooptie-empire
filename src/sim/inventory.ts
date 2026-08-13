@@ -1,5 +1,6 @@
 import { BALANCE, MS_PER_GAME_DAY } from './balance';
 import { carLabel } from './cars';
+import { getModel } from './models';
 import { retailValue, wholesaleValue } from './economy';
 import type { Car, CarStatus, GameState, Millis } from './types';
 
@@ -33,7 +34,10 @@ export type InventorySort = 'age' | 'money' | 'margin' | 'carrying';
 /** One car on the lot, with its whole cost history laid out. */
 export interface InventoryLine {
   car: Car;
+  /** "Halvorsen Pup · 206k" — the name and the odometer, as everything else says it. */
   label: string;
+  /** Just the marque and model, for somewhere too narrow for the odometer. */
+  modelName: string;
   status: CarStatus;
   /** Sim ms since you bought it. */
   ageMs: Millis;
@@ -150,6 +154,7 @@ function line(state: GameState, car: Car): InventoryLine {
   return {
     car,
     label: carLabel(car),
+    modelName: getModel(car.modelId).name,
     status: car.status,
     ageMs: state.t - car.acquiredAt,
     daysHeld: (state.t - car.acquiredAt) / MS_PER_GAME_DAY,

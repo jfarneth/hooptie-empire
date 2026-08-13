@@ -9,9 +9,19 @@ import {
   type InventoryLine,
   type InventorySort,
 } from '../../sim/inventory';
+import { readOffer } from '../../sim/haggle';
 import { carCapacity } from '../../sim/upgrades';
-import type { GameState } from '../../sim/types';
-import { formatMargin, marginColor, money, moneyShort, theme } from '../theme';
+import type { GameState, Prospect } from '../../sim/types';
+import {
+  OFFER_CHIP,
+  OFFER_COLOR,
+  OFFER_LABEL,
+  formatMargin,
+  marginColor,
+  money,
+  moneyShort,
+  theme,
+} from '../theme';
 import { costTrail } from './costTrail';
 import { Sheet } from './Sheet';
 import { Chip, EmptyState, Label } from './ui';
@@ -33,17 +43,21 @@ import { Chip, EmptyState, Label } from './ui';
  *
  * A row is a car and tapping one opens it, because a report you cannot act on
  * is a report that sends you hunting across the lot for the car it just told
- * you about.
+ * you about. A row with a BUYER on it opens the deal instead, painted the
+ * colour of what they are offering — the same rule and the same three colours
+ * the lot uses, so a report of what is sitting is also somewhere you can sell.
  */
 export function InventoryAgeSheet({
   visible,
   state,
   onSelectCar,
+  onSelectProspect,
   onClose,
 }: {
   visible: boolean;
   state: GameState;
   onSelectCar: (carId: string) => void;
+  onSelectProspect: (prospectId: string) => void;
   onClose: () => void;
 }) {
   const [sort, setSort] = useState<InventorySort>('age');
@@ -53,6 +67,35 @@ export function InventoryAgeSheet({
   const lines = useMemo(() => inventoryReport(state, sort), [state, sort]);
   const totals = useMemo(() => inventoryTotals(lines), [lines]);
   const capacity = carCapacity(state);
+
+  // Who is standing at which car, built once rather than searched per row —
+  // the same reason `LotScene` builds this map, and the same arithmetic: at a
+  // premium franchise a row-by-row `find` is forty-six scans of the prospect
+  // list every time the tick moves.
+  const shoppers = useMemo(() => {
+    const byCar = new Map<string, Prospect>();
+    for (const p of state.prospects) if (!byCar.has(p.carId)) byCar.set(p.carId, p);
+    return byCar;
+  }, [state.prospects]);
+
+  /**
+   * The walk-ups, pulled out of the table and pinned above it.
+   *
+   * THE TABLE'S ORDER IS NOT ALLOWED TO MOVE FOR THEM, and this is the reason
+   * the strip exists rather than a buyer floating to the top of the list: a
+   * premium lot draws walk-ups constantly, and rows inserting above the one you
+   * are reading would shove the report out from under your thumb every few
+   * seconds. A buyer is not a fact about your inventory to be sorted alongside
+   * the others — it is a customer with a 45-second clock on them — so it gets
+   * its own line, and the car keeps its place in whatever order you asked for.
+   */
+  const buyers = useMemo(
+    () =>
+      lines
+        .map((line) => ({ line, prospect: shoppers.get(line.car.id) }))
+        .filter((b): b is { line: InventoryLine; prospect: Prospect } => b.prospect != null),
+    [lines, shoppers],
+  );
 
   return (
     <Sheet
@@ -118,10 +161,81 @@ export function InventoryAgeSheet({
             ))}
           </View>
 
+          {/*
+            Only when somebody is actually there. A permanent legend explaining a
+            colour that is absent 90% of the time is the same mistake as a tab
+            that does nothing — and this one is genuinely temporary: a walk-up's
+            patience is 45 seconds flat.
+          */}
+          {buyers.length > 0 ? (
+            <View style={styles.buyers}>
+              <Label>
+                {buyers.length === 1
+                  ? 'A buyer is on the lot right now'
+                  : `${buyers.length} buyers are on the lot right now`}
+              </Label>
+              <View style={styles.buyerPills}>
+                {buyers.map(({ line, prospect }) => {
+                  const read = readOffer(
+                    prospect.negotiation.currentOffer,
+                    prospect.negotiation.anchor,
+                  );
+                  return (
+                    <Pressable
+                      key={prospect.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${line.modelName}, offering ${money(
+                        prospect.negotiation.currentOffer,
+                      )} — ${OFFER_LABEL[read]}. Open the deal.`}
+                      onPress={() => onSelectProspect(prospect.id)}
+                      style={({ pressed }) => [
+                        styles.buyerPill,
+                        { borderColor: OFFER_COLOR[read] },
+                        pressed && { opacity: 0.72 },
+                      ]}
+                    >
+                      <Text style={styles.buyerName} numberOfLines={1}>
+                        {line.modelName}
+                      </Text>
+                      {/* Exact, not compact. This is the number you are about
+                          to accept or counter, and `moneyShort` reports a
+                          $15,500 offer as "$16k" — which then sits one tap away
+                          from a $16,000 counter button on the deal sheet. */}
+                      <Text style={[styles.buyerOffer, { color: OFFER_COLOR[read] }]}>
+                        {money(prospect.negotiation.currentOffer)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={styles.buyerHint}>
+                Red is a lowball, green is near your ask.{' '}
+                {buyers.length === 1
+                  ? 'Their car is outlined the same colour below — tap either one to open the deal.'
+                  : 'Their cars are outlined the same colour below — tap any of them to open the deal.'}
+              </Text>
+            </View>
+          ) : null}
+
           <View style={{ gap: 6 }}>
-            {lines.map((line) => (
-              <CarRow key={line.car.id} line={line} onPress={() => onSelectCar(line.car.id)} />
-            ))}
+            {lines.map((line) => {
+              const buyer = shoppers.get(line.car.id);
+              return (
+                <CarRow
+                  key={line.car.id}
+                  line={line}
+                  buyer={buyer}
+                  // THE BUYER WINS THE TAP. Same rule the lot follows: a car
+                  // with somebody at the bonnet is a deal and not a listing, and
+                  // there is nothing honest you can do on the inventory sheet —
+                  // reprice it, pull it, wholesale it — with a customer looking
+                  // over the wing.
+                  onPress={() =>
+                    buyer ? onSelectProspect(buyer.id) : onSelectCar(line.car.id)
+                  }
+                />
+              );
+            })}
           </View>
 
           {/*
@@ -145,16 +259,47 @@ export function InventoryAgeSheet({
   );
 }
 
-/** One car. Two lines of numbers and a tap target that opens it. */
-function CarRow({ line, onPress }: { line: InventoryLine; onPress: () => void }) {
+/**
+ * One car. Three lines and a tap target.
+ *
+ * THE BORDER MEANS ONE THING: somebody is standing at this car right now, in
+ * the colour of what they are offering. Old stock used to take a border too and
+ * it had to stop — `rowStale` was a dark amber and a fair offer is a bright one,
+ * so two rows outlined in nearly the same colour meant two completely different
+ * things and the only way to tell was to read the third line. Staleness says
+ * itself perfectly well through the day count, which is already in the warning
+ * colour and is the number the player is looking at anyway.
+ */
+function CarRow({
+  line,
+  buyer,
+  onPress,
+}: {
+  line: InventoryLine;
+  buyer: Prospect | undefined;
+  onPress: () => void;
+}) {
   const stale = line.daysHeld >= STALE_DAYS;
+  const read = buyer ? readOffer(buyer.negotiation.currentOffer, buyer.negotiation.anchor) : null;
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${line.label}, ${days(line.daysHeld)} on the lot`}
+      // The colour is a glance, not the information. Screen readers get the
+      // read in words, same as the shopper figure on the lot does.
+      accessibilityLabel={
+        buyer && read
+          ? `${line.label}, buyer offering ${money(buyer.negotiation.currentOffer)} — ${
+              OFFER_LABEL[read]
+            }. Open the deal.`
+          : `${line.label}, ${days(line.daysHeld)} on the lot`
+      }
       onPress={onPress}
-      style={({ pressed }) => [styles.row, stale && styles.rowStale, pressed && { opacity: 0.72 }]}
+      style={({ pressed }) => [
+        styles.row,
+        read && { borderColor: OFFER_COLOR[read], borderWidth: 2, padding: 9 },
+        pressed && { opacity: 0.72 },
+      ]}
     >
       <View style={styles.rowHead}>
         <Text style={styles.rowName} numberOfLines={1}>
@@ -178,11 +323,24 @@ function CarRow({ line, onPress }: { line: InventoryLine; onPress: () => void })
         </Text>
         <View style={{ flex: 1 }} />
         {line.car.repoCount > 0 ? <Chip text="BACK" color={theme.colors.warn} /> : null}
-        <Text style={styles.rowExit}>{exitLabel(line)}</Text>
+        {buyer && read ? (
+          <>
+            <Chip text={OFFER_CHIP[read]} color={OFFER_COLOR[read]} filled />
+            {/* Their number over yours. The ratio between the two IS the
+                colour, so showing one without the other would leave the border
+                unexplained. */}
+            <Text style={[styles.rowExit, { color: OFFER_COLOR[read] }]}>
+              {moneyShort(buyer.negotiation.currentOffer)} of {moneyShort(line.exit)}
+            </Text>
+          </>
+        ) : (
+          <Text style={styles.rowExit}>{exitLabel(line)}</Text>
+        )}
       </View>
     </Pressable>
   );
 }
+
 
 function exitLabel(line: InventoryLine): string {
   if (line.car.status === 'recon') return `in the shop · worth ${moneyShort(line.retail)}`;
@@ -270,6 +428,27 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   diagnosis: { color: theme.colors.textDim, fontSize: 12, lineHeight: 17 },
+  buyers: {
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 10,
+    gap: 7,
+  },
+  buyerPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  buyerPill: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+    borderWidth: 1.5,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  buyerName: { color: theme.colors.text, fontSize: 12, fontWeight: '700' },
+  buyerOffer: { fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  buyerHint: { color: theme.colors.textFaint, fontSize: 11, lineHeight: 15 },
 
   sorts: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   sortChip: {
@@ -291,8 +470,6 @@ const styles = StyleSheet.create({
     padding: 10,
     gap: 3,
   },
-  // Old stock reads differently, the same way the car sheet's day count does.
-  rowStale: { borderColor: theme.colors.accentDim },
   rowHead: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
   rowName: { flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '700' },
   rowAge: {

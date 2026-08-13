@@ -1,55 +1,30 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import {
-  claimDeal,
-  counterOffer,
-  declineProspect,
-  releaseDeal,
-  takeCashDeal,
-  takeFinanceDeal,
-} from '../../sim/actions';
 import { getStage } from '../../sim/stages';
 import { carCapacity } from '../../sim/upgrades';
 import type { GameState } from '../../sim/types';
-import { useGame } from '../../state/store';
 import { money, theme } from '../theme';
 import { HUD_HEIGHT } from '../components/Hud';
 import { CarSheetHost } from '../components/CarSheetHost';
 import { StageCard } from '../components/StageCard';
-import { DealSheet } from '../components/DealSheet';
+import { DealSheetHost, useOpenDeal } from '../components/DealSheetHost';
 import { Sheet } from '../components/Sheet';
 import { LotScene } from '../lot/LotScene';
 import { Card, Label } from '../components/ui';
 
 /** The main screen: your lot, your walk-ups, and the road to a bigger store. */
 export function LotScreen({ state }: { state: GameState }) {
-  const apply = useGame((s) => s.apply);
   const [carId, setCarId] = useState<string | null>(null);
   const [prospectId, setProspectId] = useState<string | null>(null);
 
-  /**
-   * Opening a deal claims it; closing the sheet releases it. While claimed the
-   * sales staff will not touch the walk-up, however long you deliberate — the
-   * grace window is for NOTICING a buyer, not a speed-run of the negotiation.
-   * Both are idempotent sim actions, so a re-render cannot double-fire them.
-   */
-  const openDeal = (id: string) => {
-    apply((s) => claimDeal(s, id));
-    setProspectId(id);
-  };
-  const closeDeal = () => {
-    if (prospectId) apply((s) => releaseDeal(s, prospectId));
-    setProspectId(null);
-  };
+  // Opening a deal claims it; closing the sheet releases it. While claimed the
+  // sales staff will not touch the walk-up, however long you deliberate — the
+  // grace window is for NOTICING a buyer, not a speed-run of the negotiation.
+  // Both halves live in DealSheetHost, because the ageing report opens deals
+  // too and a surface that opened one without claiming would hand the walk-up
+  // back to the desk mid-negotiation.
+  const openDeal = useOpenDeal(setProspectId);
   const [ladderOpen, setLadderOpen] = useState(false);
-
-  const prospect = prospectId ? (state.prospects.find((p) => p.id === prospectId) ?? null) : null;
-
-  // A walk-up that expires (or a car that sells) while its sheet is open should
-  // close the sheet rather than strand the player on a dead deal.
-  useEffect(() => {
-    if (prospectId && !prospect) setProspectId(null);
-  }, [prospectId, prospect]);
 
   const stage = getStage(state.stage);
   const held = state.cars.filter((c) => c.status !== 'sold').length;
@@ -109,34 +84,10 @@ export function LotScreen({ state }: { state: GameState }) {
 
       <CarSheetHost state={state} carId={carId} onClose={() => setCarId(null)} />
 
-      <DealSheet
+      <DealSheetHost
         state={state}
-        prospect={prospect}
-        onClose={closeDeal}
-        onCash={() => {
-          if (!prospect) return;
-          apply((s) => takeCashDeal(s, prospect.id));
-          setProspectId(null);
-        }}
-        onCounter={(price) => {
-          if (!prospect) return;
-          // Deliberately stays open: they may have come back with a better
-          // number, and closing the sheet would hide the reply.
-          apply((s) => counterOffer(s, prospect.id, price));
-        }}
-        onFinance={(push) => {
-          if (!prospect) return;
-          // Stays open when the push is refused, for the same reason a counter
-          // does: they may have balked rather than left, and the cash side is
-          // still on the table. Closing the sheet would hide that.
-          apply((s) => takeFinanceDeal(s, prospect.id, push));
-          setProspectId(null);
-        }}
-        onDecline={() => {
-          if (!prospect) return;
-          apply((s) => declineProspect(s, prospect.id));
-          setProspectId(null);
-        }}
+        prospectId={prospectId}
+        onClose={() => setProspectId(null)}
       />
     </>
   );

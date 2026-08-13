@@ -61,6 +61,22 @@ export const OFFER_LABEL: Record<string, string> = {
 };
 
 /**
+ * The same three reads as a chip, in a table where a colour alone is not
+ * enough.
+ *
+ * The lot can afford to say it in colour only: the shopper is a figure standing
+ * at a car and there is nowhere on a 34px sprite to write "a fair offer". A row
+ * in the ageing report has room, and it needs it — the report is a list of
+ * fifteen near-identical outlines where a border two shades off is a great deal
+ * harder to pick out than one coloured figure on tarmac.
+ */
+export const OFFER_CHIP: Record<string, string> = {
+  lowball: 'LOWBALL',
+  fair: 'FAIR',
+  strong: 'NEAR ASK',
+};
+
+/**
  * The colour a car fades toward as it wears out, and how far.
  *
  * Exported because two renderers have to agree on it: the vector drawing blends
