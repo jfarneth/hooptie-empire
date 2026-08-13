@@ -578,6 +578,54 @@ describe('migration chain', () => {
     expect(() => advance(migrated, 10 * 60 * 1000)).not.toThrow();
   });
 
+  /**
+   * v20 -> v21. The weekly books split by business line.
+   *
+   * Weeks already filed get NULL rather than five zeroes, and the difference is
+   * not pedantic: zeroes render as "every department did nothing" next to a
+   * headline saying the week made $40,000, on the one screen built to say which
+   * department earned it. Null renders as "this week predates the split", which
+   * is the truth.
+   */
+  it('leaves a v20 save\'s filed weeks without a breakdown rather than a fake one', () => {
+    let live = createInitialState(31, 0);
+    live.cash = 500_000;
+    live.stage = 'smallUsed';
+    live.upgrades = { autoBuy: 1, autoList: 1, autoRecon: 1, salesDesk: 1, collections: 3, lot: 2 };
+    live.dealPolicy = 'auto';
+    live = advance(live, 3 * 140_000 + 2_000);
+
+    const v20: any = JSON.parse(JSON.stringify(live));
+    v20.version = 20;
+    expect(v20.weeks.length).toBeGreaterThan(0);
+    const profits = v20.weeks.map((w: any) => w.profit);
+    for (const w of v20.weeks) delete w.lines;
+    delete v20.weekLines;
+
+    const migrated = migrate(v20, 20);
+
+    // Nothing invented, and nothing destroyed: the weeks themselves survive.
+    expect(migrated.weeks.map((w) => w.profit)).toEqual(profits);
+    for (const w of migrated.weeks) expect(w.lines).toBeNull();
+
+    // The live week is zeroed rather than nulled — the tick writes to it on the
+    // very next sale, and a null there is a crash rather than a gap.
+    expect(migrated.weekLines.metal).toEqual({ revenue: 0, profit: 0 });
+    expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+
+    // And the split starts working from here: a week filed after the migration
+    // carries its lines.
+    const traded = advance(migrated, 3 * 140_000);
+    const filed = traded.weeks[traded.weeks.length - 1];
+    expect(filed.lines).not.toBeNull();
+    expect(
+      (['metal', 'paper', 'plans', 'shop', 'overhead'] as const).reduce(
+        (n, id) => n + filed.lines![id].profit,
+        0,
+      ),
+    ).toBe(filed.profit);
+  });
+
   it('gives a v9 save no promotions rather than a back-dated one', () => {
     const v9: any = JSON.parse(JSON.stringify(createInitialState(92, 0)));
     v9.version = 9;

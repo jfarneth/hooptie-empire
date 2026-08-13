@@ -23,7 +23,7 @@ import {
   takeFinanceDeal,
 } from '../sim/actions';
 import { BALANCE, MS_PER_GAME_DAY } from '../sim/balance';
-import { lastWeek, weekMargin } from '../sim/books';
+import { BOOK_LINES, BOOK_LINE_COPY, lastWeek, weekMargin } from '../sim/books';
 import { canRecon, reconCost } from '../sim/cars';
 import { reconModsFor } from '../sim/skills';
 import { deskCounter } from '../sim/haggle';
@@ -955,6 +955,41 @@ async function main() {
    * the one to watch when the complaint is "nothing ever sits" — a median of
    * two days with a p90 of three means the lot is a conveyor belt.
    */
+  /**
+   * Where the money came from, by business line, over every week the run filed.
+   *
+   * The one column in this report that can say a department is losing money
+   * while the business as a whole is fine — which has happened here before and
+   * cost 66 hours on the premium franchise: a service department that billed
+   * $163M and ran at −$10.4k a week, invisible in every number the harness
+   * printed at the time. Read `kept` against `took`: a line taking a fortune and
+   * keeping nothing is a policy problem, not a balance one.
+   *
+   * `metal` and `paper` only mean anything together on a financing stage. A
+   * financed car leaves the metal line at its down payment against its whole
+   * cost, so metal runs deeply negative and paper collects it back a week at a
+   * time. That is buy-here-pay-here, not a bug in the split.
+   */
+  {
+    console.log(`\nBusiness lines (median across seeds, every filed week)`);
+    console.log('-'.repeat(64));
+    console.log(`  line            took            kept        margin`);
+    for (const id of BOOK_LINES) {
+      const took = median((s) =>
+        s.weeks.reduce((n, w) => n + (w.lines?.[id].revenue ?? 0), 0),
+      );
+      const kept = median((s) => s.weeks.reduce((n, w) => n + (w.lines?.[id].profit ?? 0), 0));
+      if (took === 0 && kept === 0) continue;
+      const margin = took > 0 ? `${((kept / took) * 100).toFixed(1)}%` : '—';
+      console.log(
+        `  ${BOOK_LINE_COPY[id].name.padEnd(14)}` +
+          `${fmtMoney(took).padStart(12)}` +
+          `${fmtMoney(kept).padStart(16)}` +
+          `${margin.padStart(14)}`,
+      );
+    }
+  }
+
   {
     const days = (ms: number) => ms / MS_PER_GAME_DAY;
     const q = (xs: number[], p: number) => {

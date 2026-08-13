@@ -1,16 +1,27 @@
 import { MS_PER_GAME_WEEK } from './balance';
 import { BALANCE } from './balance';
 import {
+  BOOK_LINES,
   WEEKS_IN_VIEW,
   lastWeek,
+  lineActive,
+  lineMargin,
   marginTrend,
   recentWeeks,
   weekMargin,
   weekSoFar,
 } from './books';
 import { sellToWholesaler, setCash, takeLoan } from './actions';
-import { advance, cloneState, createInitialState } from './engine';
-import type { GameState, WeekRecord } from './types';
+import { hireServiceTech } from './actions';
+import {
+  advance,
+  cloneState,
+  cloneWeekLines,
+  createInitialState,
+  emptyWeekLines,
+  weeklyExpenses,
+} from './engine';
+import type { GameState, WeekLines, WeekRecord } from './types';
 
 /**
  * The weekly books.
@@ -33,8 +44,36 @@ function tradingFor(weeks: number, seed = 909): GameState {
 }
 
 function week(revenue: number, profit: number, endedAt = 0): WeekRecord {
-  return { endedAt, revenue, profit };
+  return { endedAt, revenue, profit, lines: null };
 }
+
+/**
+ * A franchise store with every line running at once: metal, paper, cover and
+ * the bays. The only fixture that can exercise all five, because plans and the
+ * shop do not exist below the big lot and the franchises are where both do.
+ */
+function fullHouse(weeks: number, seed = 616): GameState {
+  let s = cloneState(createInitialState(seed, 0));
+  s.stage = 'midsizeFranchise';
+  s.cash = 40_000_000;
+  s.upgrades = {
+    autoBuy: 1,
+    autoList: 1,
+    autoRecon: 1,
+    salesDesk: 1,
+    collections: 5,
+    lot: 2,
+    serviceBays: 3,
+  };
+  s.dealPolicy = 'auto';
+  s.listings = [];
+  s = hireServiceTech(s, 1);
+  s = hireServiceTech(s, 2);
+  return advance(s, weeks * MS_PER_GAME_WEEK + 2_000);
+}
+
+const sumLines = (lines: WeekLines | null, key: 'revenue' | 'profit') =>
+  lines ? BOOK_LINES.reduce((n, id) => n + lines[id][key], 0) : 0;
 
 describe('a week is closed on the bill beat', () => {
   it('files one week per game week, and no more', () => {
@@ -200,5 +239,169 @@ describe('the books on the state', () => {
 
     expect(s.weeks[0].profit).not.toBe(999_999);
     expect(s.weeks).toHaveLength(2);
+  });
+
+  /**
+   * The lines are a nested block on a filed week and on the live one, so both
+   * need a real copy. The live one is what would actually bite — the tick
+   * writes to it on every sale — and a shared object would leak backwards
+   * through history and corrupt offline catch-up.
+   *
+   * This is the clone-isolation test CLAUDE.md asks for on anything of this
+   * shape, and it is the thing that catches a missed clone; the tick-invariance
+   * fingerprint provably does not.
+   */
+  it('give the week lines a real copy, live and filed', () => {
+    const s = fullHouse(2);
+    const copy = cloneState(s);
+
+    copy.weekLines.metal.profit = 123_456;
+    expect(s.weekLines.metal.profit).not.toBe(123_456);
+
+    expect(s.weeks[0].lines).not.toBeNull();
+    copy.weeks[0].lines!.shop.revenue = 987_654;
+    expect(s.weeks[0].lines!.shop.revenue).not.toBe(987_654);
+  });
+});
+
+/**
+ * The departmental split.
+ *
+ * THE LOAD-BEARING ONE IS THE FIRST. The week's headline profit is a
+ * subtraction off `lifetimeProfit` and the five lines are running totals, which
+ * is exactly the drift this file's older test exists to prevent one level up.
+ * The only thing keeping them together is that `bookProfit` is the single door
+ * `lifetimeProfit` moves through — so this is the test that goes red the moment
+ * somebody writes `s.stats.lifetimeProfit += x` anywhere else, which is a thing
+ * no reader would ever notice and no other test can see.
+ */
+describe('the business lines', () => {
+  it('add up to the week they were carved out of', () => {
+    const s = fullHouse(5);
+    expect(s.weeks.length).toBe(5);
+
+    for (const w of s.weeks) {
+      expect(w.lines).not.toBeNull();
+      // EXACTLY, on a filed week. `fileWeekLines` rounds the split to whole
+      // dollars against the headline, so the five tiles on screen add up to the
+      // number written above them with nothing left over.
+      expect(sumLines(w.lines, 'profit')).toBe(w.profit);
+      expect(sumLines(w.lines, 'revenue')).toBe(w.revenue);
+    }
+
+    // The week in progress is still accruing in cents, so it reconciles to the
+    // one rounding its headline does and no further.
+    const running = weekSoFar(s);
+    expect(Math.abs(sumLines(running.lines, 'profit') - running.profit)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(sumLines(running.lines, 'revenue') - running.revenue)).toBeLessThanOrEqual(0.5);
+  });
+
+  it('reconstruct the lifetime figure, line by line, across every week', () => {
+    const s = fullHouse(6);
+    const filed = s.weeks.reduce((n, w) => n + sumLines(w.lines, 'profit'), 0);
+    const running = sumLines(weekSoFar(s).lines, 'profit');
+    expect(filed + running).toBeCloseTo(s.stats.lifetimeProfit, 0);
+  });
+
+  it('runs all four earning lines at a franchise with bays', () => {
+    const s = fullHouse(8);
+    const totals = emptyWeekLines();
+    for (const w of [...s.weeks, weekSoFar(s)]) {
+      if (!w.lines) continue;
+      for (const id of BOOK_LINES) {
+        totals[id].revenue += w.lines[id].revenue;
+        totals[id].profit += w.lines[id].profit;
+      }
+    }
+
+    // Everything the store sells takes money...
+    for (const id of ['metal', 'paper', 'plans', 'shop'] as const) {
+      expect(totals[id].revenue).toBeGreaterThan(0);
+    }
+    // ...and overhead only ever spends. Rent does not have customers.
+    expect(totals.overhead.revenue).toBe(0);
+    expect(totals.overhead.profit).toBeLessThan(0);
+  });
+
+  /**
+   * Floorplan on the cars and the technicians on the bays. Both are paid by one
+   * cheque on the bill beat and both used to land in a single overheads lump —
+   * which would leave a shop that bills a fortune and loses money on wages
+   * reading as pure profit, the exact trap this split exists to make visible.
+   */
+  it('charges the technicians to the bays and the floorplan to the cars', () => {
+    let s = fullHouse(3);
+
+    /**
+     * A QUIET TICK, deliberately arranged. Everything that could move a line
+     * other than the bill is cleared first — no notes to collect, no plans to
+     * claim on, no jobs to finish, no buyers on the lot — so the one tick the
+     * bill falls on moves exactly three lines by exactly three known numbers.
+     *
+     * The first cut of this measured a whole week and asserted directions, and
+     * it passed with the floorplan filed under overhead. A three-way split
+     * needs all three pinned, and the only way to pin them is to make the bill
+     * the only thing that happens.
+     */
+    s = advance(s, s.nextBillAt - s.t - 1_000);
+    s.notes = [];
+    s.serviceContracts = [];
+    s.shop.jobs = [];
+    s.shop.techs.forEach((t) => (t.jobId = null));
+    s.prospects = [];
+
+    // Read AFTER the advance, not before it: the lot the floorplan is charged
+    // on is the lot as it stands when the bill falls, and a week of automated
+    // buying moves it a long way.
+    const bill = weeklyExpenses(s);
+    expect(bill.shopPayroll).toBeGreaterThan(0);
+    expect(bill.floorplan).toBeGreaterThan(0);
+
+    const before = cloneWeekLines(s.weekLines);
+    const filedBefore = s.weeks.length;
+    s = advance(s, 1_000);
+    expect(s.weeks.length).toBe(filedBefore + 1);
+    const filed = s.weeks[s.weeks.length - 1].lines!;
+
+    // Rent, the sales payroll and the shark — and nothing else, which is what
+    // says the other two really did leave this line.
+    expect(filed.overhead.profit - before.overhead.profit).toBeCloseTo(
+      -(bill.total - bill.floorplan - bill.shopPayroll),
+      0,
+    );
+    // Interest on unsold stock, on the cars.
+    expect(filed.metal.profit - before.metal.profit).toBeCloseTo(-bill.floorplan, 0);
+    // The technicians, on the bays that employ them.
+    expect(filed.shop.profit - before.shop.profit).toBeCloseTo(-bill.shopPayroll, 0);
+  });
+
+  it('has no margin on a line that took nothing', () => {
+    expect(lineMargin({ revenue: 0, profit: -900 })).toBeNull();
+    expect(lineMargin(undefined)).toBeNull();
+    expect(lineMargin({ revenue: 1_000, profit: 250 })).toBeCloseTo(0.25, 6);
+  });
+
+  it('treats a line that did nothing at all as absent', () => {
+    expect(lineActive({ revenue: 0, profit: 0 })).toBe(false);
+    expect(lineActive(undefined)).toBe(false);
+    // A line that only ever cost money is still a line that happened.
+    expect(lineActive({ revenue: 0, profit: -400 })).toBe(true);
+  });
+
+  /**
+   * A curbstone has no finance desk, no plan desk and no bays, so three of the
+   * five tiles would be a permanent row of zeroes.
+   */
+  it('leaves the lines a curbstone cannot run empty', () => {
+    const s = tradingFor(3, 77);
+    const totals = emptyWeekLines();
+    for (const w of s.weeks) {
+      if (!w.lines) continue;
+      for (const id of BOOK_LINES) totals[id].profit += w.lines[id].profit;
+    }
+    expect(lineActive(totals.plans)).toBe(false);
+    expect(lineActive(totals.shop)).toBe(false);
+    expect(lineActive(totals.metal)).toBe(true);
+    expect(lineActive(totals.overhead)).toBe(true);
   });
 });
