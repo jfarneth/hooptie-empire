@@ -1,5 +1,13 @@
+import { moveToStage, purchaseUpgrade, sellToWholesaler, setDealPolicy } from './actions';
+import { BALANCE, MS_PER_GAME_WEEK } from './balance';
 import { TICK_MS } from './balance';
-import { advance, createInitialState } from './engine';
+import { generateCar } from './cars';
+import { wholesaleValue } from './economy';
+import { getModel } from './models';
+import { advance, cloneState, createInitialState } from './engine';
+import { hireTech } from './shop';
+import { canBuyUpgrade, carCapacity } from './upgrades';
+import { SKILL_IDS } from './skills';
 import type { GameState } from './types';
 
 /**
@@ -23,8 +31,22 @@ function fingerprint(s: GameState) {
     rng: s.rng.s,
     cash: Math.round(s.cash * 100),
     nextId: s.nextId,
-    cars: s.cars.map((c) => `${c.id}:${c.status}:${c.condition.toFixed(4)}:${c.costBasis}`),
+    // Rarity is drawn inside generateCar, so it is part of what the tick
+    // consumes from the stream — a draw that moved or went conditional shows up
+    // here rather than as a mystery divergence months later.
+    // `carryingCost` is written by the bill beat and accumulates as a float, so
+    // it is the one figure on a car that a mis-sliced week would show up in
+    // first — advancing an hour in one go and in 3,600 steps must charge the
+    // same number of weeks of floorplan.
+    cars: s.cars.map(
+      (c) =>
+        `${c.id}:${c.status}:${c.condition.toFixed(4)}:${c.costBasis}:${c.rarity}:` +
+        `${c.carryingCost.toFixed(6)}`,
+    ),
     notes: s.notes.map((n) => `${n.id}:${n.status}:${n.principal.toFixed(4)}:${n.paymentsRemaining}`),
+    // The tick amortizes the shark's loan, so the schedule is part of the
+    // fingerprint — a slice-size bug here would double- or skip-charge it.
+    loan: s.loan ? `${s.loan.paymentAmount}:${s.loan.paymentsRemaining}` : 'none',
     listings: s.listings.map((l) => `${l.id}:${l.price}`),
     // Negotiation fields are included deliberately: a prospect's haggle is
     // nested mutable state, so this is what catches a missed clone in
@@ -32,8 +54,41 @@ function fingerprint(s: GameState) {
     prospects: s.prospects.map(
       (p) =>
         `${p.id}:${p.negotiation.currentOffer}:${p.negotiation.status}:` +
-        `${p.negotiation.countersMade}:${p.negotiation.reservation.toFixed(2)}`,
+        `${p.negotiation.countersMade}:${p.negotiation.reservation.toFixed(2)}:` +
+        // The desk's grace window counts from arrivedAt and skips claimed
+        // prospects, so both are inputs to what the tick does next.
+        `${p.arrivedAt}:${p.claimed}`,
     ),
+    // Skills are a record of nested objects, so like prospects they are what
+    // would catch a missed clone in cloneState.
+    skills: SKILL_IDS.map((id) => `${id}:${s.skills[id].level}:${s.skills[id].xp}`),
+    // The house rules are nested and mutable too. Nothing inside a tick writes
+    // them, so this is a tripwire rather than an active guard here — the guard
+    // that bites is the clone-isolation test in business.test.ts.
+    business: s.business,
+    // Promotions ARE written by the tick — it expires them — so a missed clone
+    // or an off-by-one in the expiry sweep shows up right here.
+    promotions: s.promotions.map((p) => `${p.id}:${p.startedAt}:${p.endsAt}`),
+    // Service contracts are written every week by the claim check and the shop
+    // every second, so both belong here: this is what catches a draw that moved,
+    // went conditional, or fell on the wrong side of a slice boundary.
+    //
+    // It is NOT what catches a missed clone, and the comments above overstate
+    // that for prospects too. Mutation-tested: sharing the tech roster in
+    // `cloneState` leaves this test green, because both runs discard their
+    // history and a mutation that leaks backwards has nothing left to leak into.
+    // The guard that actually bites is the clone-isolation test in shop.test.ts
+    // and service.test.ts — same shape as the one business.ts relies on.
+    plans: s.serviceContracts.map(
+      (c) => `${c.id}:${c.status}:${c.paidOut}:${c.claims}:${c.weeksRemaining}:${c.nextCheckAt}`,
+    ),
+    techs: s.shop.techs.map((t) => `${t.id}:${t.grade}:${t.xp.toFixed(2)}:${t.jobId ?? '-'}`),
+    jobs: s.shop.jobs.map((j) => `${j.id}:${j.remainingMs}:${j.techId ?? '-'}:${j.rework}`),
+    shopWeek: `${s.shop.weekJobs}:${s.shop.weekRevenue}`,
+    // The weekly books are written by the tick on the bill beat, so a slice-size
+    // bug that split a week across two bills shows up right here.
+    books: `${s.weekRevenue.toFixed(2)}:${s.weekProfitAt.toFixed(2)}`,
+    weeks: s.weeks.map((w) => `${w.endedAt}:${w.revenue}:${w.profit}`),
     stats: s.stats,
   };
 }
@@ -62,6 +117,52 @@ describe('advance() tick-size invariance', () => {
     expect(fingerprint(ragged)).toEqual(fingerprint(even));
   });
 
+  /**
+   * The same property at a store that actually has a shop and a book of cover.
+   *
+   * The two tests above open at a curbstone, where `serviceContracts` and
+   * `shop` are empty for the whole run — so every field this fingerprint gained
+   * for them would compare `[]` against `[]` and pass whatever the code did.
+   * That is the "a test that asserts sum >= count cannot fail" trap, and the
+   * only fix is a fixture where the thing under test is actually running: bays
+   * staffed, cars booking in every second, plans on the book being claimed on
+   * every week.
+   */
+  it('produces identical state at a franchise with the bays and the plan desk running', () => {
+    const franchise = (seed: number): GameState => {
+      const s = createInitialState(seed, 0);
+      s.stage = 'lowCostFranchise';
+      s.cash = 20_000_000;
+      s.upgrades = {
+        serviceBays: 3,
+        autoBuy: 1,
+        autoList: 1,
+        autoRecon: 1,
+        salesDesk: 1,
+        collections: 4,
+        lot: 2,
+      };
+      s.dealPolicy = 'auto';
+      s.listings = [];
+      hireTech(s, 0);
+      hireTech(s, 2);
+      hireTech(s, 4);
+      return s;
+    };
+
+    const hour = 60 * 60 * 1000;
+    const bySecond = run(franchise(4321), 1_000, 3_600);
+    const byHour = advance(franchise(4321), hour);
+
+    // The fixture has to have exercised all three, or this is the empty-array
+    // test again wearing a franchise costume.
+    expect(byHour.stats.shopJobsDone).toBeGreaterThan(50);
+    expect(byHour.stats.plansSold).toBeGreaterThan(0);
+    expect(byHour.stats.planPayouts).toBeGreaterThan(0);
+
+    expect(fingerprint(bySecond)).toEqual(fingerprint(byHour));
+  });
+
   it('carries sub-tick time instead of dropping it', () => {
     const s0 = createInitialState(1, 0);
     const s1 = advance(s0, TICK_MS - 1);
@@ -71,6 +172,72 @@ describe('advance() tick-size invariance', () => {
     const s2 = advance(s1, 1);
     expect(s2.t).toBe(TICK_MS);
     expect(s2.accumulatorMs).toBe(0);
+  });
+});
+
+/**
+ * THE ACCOUNTING INVARIANT, and the test that would have caught the repossession
+ * bug on the day it shipped.
+ *
+ * `lifetimeProfit` is matched, not cash: buying a car moves no profit, and the
+ * basis is expensed against the sale that finally pays for it. So over any run
+ * from a known start, profit must equal the cash that moved plus the cost of
+ * whatever is still sitting on the lot unsold — money spent on stock has left
+ * the till without being expensed yet, and that is the only legitimate gap
+ * between the two numbers.
+ *
+ * A repossession is the one event that can break it, because the car's basis was
+ * already expensed in full at the finance sale and the unit then comes BACK.
+ * Before `repoCarryingValue`, the resale charged that basis a second time: 25
+ * repossessions over three game hours put the books $200,678 out, all of it
+ * understating profit, on the single number CLAUDE.md tells you to read for the
+ * health of the economy.
+ */
+describe('the books balance', () => {
+  it('keeps profit equal to cash moved plus stock at cost, across repossessions', () => {
+    let s = createInitialState(31, 0);
+    s.stage = 'smallUsed';
+    s.cash = 200_000;
+    s.upgrades = { autoBuy: 1, autoList: 1, autoRecon: 1, salesDesk: 1, collections: 3 };
+    s.dealPolicy = 'finance';
+    s.listings = [];
+
+    const startCash = s.cash;
+    const startProfit = s.stats.lifetimeProfit;
+    s = advance(s, 3 * 60 * 60 * 1000);
+
+    // The fixture has to have actually repossessed things, or this is an
+    // invariant about a run where nothing interesting happened.
+    expect(s.stats.reposCompleted).toBeGreaterThan(10);
+
+    const stockAtCost = s.cars.reduce((n, c) => (c.status === 'sold' ? n : n + c.costBasis), 0);
+    const profit = s.stats.lifetimeProfit - startProfit;
+    const cash = s.cash - startCash;
+    // To the dollar rather than exactly: weekly payments carry cents, so a run
+    // this long accumulates a few tenths of float. The bug this guards was
+    // $200,678 out, so a dollar of slack costs the test nothing.
+    expect(Math.abs(profit - (cash + stockAtCost))).toBeLessThan(1);
+  });
+
+  it('brings a repossessed car back at what is left in it, not at what it cost', () => {
+    let s = createInitialState(31, 0);
+    s.stage = 'smallUsed';
+    s.cash = 200_000;
+    s.upgrades = { autoBuy: 1, autoList: 1, autoRecon: 1, salesDesk: 1, collections: 3 };
+    s.dealPolicy = 'finance';
+    s.listings = [];
+    s = advance(s, 3 * 60 * 60 * 1000);
+
+    const recovered = s.cars.filter((c) => c.repoCount > 0);
+    expect(recovered.length).toBeGreaterThan(0);
+    for (const car of recovered) {
+      // Never negative — a car that paid for itself sits at zero, and a negative
+      // basis would pay the player floorplan interest.
+      expect(car.costBasis).toBeGreaterThanOrEqual(0);
+      // And genuinely written down: these cost thousands to buy, and every one
+      // of them has had a down payment and some weeks of payments against it.
+      expect(car.costBasis).toBeLessThan(4_000);
+    }
   });
 });
 
@@ -121,6 +288,46 @@ describe('sourcing feed', () => {
   });
 });
 
+describe('the weekly bill', () => {
+  it('charges in full and lets the account go overdrawn', () => {
+    // Rent used to floor at zero, which was the sneakiest failure state in the
+    // game: a business pinned at $0 paid nothing, so two different expense
+    // settings produced identical lifetime profit and the tell was a number
+    // that had quietly stopped meaning anything. The ledger is honest now.
+    let s = cloneState(createInitialState(3, 0));
+    s = { ...s, cash: 100_000_000 };
+    s = moveToStage(s, 'smallUsed');
+    s = cloneState(s);
+    s.cash = 100; // rent at the small lot is $400 a week
+    s.cars = [];
+    s.listings = [];
+
+    const after = advance(s, MS_PER_GAME_WEEK + 1_000);
+    expect(after.cash).toBeLessThan(0);
+    // The books say what actually happened: the whole bill, not the affordable part.
+    expect(after.stats.lifetimeProfit).toBeLessThanOrEqual(100 - 400);
+  });
+
+  it('still recovers from overdrawn by selling and collecting', () => {
+    // Negative is a hole, not a grave: selling stock and collecting payments
+    // both work at any balance, so the state must never absorb.
+    let s = cloneState(createInitialState(3, 0));
+    s = { ...s, cash: 100_000_000 };
+    s = moveToStage(s, 'smallUsed');
+    s = purchaseUpgrade(s, 'autoList');
+    // The move clears the feed, so let it deal something to copy a car from.
+    s = advance(s, 3 * 60_000);
+    s = cloneState(s);
+    s.cash = -2_000;
+    const car = { ...s.listings[0].car, id: 'car_dig', costBasis: 1_000, status: 'ready' as const };
+    s.cars = [car];
+
+    // A listed car can still meet a buyer and close by hand.
+    let dug = advance(s, 60_000);
+    expect(dug.cars.some((c) => c.id === 'car_dig' && c.status === 'listed')).toBe(true);
+  });
+});
+
 describe('offline catch-up performance', () => {
   it('simulates 8 hours well inside a frame budget a player would notice', () => {
     const start = Date.now();
@@ -129,5 +336,138 @@ describe('offline catch-up performance', () => {
     // Generous ceiling: the point is to catch an accidental O(n^2), not to
     // benchmark the machine this happens to run on.
     expect(elapsed).toBeLessThan(4_000);
+  });
+});
+
+/**
+ * The lot is a hard limit.
+ *
+ * Every buying path is gated on capacity, but a repossession adds to inventory
+ * without anybody choosing to — it was the one way to end up holding more cars
+ * than the lot has stalls, which reads to a player as a bug because it is one:
+ * the HUD says 18/18 and there are twenty cars on the tarmac.
+ *
+ * This is a property test on purpose. The bug was not in any single line, it was
+ * in the absence of a check on one path, and the only reliable way to catch a
+ * missing gate is to assert the invariant continuously over a run that actually
+ * exercises it.
+ */
+describe('lot capacity is strict', () => {
+  function busyLot(): GameState {
+    let s = createInitialState(90210, 0);
+    s = { ...s, cash: 400_000_000 };
+    s = moveToStage(s, 'smallUsed');
+    for (const id of ['autoBuy', 'autoList', 'autoRecon', 'salesDesk', 'collections']) {
+      if (canBuyUpgrade(s, id)) s = purchaseUpgrade(s, id);
+    }
+    // Scout to the top, and that is load-bearing rather than flavour. The
+    // retainer buyer is choosy — most of the feed is over its ceiling — so on a
+    // four-slot feed the lot sits at capacity about 1% of the time, and whether
+    // a repo happens to land in one of those slices comes down to the seed. It
+    // did land, once, which is how this test passed for as long as it did; any
+    // change that shifted the RNG stream by one draw took it red for a reason
+    // that had nothing to do with the lot. A maxed feed keeps the lot pinned at
+    // capacity 10-25% of the time instead, and every seed tried produces the
+    // collision several times over.
+    while (canBuyUpgrade(s, 'scout')) s = purchaseUpgrade(s, 'scout');
+    // The desk has to be writing paper, or nothing is ever repossessed and the
+    // whole point of this fixture goes untested.
+    s = setDealPolicy(s, 'finance');
+    return { ...s, cash: 250_000 };
+  }
+
+  it('never holds more cars than there are stalls, however many come back', () => {
+    let s = busyLot();
+    const held = (g: GameState) => g.cars.filter((c) => c.status !== 'sold').length;
+
+    let sawFullLot = false;
+    let reposOntoFullLot = 0;
+    let auctioned = 0;
+
+    for (let i = 0; i < 4_000; i++) {
+      const wasFull = held(s) >= carCapacity(s);
+      const before = { repos: s.stats.reposCompleted, cars: held(s) };
+
+      s = advance(s, 5_000);
+
+      expect(held(s)).toBeLessThanOrEqual(carCapacity(s));
+      if (held(s) === carCapacity(s)) sawFullLot = true;
+
+      if (s.stats.reposCompleted > before.repos && wasFull) {
+        reposOntoFullLot += 1;
+        // The car was taken but could not park, so the lot did not grow.
+        expect(held(s)).toBeLessThanOrEqual(before.cars);
+        if (s.events.some((e) => e.label.includes('straight to auction'))) auctioned += 1;
+      }
+    }
+
+    // Without these the assertion above could pass on a run that never filled
+    // the lot and never repossessed anything, which is the kind of test that
+    // guards nothing.
+    expect(sawFullLot).toBe(true);
+    expect(s.stats.reposCompleted).toBeGreaterThan(0);
+    expect(reposOntoFullLot).toBeGreaterThan(0);
+    expect(auctioned).toBeGreaterThan(0);
+  });
+});
+
+// -------------------------------------------------- the wholesaler
+
+/**
+ * The release valve for stock that will not move.
+ *
+ * Cars sit for weeks by design now — that is what `trafficPerCar` bought — so a
+ * lot needs a way to turn a dead stall back into cash that is not "wait". The
+ * two things it must not do are lose the player money invisibly and strand a
+ * contract: a financed car is out with the customer, and selling it out from
+ * under its own note would leave paper with nothing to repossess.
+ */
+describe('sending a car to the wholesaler', () => {
+  function lotWithCar(): GameState {
+    const s = cloneState(createInitialState(31337, 0));
+    const car = generateCar(s, s.rng, getModel('civet'), s.t);
+    car.costBasis = 4_000;
+    s.cars.push(car);
+    return s;
+  }
+
+  it('pays the forced-sale price, and takes the car off the lot', () => {
+    const s = lotWithCar();
+    const car = s.cars[0];
+    const expected = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
+
+    const after = sellToWholesaler(s, car.id);
+
+    expect(after.cash - s.cash).toBe(expected);
+    expect(after.cars).toHaveLength(0);
+    // Under what the car is worth, always — otherwise a full lot costs nothing
+    // and this becomes a way to cash out at book value.
+    expect(expected).toBeLessThan(wholesaleValue(car));
+  });
+
+  it('books the difference against what the car cost, not as a sale', () => {
+    const s = lotWithCar();
+    const car = s.cars[0];
+    const proceeds = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
+
+    const after = sellToWholesaler(s, car.id);
+
+    expect(after.stats.lifetimeProfit - s.stats.lifetimeProfit).toBe(proceeds - car.costBasis);
+    // Nobody closed anybody. Counting this would inflate the sales figures and
+    // train Closing by ringing a wholesaler.
+    expect(after.stats.carsSold).toBe(s.stats.carsSold);
+    expect(after.skills.sell.xp).toBe(s.skills.sell.xp);
+  });
+
+  /**
+   * The same rule the stage-move sweep follows, and it has a test there too: a
+   * financed car is still in `state.cars` marked sold so a repossession can
+   * bring it back. Selling one would strand its note.
+   */
+  it('refuses a car that is already out with a customer', () => {
+    const s = lotWithCar();
+    s.cars[0].status = 'sold';
+    expect(sellToWholesaler(s, s.cars[0].id)).toBe(s);
+    expect(sellToWholesaler(s, 'no_such_car')).toBe(s);
   });
 });

@@ -3,9 +3,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AppState, Pressable, StyleSheet, Text, View, type AppStateStatus } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { activeNotes } from './src/sim/notes';
+import { hasSeenOnboarding, markOnboardingSeen } from './src/state/onboarding';
 import { useGame } from './src/state/store';
 import { AwaySummaryModal } from './src/ui/components/AwaySummaryModal';
 import { Hud } from './src/ui/components/Hud';
+import { COACH_STEPS, Onboarding, coachTabFor } from './src/ui/components/Onboarding';
+import { PromotionBar } from './src/ui/components/PromotionBar';
 import { Loading } from './src/ui/components/ui';
 import { BuyScreen } from './src/ui/screens/BuyScreen';
 import { LotScreen } from './src/ui/screens/LotScreen';
@@ -35,9 +38,43 @@ export default function App() {
   const dismissAwaySummary = useGame((s) => s.dismissAwaySummary);
   const [tab, setTab] = useState<Tab>('lot');
 
+  /** Which coach mark is showing, or null for none — the normal case. */
+  const [coach, setCoach] = useState<number | null>(null);
+  /** Measured height of the promotion tray plus the tab bar, for the caret. */
+  const [chromeHeight, setChromeHeight] = useState(0);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Coach marks, for a genuinely new game only. Read once on ready rather than
+  // subscribed: whether to teach somebody is decided at the door, and a flag
+  // that could flip mid-session would put a card over a live negotiation.
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    void (async () => {
+      if (await hasSeenOnboarding()) return;
+      if (cancelled) return;
+      if (!useGame.getState().isNewGame) {
+        // An existing save on a build that just added this. Nothing to explain.
+        await markOnboardingSeen();
+        return;
+      }
+      setCoach(0);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready]);
+
+  // Each card names a tab, so put the player on it — the copy is describing
+  // what is behind the scrim and would be talking about nothing otherwise.
+  useEffect(() => {
+    if (coach === null) return;
+    const want = coachTabFor(coach);
+    if (want) setTab(want);
+  }, [coach]);
 
   // Game clock.
   useEffect(() => {
@@ -72,6 +109,13 @@ export default function App() {
     );
   }
 
+  // Written the moment the player is done rather than on the last card, so
+  // skipping and finishing are the same promise: this does not come back.
+  const finish = () => {
+    setCoach(null);
+    void markOnboardingSeen();
+  };
+
   const walkUps = state.prospects.length;
   const behind = activeNotes(state.notes).filter((n) => n.status === 'delinquent').length;
   const badges: Record<Tab, number> = {
@@ -85,38 +129,65 @@ export default function App() {
     <SafeAreaProvider>
       <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
         <StatusBar style="light" />
-        <Hud state={state} />
 
         <View style={styles.body}>
           {tab === 'lot' ? <LotScreen state={state} /> : null}
           {tab === 'buy' ? <BuyScreen state={state} /> : null}
           {tab === 'notes' ? <NotesScreen state={state} /> : null}
           {tab === 'upgrades' ? <UpgradesScreen state={state} /> : null}
+
+          {/* Floats over the screen, which is why every screen pads by HUD_HEIGHT. */}
+          <View style={styles.hudLayer} pointerEvents="box-none">
+            <Hud state={state} />
+          </View>
         </View>
 
-        <View style={styles.tabBar}>
-          {TABS.map(({ id, label }) => {
-            const active = tab === id;
-            const badge = badges[id];
-            return (
-              <Pressable
-                key={id}
-                onPress={() => setTab(id)}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                style={styles.tab}
-              >
-                <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
-                {badge > 0 ? (
-                  <View style={[styles.badge, id === 'notes' && styles.badgeWarn]}>
-                    <Text style={styles.badgeText}>{badge}</Text>
-                  </View>
-                ) : null}
-                {active ? <View style={styles.tabUnderline} /> : null}
-              </Pressable>
-            );
-          })}
+        {/* Measured as one block so the coach mark can sit above whatever is
+            actually there — the tray comes and goes with the grand opening,
+            which is running during the only session that shows a coach mark. */}
+        <View onLayout={(e) => setChromeHeight(e.nativeEvent.layout.height)}>
+          {/* Above the tabs rather than over the lot: the HUD is the two scores,
+              and a promotion is status. Renders nothing when nothing is running. */}
+          <PromotionBar state={state} />
+
+          <View style={styles.tabBar}>
+            {TABS.map(({ id, label }) => {
+              const active = tab === id;
+              const badge = badges[id];
+              return (
+                <Pressable
+                  key={id}
+                  onPress={() => setTab(id)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  style={styles.tab}
+                >
+                  <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
+                  {badge > 0 ? (
+                    <View style={[styles.badge, id === 'notes' && styles.badgeWarn]}>
+                      <Text style={styles.badgeText}>{badge}</Text>
+                    </View>
+                  ) : null}
+                  {active ? <View style={styles.tabUnderline} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
+
+        {coach !== null ? (
+          <Onboarding
+            step={coach}
+            tabCount={TABS.length}
+            bottomInset={chromeHeight}
+            onNext={() => {
+              const next = coach + 1;
+              if (next >= COACH_STEPS) finish();
+              else setCoach(next);
+            }}
+            onSkip={finish}
+          />
+        ) : null}
 
         <AwaySummaryModal summary={awaySummary} onDismiss={dismissAwaySummary} />
       </SafeAreaView>
@@ -127,6 +198,7 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.colors.bg },
   body: { flex: 1 },
+  hudLayer: { position: 'absolute', left: 0, right: 0, top: 0 },
   tabBar: {
     flexDirection: 'row',
     backgroundColor: theme.colors.surface,

@@ -2,17 +2,31 @@
   "expo": {
     "name": "Hooptie Empire",
     "slug": "hooptie-empire",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#101219",
+    "primaryColor": "#101219",
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "backgroundColor": "#101219",
+          "imageWidth": 300
+        }
+      ]
+    ],
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.jfarneth.hooptieempire"
+      "supportsTablet": false,
+      "bundleIdentifier": "com.hooptieempire.game",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
-      "package": "com.jfarneth.hooptieempire",
+      "package": "com.hooptieempire.game",
       "adaptiveIcon": {
         "backgroundColor": "#101219",
         "foregroundImage": "./assets/android-icon-foreground.png",

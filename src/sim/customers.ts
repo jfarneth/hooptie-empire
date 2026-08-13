@@ -1,10 +1,11 @@
 import { BALANCE } from './balance';
 import { bhphPrice, retailValue } from './economy';
-import { openNegotiation } from './haggle';
+import { openNegotiation, type HaggleSkill } from './haggle';
+import { getStage } from './stages';
 import { mintId } from './ids';
 import { customerName } from './models';
 import { buildTerms } from './notes';
-import { intRange, nextFloat, pickWeighted, range } from './rng';
+import { intRange, normalish, pickWeighted, range } from './rng';
 import type { Car, CreditTier, GameState, Millis, Prospect, RngState } from './types';
 
 const TIERS: readonly CreditTier[] = ['A', 'B', 'C', 'D'];
@@ -34,9 +35,15 @@ export function generateProspect(
   rng: RngState,
   car: Car,
   underwritingLevel: number,
+  haggle: HaggleSkill,
   now: Millis,
 ): Prospect {
-  const weights = tierWeights(underwritingLevel);
+  const stage = getStage(state.stage);
+  // An upmarket store draws better credit through the door before anyone
+  // screens anybody, so the stage's shift stacks onto whatever underwriting
+  // buys. Expressed in equivalent underwriting levels so there is one curve
+  // rather than two that have to be kept in agreement.
+  const weights = tierWeights(underwritingLevel + stage.creditShift);
   const tier = pickWeighted(rng, TIERS, weights);
   const name = customerName(intRange(rng, 0, 999), intRange(rng, 0, 999));
 
@@ -50,12 +57,24 @@ export function generateProspect(
   // Overpricing is measured against cash retail, so asking over market makes
   // cash buyers open harder — the same pressure that thins out foot traffic.
   const overpricing = retail > 0 ? car.askPrice / retail : 1;
-  const negotiation = openNegotiation(rng, cashCeiling, overpricing);
+  const negotiation = openNegotiation(rng, cashCeiling, overpricing, haggle);
 
-  const price = bhphPrice(car);
+  const price = bhphPrice(car, stage.bhphMultiplier);
   const weeks = BALANCE.termWeeks[intRange(rng, 0, BALANCE.termWeeks.length - 1)];
   const terms = buildTerms(tier, price, weeks, range(rng, 0.85, 1.15));
   const downPayment = price - terms.amountFinanced;
+
+  // The most they could carry a week before they are priced out. Private, like
+  // the cash reservation, and drawn ONCE here rather than derived on read — the
+  // deal sheet's slider must not be able to re-roll it by being dragged.
+  //
+  // Drawn unconditionally so the RNG stream does not depend on whether this
+  // store has a finance desk; a curbstone prospect simply carries a number
+  // nothing ever asks for.
+  const { ceilingMean, ceilingSpread } = BALANCE.negotiation.payment;
+  const paymentCeiling =
+    terms.weeklyPayment *
+    normalish(rng, ceilingMean, ceilingSpread, 1.02, ceilingMean + ceilingSpread);
 
   return {
     id: mintId(state, 'pros'),
@@ -65,7 +84,17 @@ export function generateProspect(
     negotiation,
     downPayment,
     financeTerms: terms,
-    expiresAt: now + BALANCE.prospectLifetimeMs * (0.7 + nextFloat(rng) * 0.6),
+    paymentCeiling,
+    // Stamped, never derived from expiresAt and the live patience constant —
+    // the desk's grace window counts from this.
+    arrivedAt: now,
+    claimed: false,
+    // Flat, no jitter: every customer runs the identical clock. 30s for the
+    // player (desk.graceMs), the desk closes on the next tick, and one the desk
+    // cannot serve leaves at exactly this. It used to be ±30%, which made the
+    // one timer the player races feel arbitrary — and the jittered floor
+    // (31.5s) is what capped the grace window so tightly.
+    expiresAt: now + BALANCE.prospectLifetimeMs,
   };
 }
 
@@ -73,6 +102,6 @@ export function generateProspect(
 export const TIER_BLURB: Record<CreditTier, string> = {
   A: 'Good credit. Small down, low rate, almost always pays.',
   B: 'Bruised credit. Reasonable down, pays most weeks.',
-  C: 'Subprime. Solid down payment, misses now and then.',
-  D: 'Deep subprime. Big money down, and a real chance you see the car again.',
+  C: 'Subprime. Solid down payment, misses more often than not lately.',
+  D: 'Deep subprime. Big money down, and you will probably see the car again.',
 };
