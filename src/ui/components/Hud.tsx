@@ -8,6 +8,8 @@ import { carCapacity, collectionsCapacity } from '../../sim/upgrades';
 import type { GameState } from '../../sim/types';
 import { formatMargin, marginColor, money, moneyShort, theme } from '../theme';
 import { BooksSheet } from './BooksSheet';
+import { CarSheetHost } from './CarSheetHost';
+import { InventoryAgeSheet } from './InventoryAgeSheet';
 
 /**
  * Height the HUD reserves. Exported because the HUD floats over the screens
@@ -26,6 +28,8 @@ export function Hud({ state }: { state: GameState }) {
   const deskCapacity = collectionsCapacity(state);
   const overCapacity = active.length > deskCapacity;
   const [booksOpen, setBooksOpen] = useState(false);
+  const [ageingOpen, setAgeingOpen] = useState(false);
+  const [carId, setCarId] = useState<string | null>(null);
 
   // Last week that actually closed, never the one in progress: "this week so
   // far" over four sales is noise, and a headline that jumped about every time
@@ -78,16 +82,37 @@ export function Hud({ state }: { state: GameState }) {
           </View>
         ) : null}
 
-        <View style={styles.stat}>
+        {/* The lot counter opens the ageing report, exactly as the margin
+            readout opens the books. Both are the same move: the HUD shows a
+            level, and one tap gets you the thing behind it — how full is not
+            the same question as how long it has been full, and a lot pinned at
+            capacity for a week is either a healthy business or a stall nobody
+            wants, which this number cannot tell you on its own. It is also
+            where the report belongs for discovery; Office → Reports is where
+            you go looking for it, this is where you notice it. */}
+        <Pressable
+          onPress={() => setAgeingOpen(true)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`${held} of ${capacity} stalls filled. Open the ageing report.`}
+          style={({ pressed }) => [styles.stat, pressed && { opacity: 0.6 }]}
+        >
           <Text style={styles.statLabel}>LOT</Text>
           <Text style={styles.statValue}>
             {held}/{capacity}
           </Text>
           <Text style={styles.statSub}>{state.stats.carsSold} sold</Text>
-        </View>
+        </Pressable>
       </View>
 
       <BooksSheet visible={booksOpen} state={state} onClose={() => setBooksOpen(false)} />
+      <InventoryAgeSheet
+        visible={ageingOpen}
+        state={state}
+        onSelectCar={setCarId}
+        onClose={() => setAgeingOpen(false)}
+      />
+      <CarSheetHost state={state} carId={carId} onClose={() => setCarId(null)} />
     </View>
   );
 }

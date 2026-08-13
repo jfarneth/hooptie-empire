@@ -523,6 +523,61 @@ describe('migration chain', () => {
     expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
   });
 
+  /**
+   * v19 -> v20. Every car starts keeping its own cost ledger.
+   *
+   * The whole basis lands on the purchase price and everything else reads zero,
+   * which is the only honest answer: `costBasis` is a net — recon is folded in
+   * and a repo rewrites it — so there is nothing in an old save to reconstruct
+   * a split from, and a guessed recon share would be fabricated dollars on the
+   * one screen whose entire job is saying where the money went.
+   */
+  it('opens a cost ledger on every car a v19 save is holding', () => {
+    let live = createInitialState(66, 0);
+    live.cash = 200_000;
+    live.upgrades = { autoBuy: 1, autoList: 1, autoRecon: 1 };
+    live = advance(live, 10 * 60 * 1000);
+
+    const v19: any = JSON.parse(JSON.stringify(live));
+    v19.version = 19;
+    expect(v19.cars.length).toBeGreaterThan(0);
+    expect(v19.listings.length).toBeGreaterThan(0);
+    const bases = v19.cars.map((c: any) => c.costBasis);
+    for (const car of [...v19.cars, ...v19.listings.map((l: any) => l.car)]) {
+      for (const key of [
+        'purchasePrice',
+        'freightPaid',
+        'reconSpend',
+        'carryingCost',
+        'recoveryCost',
+        'returned',
+      ]) {
+        delete car[key];
+      }
+    }
+
+    const migrated = migrate(v19, 19);
+
+    migrated.cars.forEach((car, i) => {
+      expect(car.purchasePrice).toBe(bases[i]);
+      expect(car.freightPaid).toBe(0);
+      expect(car.reconSpend).toBe(0);
+      expect(car.carryingCost).toBe(0);
+      expect(car.recoveryCost).toBe(0);
+      expect(car.returned).toBe(0);
+    });
+
+    // A car nobody has bought yet still needs the fields, or buying one produces
+    // a ledger full of `undefined` and every figure downstream reads NaN.
+    for (const listing of migrated.listings) {
+      expect(listing.car.purchasePrice).toBe(0);
+      expect(listing.car.carryingCost).toBe(0);
+    }
+
+    // And the tick that writes to all of it every week does not care.
+    expect(() => advance(migrated, 10 * 60 * 1000)).not.toThrow();
+  });
+
   it('gives a v9 save no promotions rather than a back-dated one', () => {
     const v9: any = JSON.parse(JSON.stringify(createInitialState(92, 0)));
     v9.version = 9;

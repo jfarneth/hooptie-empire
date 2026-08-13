@@ -73,6 +73,12 @@ export function generateCar(
     mileage,
     condition,
     costBasis: 0,
+    purchasePrice: 0,
+    freightPaid: 0,
+    reconSpend: 0,
+    carryingCost: 0,
+    recoveryCost: 0,
+    returned: 0,
     acquiredAt: now,
     status: 'ready',
     reconRemainingMs: 0,
@@ -129,6 +135,20 @@ export function reconDurationMs(car: Car, mods: ReconMods): Millis {
 /** True when there is meaningful work left to do on this car. */
 export function canRecon(car: Car, mods: ReconMods): boolean {
   return car.status === 'ready' && reconLift(car, mods) > 0.02;
+}
+
+/**
+ * Book a recon job against the car it was done to.
+ *
+ * Both halves in one place because they must never drift: `costBasis` is what
+ * profit is measured against and `reconSpend` is what the ageing report calls
+ * "repairs", and there is no state of the world where a job lands in one and
+ * not the other. The player's action and the standing shop order both go
+ * through here; the caller still debits the cash.
+ */
+export function chargeRecon(car: Car, cost: number): void {
+  car.costBasis += cost;
+  car.reconSpend += cost;
 }
 
 /** Puts the car in the shop. Caller is responsible for debiting `reconCost`. */

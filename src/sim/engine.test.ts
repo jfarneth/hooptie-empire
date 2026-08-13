@@ -34,8 +34,14 @@ function fingerprint(s: GameState) {
     // Rarity is drawn inside generateCar, so it is part of what the tick
     // consumes from the stream — a draw that moved or went conditional shows up
     // here rather than as a mystery divergence months later.
+    // `carryingCost` is written by the bill beat and accumulates as a float, so
+    // it is the one figure on a car that a mis-sliced week would show up in
+    // first — advancing an hour in one go and in 3,600 steps must charge the
+    // same number of weeks of floorplan.
     cars: s.cars.map(
-      (c) => `${c.id}:${c.status}:${c.condition.toFixed(4)}:${c.costBasis}:${c.rarity}`,
+      (c) =>
+        `${c.id}:${c.status}:${c.condition.toFixed(4)}:${c.costBasis}:${c.rarity}:` +
+        `${c.carryingCost.toFixed(6)}`,
     ),
     notes: s.notes.map((n) => `${n.id}:${n.status}:${n.principal.toFixed(4)}:${n.paymentsRemaining}`),
     // The tick amortizes the shark's loan, so the schedule is part of the

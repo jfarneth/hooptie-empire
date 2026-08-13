@@ -4,6 +4,7 @@ import {
   beginRecon,
   canRecon,
   carLabel,
+  chargeRecon,
   finishRecon,
   generateCar,
   reconCost,
@@ -89,7 +90,7 @@ import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
 import type { Car, GameState, Listing, Millis, Note, Prospect, SimEvent, SkillId } from './types';
 
-export const SAVE_VERSION = 19;
+export const SAVE_VERSION = 20;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -296,6 +297,21 @@ function stepBills(s: GameState): void {
   s.nextBillAt += MS_PER_GAME_WEEK;
 
   const bill = weeklyExpenses(s);
+
+  // Split the floorplan line across the cars that incurred it, before anything
+  // is charged. `weeklyExpenses` is a pure read — the UI and the harness both
+  // call it between ticks — so the accrual has to happen here, on the beat that
+  // actually bills for it.
+  //
+  // Unrounded on purpose. Each car's share is its own basis times the rate, so
+  // the shares sum to `tiedUp × rate`, which is exactly the number rounded into
+  // `bill.floorplan`. Rounding per car instead would leave the report's total a
+  // few dollars off the ledger's, on a screen whose entire job is reconciling
+  // the two.
+  for (const car of s.cars) {
+    if (car.status === 'sold') continue;
+    car.carryingCost += car.costBasis * BALANCE.expenses.floorplanWeeklyRate;
+  }
 
   // The shop's week, in one line. Its money already landed, job by job, as the
   // cars went out — see `stepServiceDept` for why none of that is logged
@@ -678,6 +694,14 @@ function repossess(s: GameState, carId: string, customer: string, note: Note, la
   // damaged by however hard it had to be taken.
   applyRepoDamage(car, repoConditionLossFor(s));
 
+  // The two halves of the round trip, recorded where the report can find them.
+  // `repoCarryingValue` nets them off into one basis below — correctly, because
+  // a basis is one number — and in doing so destroys the only interesting thing
+  // about a car that has been round twice: that it cost this much and gave back
+  // that much. Both accumulate, because a car can go round more than once.
+  car.recoveryCost += fee;
+  car.returned += (note.downPayment ?? 0) + (note.collected ?? 0);
+
   // AND IT COMES BACK ON THE BOOKS AT WHAT IS LEFT IN IT, not at what it
   // originally cost. See `repoCarryingValue`: the customer's down payment and
   // every weekly payment they made have already come back, and the recovery fee
@@ -829,7 +853,7 @@ function stepAutomation(s: GameState): void {
       // `s.cash` falls as jobs are booked, so the reserve holds across the loop.
       if (cost > s.cash - reserve) continue;
       s.cash -= cost;
-      car.costBasis += cost;
+      chargeRecon(car, cost);
       beginRecon(car, mods);
     }
   }
@@ -1328,7 +1352,18 @@ function buyListingInternal(s: GameState, listingId: string): boolean {
   if (s.cars.filter((c) => c.status !== 'sold').length >= carCapacity(s)) return false;
 
   s.cash -= landed;
-  const car = { ...listing.car, costBasis: landed, acquiredAt: s.t };
+  // The basis is what the deal cost, all in. The two figures beside it are the
+  // deal itself, split the way the player made it — a seller's price and a
+  // transporter's bill — because once they are added together nothing can pull
+  // them apart again, and "what did the truck cost me" is the whole question
+  // the reach upgrade asks. See the note on `purchasePrice` in types.ts.
+  const car = {
+    ...listing.car,
+    costBasis: landed,
+    purchasePrice: listing.price,
+    freightPaid: listing.freight,
+    acquiredAt: s.t,
+  };
   s.cars.push(car);
 
   // You own it now, so you can put it on a lift. This is where the appraisal

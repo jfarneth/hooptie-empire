@@ -4,14 +4,9 @@ import {
   claimDeal,
   counterOffer,
   declineProspect,
-  listForSale,
-  repriceCar,
-  sellToWholesaler,
   releaseDeal,
-  startRecon,
   takeCashDeal,
   takeFinanceDeal,
-  unlist,
 } from '../../sim/actions';
 import { getStage } from '../../sim/stages';
 import { carCapacity } from '../../sim/upgrades';
@@ -19,7 +14,7 @@ import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
 import { money, theme } from '../theme';
 import { HUD_HEIGHT } from '../components/Hud';
-import { CarSheet } from '../components/CarSheet';
+import { CarSheetHost } from '../components/CarSheetHost';
 import { StageCard } from '../components/StageCard';
 import { DealSheet } from '../components/DealSheet';
 import { Sheet } from '../components/Sheet';
@@ -48,7 +43,6 @@ export function LotScreen({ state }: { state: GameState }) {
   };
   const [ladderOpen, setLadderOpen] = useState(false);
 
-  const car = carId ? (state.cars.find((c) => c.id === carId) ?? null) : null;
   const prospect = prospectId ? (state.prospects.find((p) => p.id === prospectId) ?? null) : null;
 
   // A walk-up that expires (or a car that sells) while its sheet is open should
@@ -56,9 +50,6 @@ export function LotScreen({ state }: { state: GameState }) {
   useEffect(() => {
     if (prospectId && !prospect) setProspectId(null);
   }, [prospectId, prospect]);
-  useEffect(() => {
-    if (carId && !car) setCarId(null);
-  }, [carId, car]);
 
   const stage = getStage(state.stage);
   const held = state.cars.filter((c) => c.status !== 'sold').length;
@@ -116,25 +107,7 @@ export function LotScreen({ state }: { state: GameState }) {
         <StageCard state={state} />
       </Sheet>
 
-      <CarSheet
-        state={state}
-        car={car}
-        onClose={() => setCarId(null)}
-        onRecon={() => car && apply((s) => startRecon(s, car.id))}
-        onList={() => {
-          if (!car) return;
-          apply((s) => listForSale(s, car.id));
-          setCarId(null);
-        }}
-        onUnlist={() => car && apply((s) => unlist(s, car.id))}
-        onReprice={(price) => car && apply((s) => repriceCar(s, car.id, price))}
-        onWholesale={() => {
-          if (!car) return;
-          apply((s) => sellToWholesaler(s, car.id));
-          // The car no longer exists, so the sheet has nothing left to show.
-          setCarId(null);
-        }}
-      />
+      <CarSheetHost state={state} carId={carId} onClose={() => setCarId(null)} />
 
       <DealSheet
         state={state}

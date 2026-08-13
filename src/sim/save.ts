@@ -513,6 +513,49 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
     weekRevenue: 0,
     weekProfitAt: Number(s.stats?.lifetimeProfit) || 0,
   }),
+
+  /**
+   * v19 -> v20: every car starts keeping its own cost ledger.
+   *
+   * `costBasis` was the only figure a car carried, and it is a net: recon is
+   * added to it and a repossession rewrites it to what is left in the unit. So
+   * there is nothing in an old save to reconstruct a split from, and inventing
+   * one — guessing at a recon share, back-deriving freight from the origin —
+   * would put fabricated dollars on a screen whose entire job is telling the
+   * player where their money went.
+   *
+   * Everything a returning save cannot know reads ZERO, and the whole basis
+   * lands on `purchasePrice`, which is what it was on the day the car was
+   * bought and is the honest floor under the rest. The ageing report says so on
+   * its face rather than quietly showing a lot with no repairs and no carrying
+   * cost: `freightPaid`, `reconSpend`, `carryingCost`, `recoveryCost` and
+   * `returned` are all things that started being recorded today, and the totals
+   * fill in from here. Nothing is destroyed and nothing is invented.
+   *
+   * Cars on the sourcing feed get the same treatment. A listing is a car nobody
+   * has bought yet, so all six are zero anyway — but the field has to exist, or
+   * buying one produces a car with `undefined` where its ledger should be and
+   * every figure downstream reads NaN.
+   */
+  19: (s) => {
+    // Defaults first, the saved car second: anything the car already carries
+    // wins, which is what makes this safe to run over a state that has been
+    // through it before.
+    const ledger = (car: any) => ({
+      purchasePrice: Number(car.costBasis) || 0,
+      freightPaid: 0,
+      reconSpend: 0,
+      carryingCost: 0,
+      recoveryCost: 0,
+      returned: 0,
+      ...car,
+    });
+    return {
+      ...s,
+      cars: (s.cars ?? []).map(ledger),
+      listings: (s.listings ?? []).map((l: any) => ({ ...l, car: ledger(l.car) })),
+    };
+  },
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

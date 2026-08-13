@@ -1,6 +1,6 @@
 import { BALANCE } from './balance';
 import { businessPolicy, clampBusinessPolicy } from './business';
-import { beginRecon, canRecon, carLabel, reconCost } from './cars';
+import { beginRecon, canRecon, carLabel, chargeRecon, reconCost } from './cars';
 import { createInitialState } from './engine';
 import {
   acceptCash,
@@ -67,7 +67,7 @@ export function startRecon(state: GameState, carId: string): GameState {
     const cost = reconCost(car, mods);
     if (s.cash < cost) return false;
     s.cash -= cost;
-    car.costBasis += cost;
+    chargeRecon(car, cost);
     beginRecon(car, mods);
     return true;
   });

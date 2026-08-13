@@ -4,6 +4,7 @@ import { canRecon, reconCost, reconDurationMs, reconLift, reconValueGain } from 
 import { reconModsFor } from '../../sim/skills';
 import { retailValue, wholesaleValue } from '../../sim/economy';
 import { BALANCE, MS_PER_GAME_DAY } from '../../sim/balance';
+import { STALE_DAYS, inventoryLine } from '../../sim/inventory';
 import { getModel } from '../../sim/models';
 import { RARITIES, rarityValueMult } from '../../sim/rarity';
 import { getStage } from '../../sim/stages';
@@ -11,6 +12,7 @@ import { windowPrice } from '../../sim/engine';
 import type { Car, GameState } from '../../sim/types';
 import { RARITY_COLOR, duration, money, theme } from '../theme';
 import { CarArt } from '../art/CarArt';
+import { costTrail } from './costTrail';
 import { Sheet } from './Sheet';
 import { Button, Chip, Meter, Row } from './ui';
 
@@ -72,6 +74,12 @@ export function CarSheet({
   const daysListed = car.listedAt === null ? null : (state.t - car.listedAt) / MS_PER_GAME_DAY;
   const wholesale = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
 
+  // The same line the ageing report shows for this car, from the same
+  // derivation. Two screens describing one car's cost out of two computations
+  // is how a sheet ends up saying "priced under market" and "42 days on the
+  // lot" one line apart.
+  const ledger = inventoryLine(state, car);
+
   return (
     <Sheet
       visible
@@ -94,10 +102,17 @@ export function CarSheet({
       {car.repoCount > 0 ? (
         <Row gap={8} style={styles.grade}>
           <Chip text="BACK ON THE LOT" color={theme.colors.warn} filled />
+          {/* This used to quote `costBasis` and call it "Carrying", which put
+              two different meanings of that word on one screen the moment the
+              cost trail below started naming floorplan interest as carrying —
+              $41,022 in one place and $1,313 in the other, both correct, both
+              labelled the same. It explains the All in figure now instead of
+              competing with it, using the money the customer actually handed
+              over, which is the interesting half anyway. */}
           <Text style={styles.gradeNote}>
-            {car.costBasis <= 0
+            {ledger.allIn <= 0
               ? 'This one has already paid for itself. Whatever it sells for now is all profit.'
-              : `Carrying ${money(car.costBasis)} — what it cost and what it took to get back, less everything the customer paid.`}
+              : `The customer handed over ${money(ledger.returned)} before it came home, which is why it is in for less than it cost.`}
           </Text>
         </Row>
       ) : null}
@@ -113,15 +128,13 @@ export function CarSheet({
       ) : null}
 
       <View style={styles.figures}>
-        {/* "You paid" stops being true the moment a car comes back. A
-            repossessed unit carries what is LEFT in it — what it cost, plus the
-            recovery, less every dollar the customer already handed over — and
-            labelling that as the purchase price would misreport the one number
-            the whole sheet's margin is measured against. */}
-        <Figure
-          label={car.repoCount > 0 ? 'Still in it' : 'You paid'}
-          value={money(car.costBasis)}
-        />
+        {/* "You paid" was never quite true and stopped being true at all the
+            moment a car came back: `costBasis` folds recon in, and a repo
+            rewrites it to what is LEFT in the unit. ALL IN is the honest
+            headline — every dollar this car has taken out of the till, less
+            anything a customer has handed back — and the trail underneath is
+            what it is made of. */}
+        <Figure label="All in" value={money(ledger.allIn)} />
         <Figure label="Cash retail" value={money(retail)} accent />
         {getStage(state.stage).financing ? (
           // What somebody who needs financing pays for the same car. The premium
@@ -132,6 +145,8 @@ export function CarSheet({
           <Figure label="Wholesale" value={money(wholesaleValue(car))} />
         )}
       </View>
+
+      <Text style={styles.trail}>{costTrail(ledger)}</Text>
 
       {car.status === 'recon' ? (
         <View style={styles.block}>
@@ -225,9 +240,6 @@ export function CarSheet({
   );
 }
 
-/** Past this, a car is old stock and the sheet says so in a different colour. */
-const STALE_DAYS = 21;
-
 function daysOnLot(days: number): string {
   if (days < 1) return 'Listed today.';
   const whole = Math.floor(days);
@@ -294,6 +306,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   hint: { color: theme.colors.textFaint, fontSize: 11, lineHeight: 16 },
+  trail: { color: theme.colors.textFaint, fontSize: 11, lineHeight: 15, marginTop: -4 },
   // Old stock reads in the warning colour: the sheet should look different when
   // a car has been sitting long enough to be a decision.
   stale: { color: theme.colors.warn },

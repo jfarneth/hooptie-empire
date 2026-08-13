@@ -49,6 +49,45 @@ export interface Car {
   condition: number;
   /** Everything sunk into this car: purchase price + recon spend. */
   costBasis: number;
+  /**
+   * What you handed the seller, freight excluded. Stamped at purchase and never
+   * touched again.
+   *
+   * `costBasis` cannot answer "what did I pay for this" and never could: recon
+   * is added to it, and a repossession rewrites it to what is LEFT in the car.
+   * Both are correct for what the basis is for — it is the number profit is
+   * measured against — and both make it useless as a record of the deal. The
+   * six fields below are that record, and they are separate from the basis on
+   * purpose. Nothing in the sim reads them; they exist so the ageing report can
+   * say where the money went. See inventory.ts.
+   */
+  purchasePrice: number;
+  /** What the transporter cost to get it here. Zero on a local car. */
+  freightPaid: number;
+  /** Every dollar of reconditioning ever spent on this car. */
+  reconSpend: number;
+  /**
+   * Floorplan interest charged against this car while it sat unsold.
+   *
+   * ACCRUED ON THE BILL BEAT rather than derived from age × rate on read, for
+   * the same reason a promotion's `endsAt` is stamped: the basis moves as recon
+   * lands and the admin console can move the rate under a car already on the
+   * lot, so a figure recomputed from the live constants would silently restate
+   * a cost the business has already paid. Kept unrounded so the per-car
+   * accruals sum to exactly the floorplan line the ledger charged.
+   */
+  carryingCost: number;
+  /** Recovery fees paid to take this car back, lifetime. */
+  recoveryCost: number;
+  /**
+   * Cash this car has already returned — down payments and weekly collections
+   * on contracts that ended in a repossession.
+   *
+   * Only a repossessed car can carry a non-zero figure here: a car that stays
+   * sold has left inventory for good, and nothing in the report will ever ask
+   * about it again.
+   */
+  returned: number;
   acquiredAt: Millis;
   status: CarStatus;
   /** Remaining reconditioning work, in sim ms. Only meaningful while status === 'recon'. */

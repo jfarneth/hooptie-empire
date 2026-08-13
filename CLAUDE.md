@@ -870,6 +870,91 @@ the end state, which is the guard that lives outside the UI — it is the only l
 in that report that is a rate rather than a level, and a rate is the only thing
 that can say whether the business above it is healthy or merely large.
 
+## The ageing report, and the per-car cost ledger
+
+**`costBasis` COULD NEVER ANSWER "WHAT DID I PAY FOR THIS", and for most of this
+game's life nothing else could either.** It is a net and it has to be — recon is
+added to it, and a repossession rewrites it to what is LEFT in the unit — both
+of which are right for what a basis is for, which is the number profit gets
+measured against. What they cost is the deal itself: a car sheet labelled the
+basis "You paid" and was quietly wrong about it the moment anybody sent a car to
+the shop.
+
+Every car now carries six more scalars — `purchasePrice`, `freightPaid`,
+`reconSpend`, `carryingCost`, `recoveryCost`, `returned` — and **nothing in the
+sim reads any of them.** They are a record, not an input; `src/sim/inventory.ts`
+is the pure read over them and `docs`-free because the rules are short:
+
+- **Floorplan is ACCRUED ON THE BILL BEAT, never derived from age × rate on
+  read.** Same rule as a promotion's `endsAt`: the basis moves as recon lands
+  and the admin console can move the rate under a car already on the lot, so a
+  figure recomputed from the live constants would silently restate a cost the
+  business has already paid. It accrues **unrounded**, so the per-car shares sum
+  to `tiedUp × rate`, which is exactly the number rounded into `bill.floorplan`.
+  Rounding per car instead leaves the report's total a few dollars off the
+  ledger's, on the one screen whose whole job is reconciling the two. There is a
+  test measuring the sum against `weeklyExpenses` rather than against a
+  restatement of the arithmetic, and it is mutation-tested both ways.
+- **`chargeRecon(car, cost)` is the only way a recon job gets booked**, because
+  `costBasis` and `reconSpend` must never drift and there are two call sites (the
+  player's action and the standing shop order).
+- **"All in" is NOT the basis, and the difference is the point.** All in is every
+  dollar the car has taken out of the till, less anything a customer handed back;
+  the basis excludes floorplan, because floorplan is an operating expense charged
+  the week it accrues rather than at the sale. Both are on the report and the
+  footnote says which is which.
+- **The v19 → v20 migration invents nothing.** The whole basis lands on
+  `purchasePrice` and the other five read zero, because a net cannot be
+  un-netted — a guessed recon share would be fabricated dollars on the one screen
+  that exists to say where the money went. Listings get the fields too, or buying
+  one produces a car with `undefined` where its ledger should be and every figure
+  downstream reads NaN.
+
+**Reports is a new Office tab, and the line against Business is levers against
+readouts.** Business is the five house rules — things you set, that the place
+then runs under while you are away. Reports is what that produced. The Business
+panel was already the longest screen in the game before a table of sixty cars
+went anywhere near it, and the index shape means the next report (the ledger,
+plan performance) is one card and one component and touches nothing else. The
+weekly books live there too, alongside the HUD readout that already opened them.
+
+**The HUD's lot counter opens it, exactly as the margin readout opens the
+books.** How full is not the same question as how long it has been full, and a
+lot pinned at capacity for a week is either a healthy business or a stall nobody
+wants. Office → Reports is where you go looking for the report; the HUD is where
+you notice it.
+
+**A row opens the car**, through `CarSheetHost` — the five action callbacks
+`CarSheet` needs, wired once, so a second surface cannot open it with a subtly
+different set. A report you cannot act on sends you hunting across a
+sixty-car tarmac for the car it just told you about.
+
+Four sorts, and they answer four different questions: **oldest** (the default,
+and what the report was built for), **most tied up**, **thinnest margin first**,
+and **costliest to keep** — which is carrying cost accrued, so it ranks by basis
+× age and is the classic aged-inventory-dollars number rather than a restatement
+of "most tied up". Ties break on age then id, so the list cannot reshuffle under
+a finger on a 4Hz surface.
+
+`STALE_DAYS` (21) lives in `inventory.ts` and the car sheet imports it: cars are
+listed about a week at every rung by design, so three weeks is a car that has had
+three times the normal run at finding a buyer and has not. **The report's day
+count is from PURCHASE and the car sheet's is from LISTING**, which is a real
+difference — time in the shop — and the footnote reconciles them rather than
+leaving "60d" and "57 days on the lot" a tap apart with no explanation.
+
+`tools/screenshots/reports.js` is how any of this gets reviewed, and it found
+what a test could not: the same word meaning two things on one screen. The car
+sheet's repossession banner quoted the basis and called it "Carrying" while the
+cost trail underneath called floorplan interest "carrying" — $41,022 and $1,313,
+both correct, both labelled the same. It names what the customer paid back now,
+which explains the All in figure instead of competing with it.
+
+The cost trail is **compact in the table and exact on the sheet**. `moneyShort`
+reports an $86,400 purchase as "$86k", which is what a table of sixty rows needs
+and is no use at all on the screen a player opened to find out where four hundred
+dollars went.
+
 ## The desk works for a cut
 
 Rules that carry the mechanic, each with a test named for it in `desk.test.ts`:
@@ -1092,7 +1177,7 @@ change can actually move what they measure.
 | anything stage-, margin- or ladder-shaped | plus the whole ladder (~2m45s) |
 
 ```bash
-npm test        # 495 tests, ~12s
+npm test        # 521 tests, ~12s
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~3s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2m45s
@@ -1827,7 +1912,7 @@ Most have a guarding test; check before "simplifying" the code around them.
   internally consistent and simply described a different game. `shopLossRatio`
   is the measured outcome and `expectedLossRatio()` is the only place to get it.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v19**. Saves are long-lived and local to the device; "we wiped
+  Currently **v20**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4

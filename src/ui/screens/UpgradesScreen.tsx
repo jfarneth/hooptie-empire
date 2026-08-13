@@ -21,6 +21,7 @@ import { HUD_HEIGHT } from '../components/Hud';
 import { Button, Chip, Label, Row } from '../components/ui';
 import { AdminPanel } from '../components/AdminPanel';
 import { BusinessPanel } from '../components/BusinessPanel';
+import { ReportsPanel } from '../components/ReportsPanel';
 import { ServicePanel } from '../components/ServicePanel';
 import { RetirePanel } from '../components/RetirePanel';
 import { SkillCard } from '../components/SkillCard';
@@ -32,12 +33,20 @@ const CATEGORY_TITLE: Record<string, string> = {
   finance: 'The book',
 };
 
-type OfficeTab = 'upgrades' | 'skills' | 'business' | 'service' | 'retire' | 'admin';
+type OfficeTab =
+  | 'upgrades'
+  | 'skills'
+  | 'business'
+  | 'reports'
+  | 'service'
+  | 'retire'
+  | 'admin';
 
 const TAB_LABEL: Record<OfficeTab, string> = {
   upgrades: 'Upgrades',
   skills: 'Skills',
   business: 'Business',
+  reports: 'Reports',
   service: 'Service',
   retire: 'Retire',
   admin: 'Admin',
@@ -63,6 +72,11 @@ const OFFICE_TABS = (Object.keys(TAB_LABEL) as OfficeTab[]).filter(
  * that unlocks it, because it is the same kind of object as the house rules —
  * an instruction that keeps applying with the app closed — and it reads as one
  * decision surface alongside them instead of as a footnote to a purchase.
+ *
+ * Reports sits beside Business rather than inside it, and the line between them
+ * is levers against readouts: Business is what the place runs under, Reports is
+ * what that produced. The Business panel was already the longest screen in the
+ * game before a table of sixty cars went anywhere near it.
  */
 export function UpgradesScreen({ state }: { state: GameState }) {
   const apply = useGame((s) => s.apply);
@@ -97,6 +111,8 @@ export function UpgradesScreen({ state }: { state: GameState }) {
         </View>
       ) : tab === 'business' ? (
         <BusinessPanel state={state} />
+      ) : tab === 'reports' ? (
+        <ReportsPanel state={state} />
       ) : tab === 'service' ? (
         <ServicePanel state={state} />
       ) : tab === 'retire' ? (
