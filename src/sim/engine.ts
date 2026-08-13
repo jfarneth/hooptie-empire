@@ -88,9 +88,20 @@ import {
 } from './upgrades';
 import type { StageSourcing } from './stages';
 import type { StockProfile } from './cars';
-import type { Car, GameState, Listing, Millis, Note, Prospect, SimEvent, SkillId } from './types';
+import type {
+  BookLine,
+  Car,
+  GameState,
+  Listing,
+  Millis,
+  Note,
+  Prospect,
+  SimEvent,
+  SkillId,
+  WeekLines,
+} from './types';
 
-export const SAVE_VERSION = 20;
+export const SAVE_VERSION = 21;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -200,6 +211,7 @@ function blankState(seed: number, wallNow: number): GameState {
     },
     weeks: [],
     weekRevenue: 0,
+    weekLines: emptyWeekLines(),
     weekProfitAt: 0,
     events: [],
     prestige: { count: 0, points: 0, history: [] },
@@ -341,7 +353,17 @@ function stepBills(s: GameState): void {
   const overheads = bill.total - bill.debtService;
   if (overheads > 0) {
     s.cash -= overheads;
-    s.stats.lifetimeProfit -= overheads;
+    // ONE CHEQUE, THREE DEPARTMENTS. Floorplan is interest on unsold stock, so
+    // it belongs to the cars — it is the same money the ageing report charges
+    // car by car, and putting it in overhead would let a lot full of metal
+    // nobody wants read as a healthy sales line. The technicians belong to the
+    // bays for the sharper reason: a shop that bills $163M and quietly loses
+    // $10k a week is the trap this whole split exists to make visible, and it
+    // is invisible the moment their wages land anywhere else. Rent and the
+    // sales-side payroll are the cost of having a business at all.
+    bookProfit(s, 'metal', -bill.floorplan);
+    bookProfit(s, 'shop', -bill.shopPayroll);
+    bookProfit(s, 'overhead', -(overheads - bill.floorplan - bill.shopPayroll));
     logEvent(s, {
       t: s.t,
       kind: 'expense',
@@ -358,7 +380,7 @@ function stepBills(s: GameState): void {
   // runs until the player recovers or quits.
   if (s.loan) {
     s.cash -= s.loan.paymentAmount;
-    s.stats.lifetimeProfit -= s.loan.paymentAmount;
+    bookProfit(s, 'overhead', -s.loan.paymentAmount);
     s.loan.paymentsRemaining -= 1;
     logEvent(s, {
       t: s.t,
@@ -612,9 +634,9 @@ function stepNotes(s: GameState): void {
 
     if (result.paid) {
       s.cash += result.amount;
-      bookRevenue(s, result.amount);
+      bookRevenue(s, 'paper', result.amount);
       s.stats.totalCollected += result.amount;
-      s.stats.lifetimeProfit += result.amount;
+      bookProfit(s, 'paper', result.amount);
       logEvent(s, {
         t: s.t,
         kind: 'payment',
@@ -667,7 +689,7 @@ function repossess(s: GameState, carId: string, customer: string, note: Note, la
   // whose car has already left the books still costs something to chase.
   const fee = repoFeeFor(s, car);
   s.cash -= fee;
-  s.stats.lifetimeProfit -= fee;
+  bookProfit(s, 'paper', -fee);
   s.stats.reposCompleted += 1;
 
   // The cover goes with the customer. They are not driving it any more and the
@@ -716,7 +738,11 @@ function repossess(s: GameState, carId: string, customer: string, note: Note, la
   // three game hours understated profit by $200,678.
   const carrying = repoCarryingValue(car.costBasis, fee, note);
   car.costBasis = carrying;
-  s.stats.lifetimeProfit += carrying;
+  // Against METAL, not paper. The write-back reverses the expense `acceptFinance`
+  // charged the car out at, and the asset it puts back on the lot is the sales
+  // side's to resell. What the finance desk pays for a repossession is the
+  // recovery fee above.
+  bookProfit(s, 'metal', carrying);
 
   // ...but only if there is a stall for it. THE LOT IS A HARD LIMIT: every
   // buying path is gated on capacity, and a repo is the one event that can add
@@ -733,8 +759,8 @@ function repossess(s: GameState, carId: string, customer: string, note: Note, la
   if (overLotCapacity(s)) {
     const dumped = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
     s.cash += dumped;
-    bookRevenue(s, dumped);
-    s.stats.lifetimeProfit += dumped - car.costBasis;
+    bookRevenue(s, 'metal', dumped);
+    bookProfit(s, 'metal', dumped - car.costBasis);
     removeCar(s, car.id);
     logEvent(s, {
       t: s.t,
@@ -785,7 +811,7 @@ function stepServicePlans(s: GameState): void {
   for (const claim of claims) {
     if (claim.cost <= 0) continue;
     s.cash -= claim.cost;
-    s.stats.lifetimeProfit -= claim.cost;
+    bookProfit(s, 'plans', -claim.cost);
     s.stats.planPayouts += claim.cost;
     logEvent(s, {
       t: s.t,
@@ -820,8 +846,8 @@ function stepServiceDept(s: GameState): void {
 
   for (const { job } of result.billed) {
     s.cash += job.price;
-    bookRevenue(s, job.price);
-    s.stats.lifetimeProfit += job.price;
+    bookRevenue(s, 'shop', job.price);
+    bookProfit(s, 'shop', job.price);
     s.stats.shopRevenue += job.price;
     s.stats.shopJobsDone += 1;
     s.shop.weekRevenue += job.price;
@@ -1251,8 +1277,94 @@ export function registerWalkaway(s: GameState, customerName: string): void {
  * difference would report a business as having a spectacular week every time it
  * borrowed. Everything that goes through here is somebody paying for something.
  */
-export function bookRevenue(s: GameState, amount: number): void {
-  if (amount > 0) s.weekRevenue += amount;
+export function bookRevenue(s: GameState, line: BookLine, amount: number): void {
+  if (amount <= 0) return;
+  s.weekRevenue += amount;
+  s.weekLines[line].revenue += amount;
+}
+
+/**
+ * Money kept — or lost — for the week's books, against the line that earned it.
+ *
+ * THE ONLY WAY `lifetimeProfit` MOVES, and that is what makes the departmental
+ * split trustworthy rather than decorative. The week's headline profit is a
+ * subtraction off `lifetimeProfit` (see `closeTheWeek`) and the five lines are
+ * running totals; the only thing that stops those two disagreeing is that there
+ * is no other door. A `s.stats.lifetimeProfit += x` written anywhere else would
+ * leave the tiles quietly short by exactly that much, on a screen whose entire
+ * job is saying which part of the business the money came from.
+ *
+ * `books.test.ts` measures the sum against the subtraction, which is the only
+ * way that failure could ever show up.
+ */
+export function bookProfit(s: GameState, line: BookLine, amount: number): void {
+  s.stats.lifetimeProfit += amount;
+  s.weekLines[line].profit += amount;
+}
+
+/** A week's five lines, all at zero. */
+export function emptyWeekLines(): WeekLines {
+  return {
+    metal: { revenue: 0, profit: 0 },
+    paper: { revenue: 0, profit: 0 },
+    plans: { revenue: 0, profit: 0 },
+    shop: { revenue: 0, profit: 0 },
+    overhead: { revenue: 0, profit: 0 },
+  };
+}
+
+/**
+ * Round a week's lines to whole dollars, so the five of them add to the
+ * headline exactly.
+ *
+ * The lines accrue in cents — a note payment is a level payment on a
+ * simple-interest contract and lands at two decimal places — while the week's
+ * revenue and profit are filed as whole dollars. Round the two sides
+ * independently and they can land either side of a half-dollar and differ by
+ * one, which on a screen that says "together they come to X, which is exactly
+ * what the week made" is a visible lie about arithmetic.
+ *
+ * THE RESIDUAL IS ONLY EVER ABSORBED WHEN IT IS ROUNDING. Five roundings cannot
+ * be more than $2.50 out; anything larger is not rounding, it is profit that
+ * moved without going through `bookProfit`, and quietly folding that into the
+ * biggest tile would hide exactly the bug the reconciliation test exists to
+ * catch. Past the threshold it is left alone and the test says so.
+ */
+function fileWeekLines(lines: WeekLines, profit: number, revenue: number): WeekLines {
+  const out = emptyWeekLines();
+  const ids = Object.keys(out) as BookLine[];
+  for (const id of ids) {
+    out[id].profit = Math.round(lines[id].profit);
+    out[id].revenue = Math.round(lines[id].revenue);
+  }
+
+  // On the biggest line, where a dollar is proportionally invisible — and never
+  // on a line that did nothing, which would conjure a department out of a
+  // rounding error.
+  const settle = (key: 'profit' | 'revenue', target: number) => {
+    const residual = target - ids.reduce((n, id) => n + out[id][key], 0);
+    if (residual === 0 || Math.abs(residual) > 3) return;
+    let biggest: BookLine | null = null;
+    for (const id of ids) {
+      if (out[id][key] === 0) continue;
+      if (!biggest || Math.abs(out[id][key]) > Math.abs(out[biggest][key])) biggest = id;
+    }
+    if (biggest) out[biggest][key] += residual;
+  };
+  settle('profit', profit);
+  settle('revenue', revenue);
+
+  return out;
+}
+
+export function cloneWeekLines(lines: WeekLines): WeekLines {
+  return {
+    metal: { ...lines.metal },
+    paper: { ...lines.paper },
+    plans: { ...lines.plans },
+    shop: { ...lines.shop },
+    overhead: { ...lines.overhead },
+  };
 }
 
 /**
@@ -1264,15 +1376,22 @@ export function bookRevenue(s: GameState, amount: number): void {
  * what stops the two ever disagreeing.
  */
 function closeTheWeek(s: GameState): void {
+  const revenue = Math.round(s.weekRevenue);
+  const profit = Math.round(s.stats.lifetimeProfit - s.weekProfitAt);
   s.weeks.push({
     endedAt: s.t,
-    revenue: Math.round(s.weekRevenue),
-    profit: Math.round(s.stats.lifetimeProfit - s.weekProfitAt),
+    revenue,
+    profit,
+    // Rounded to add up to those two exactly — see `fileWeekLines`. The headline
+    // stays the subtraction off `lifetimeProfit` it has always been; what gets
+    // adjusted is the split, by at most the cents it was carrying.
+    lines: fileWeekLines(s.weekLines, profit, revenue),
   });
   if (s.weeks.length > BALANCE.weekHistory) {
     s.weeks.splice(0, s.weeks.length - BALANCE.weekHistory);
   }
   s.weekRevenue = 0;
+  s.weekLines = emptyWeekLines();
   s.weekProfitAt = s.stats.lifetimeProfit;
 }
 
@@ -1329,8 +1448,15 @@ export function cloneState(s: GameState): GameState {
     tuning: { ...s.tuning },
     stats: { ...s.stats },
     // Written by the tick every game week, so a shared array would leak
-    // backwards through history exactly as a shared prospect would.
-    weeks: (s.weeks ?? []).map((w) => ({ ...w })),
+    // backwards through history exactly as a shared prospect would — and each
+    // filed week now carries a nested block of five lines, which needs the same
+    // treatment for the same reason. `weekLines` is the live one, written on
+    // every sale, and is the one that would actually bite.
+    weeks: (s.weeks ?? []).map((w) => ({
+      ...w,
+      lines: w.lines ? cloneWeekLines(w.lines) : null,
+    })),
+    weekLines: cloneWeekLines(s.weekLines ?? emptyWeekLines()),
     events: s.events.map((e) => ({ ...e })),
   };
 }
@@ -1423,7 +1549,7 @@ function commissionOn(s: GameState, profitAtSigning: number, cashReceived: numbe
 function payCommission(s: GameState, cut: number, dealLabel: string): void {
   if (cut <= 0) return;
   s.cash -= cut;
-  s.stats.lifetimeProfit -= cut;
+  bookProfit(s, 'metal', -cut);
   s.stats.commissionPaid += cut;
   logEvent(s, {
     t: s.t,
@@ -1446,10 +1572,10 @@ function acceptCash(s: GameState, prospectId: string, closer: DealCloser = 'play
   const price = prospect.negotiation.currentOffer;
   const profit = price - car.costBasis;
   s.cash += price;
-  bookRevenue(s, price);
+  bookRevenue(s, 'metal', price);
   s.stats.carsSold += 1;
   s.stats.cashDeals += 1;
-  s.stats.lifetimeProfit += profit;
+  bookProfit(s, 'metal', profit);
 
   if (prospect.negotiation.countersMade > 0) s.stats.negotiationsWon += 1;
   awardXp(s, 'sell', sellXp(price, prospect.negotiation.countersMade));
@@ -1531,10 +1657,10 @@ function acceptFinance(
   s.notes.push(note);
 
   s.cash += prospect.downPayment;
-  bookRevenue(s, prospect.downPayment);
+  bookRevenue(s, 'metal', prospect.downPayment);
   s.stats.carsSold += 1;
   s.stats.financeDeals += 1;
-  s.stats.lifetimeProfit += prospect.downPayment - car.costBasis;
+  bookProfit(s, 'metal', prospect.downPayment - car.costBasis);
 
   logEvent(s, {
     t: s.t,
@@ -1582,8 +1708,8 @@ function sellServicePlan(s: GameState, prospect: Prospect, car: Car): void {
   if (!contract) return;
 
   s.cash += contract.price;
-  bookRevenue(s, contract.price);
-  s.stats.lifetimeProfit += contract.price;
+  bookRevenue(s, 'plans', contract.price);
+  bookProfit(s, 'plans', contract.price);
   s.stats.planIncome += contract.price;
   s.stats.plansSold += 1;
   logEvent(s, {

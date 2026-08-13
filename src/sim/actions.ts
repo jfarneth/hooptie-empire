@@ -5,6 +5,7 @@ import { createInitialState } from './engine';
 import {
   acceptCash,
   acceptFinance,
+  bookProfit,
   bookRevenue,
   buyListingInternal,
   cloneState,
@@ -120,8 +121,8 @@ export function sellToWholesaler(state: GameState, carId: string): GameState {
 
     const proceeds = Math.round(wholesaleValue(car) * BALANCE.forcedSaleRate);
     s.cash += proceeds;
-    bookRevenue(s, proceeds);
-    s.stats.lifetimeProfit += proceeds - car.costBasis;
+    bookRevenue(s, 'metal', proceeds);
+    bookProfit(s, 'metal', proceeds - car.costBasis);
     s.prospects = s.prospects.filter((p) => p.carId !== carId);
     s.cars = s.cars.filter((c) => c.id !== carId);
 
@@ -599,11 +600,11 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
     if (sale.cars > 0) {
       const basis = s.cars.reduce((sum, c) => (c.status === 'sold' ? sum : sum + c.costBasis), 0);
       s.cash += sale.proceeds;
-      bookRevenue(s, sale.proceeds);
+      bookRevenue(s, 'metal', sale.proceeds);
       // Counted as profit but NOT as a sale, and no XP: this is a wholesaler
       // taking the lot off your hands, not the desk closing anybody. Awarding
       // Closing XP for it would train the skill by moving house.
-      s.stats.lifetimeProfit += sale.proceeds - basis;
+      bookProfit(s, 'metal', sale.proceeds - basis);
       // Only what is on the lot. Financed cars stay in state, marked sold, or
       // their notes have nothing to repossess. See `lotLiquidation`.
       s.cars = s.cars.filter((c) => c.status === 'sold');
@@ -683,7 +684,8 @@ export function hireServiceTech(state: GameState, grade: number): GameState {
     if (s.cash < cost) return false;
 
     s.cash -= cost;
-    s.stats.lifetimeProfit -= cost;
+    // The bays carry their own hiring, exactly as they carry their own wages.
+    bookProfit(s, 'shop', -cost);
     const tech = hireTech(s, rung);
     logEvent(s, {
       t: s.t,
@@ -790,7 +792,7 @@ export function payOffLoan(state: GameState): GameState {
     if (s.cash < owed) return false;
 
     s.cash -= owed;
-    s.stats.lifetimeProfit -= owed;
+    bookProfit(s, 'overhead', -owed);
     s.loan = null;
     logEvent(s, { t: s.t, kind: 'loan', label: 'Paid the shark off early', amount: -owed });
     return true;

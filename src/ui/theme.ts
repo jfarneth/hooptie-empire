@@ -154,6 +154,20 @@ export function shadeColor(hex: string, amount: number): string {
   return `#${to2(ch((n >> 16) & 255))}${to2(ch((n >> 8) & 255))}${to2(ch(n & 255))}`;
 }
 
+/**
+ * A hex colour at a given opacity, as rgba.
+ *
+ * The books' line tiles wash their background with the money or danger colour
+ * at an opacity that scales with how big the line was — the heat-map read, where
+ * a deeper tile is a bigger mover. A flat tint on every tile would say nothing,
+ * and a second hand-picked palette per intensity is nine more colours to keep in
+ * step with these two.
+ */
+export function withAlpha(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
 export function money(n: number): string {
   const rounded = Math.round(n);
   const sign = rounded < 0 ? '-' : '';

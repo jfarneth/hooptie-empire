@@ -98,6 +98,22 @@ async function main() {
   await page.waitForTimeout(500);
   await shoot('index');
 
+  // The weekly books, and its departmental tiles — the other half of the
+  // Reports index, and the part that only looks right on a store running all
+  // four lines at once.
+  await page.getByText('Weekly books', { exact: true }).click();
+  await page.waitForTimeout(700);
+  await shoot('books');
+  await page.mouse.wheel(0, 600);
+  await page.waitForTimeout(400);
+  await shoot('books-lines');
+  await page.getByText('This week', { exact: true }).click();
+  await page.waitForTimeout(400);
+  await shoot('books-lines-live');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
+  await page.evaluate(() => document.activeElement?.blur?.());
+
   await page.getByText('Inventory ageing', { exact: true }).click();
   await page.waitForTimeout(700);
   await shoot('ageing');

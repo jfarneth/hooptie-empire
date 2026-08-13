@@ -1,5 +1,5 @@
 import { BALANCE } from './balance';
-import type { GameState, WeekRecord } from './types';
+import type { BookLine, GameState, LineResult, WeekRecord } from './types';
 
 /**
  * The weekly books.
@@ -54,12 +54,66 @@ export function recentWeeks(state: Pick<GameState, 'weeks'>, count: number): Wee
  * swings wildly enough to be noise. It earns its place in the popup, where it
  * sits after the closed weeks as an explicit part-week.
  */
-export function weekSoFar(state: Pick<GameState, 'weeks' | 'weekRevenue' | 'weekProfitAt' | 'stats' | 't'>): WeekRecord {
+export function weekSoFar(
+  state: Pick<GameState, 'weeks' | 'weekRevenue' | 'weekLines' | 'weekProfitAt' | 'stats' | 't'>,
+): WeekRecord {
   return {
     endedAt: state.t,
     revenue: Math.round(state.weekRevenue ?? 0),
     profit: Math.round(state.stats.lifetimeProfit - (state.weekProfitAt ?? 0)),
+    lines: state.weekLines ?? null,
   };
+}
+
+/**
+ * The five business lines, in the order they read on screen: the four things
+ * the business sells, then the cost of having a business at all.
+ */
+export const BOOK_LINES: BookLine[] = ['metal', 'paper', 'plans', 'shop', 'overhead'];
+
+/**
+ * What each line is called, and what is in it.
+ *
+ * The `note` is not decoration — every one of these lines has something in it
+ * the player would otherwise have to guess at, and three of them have something
+ * genuinely surprising: floorplan is charged to the cars, the technicians are
+ * charged to the bays, and the whole of a financed car leaves on the metal line
+ * at signing.
+ */
+export const BOOK_LINE_COPY: Record<BookLine, { name: string; note: string }> = {
+  metal: { name: 'Metal', note: 'cars sold, less what they cost, floorplan and commission' },
+  paper: { name: 'The book', note: 'weekly collections, less what repossessions cost to work' },
+  plans: { name: 'Cover', note: 'service plans sold, less the claims paid on them' },
+  shop: { name: 'Service bay', note: 'labour billed, less the technicians who billed it' },
+  overhead: { name: 'Overhead', note: 'rent, the payroll and the shark' },
+};
+
+/**
+ * A line's own margin, on the same rule `weekMargin` follows: `null` where there
+ * is no denominator.
+ *
+ * Overhead never has one — it takes nothing and only spends — and neither does a
+ * quiet week on any other line. Reporting either as -100% would be inventing a
+ * denominator, which is the same mistake in a smaller box.
+ */
+export function lineMargin(line: LineResult | undefined): number | null {
+  if (!line || line.revenue <= 0) return null;
+  return line.profit / line.revenue;
+}
+
+/**
+ * True when this line has ever done anything in the week being shown.
+ *
+ * A curbstone has no finance desk, no plan desk and no bays, so three of the
+ * five tiles would be a permanent row of zeroes — the same argument that keeps
+ * the admin tab out of a shipped build and an empty promotion tray off the
+ * screen. Read off the WEEK rather than off the stage on purpose: a business
+ * that has just walked down the ladder still owes claims on cover it sold
+ * upstairs, and that money is real whether or not the store can sell any more
+ * of it.
+ */
+export function lineActive(line: LineResult | undefined): boolean {
+  return !!line && (line.revenue !== 0 || line.profit !== 0);
 }
 
 /**

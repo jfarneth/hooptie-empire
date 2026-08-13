@@ -554,7 +554,42 @@ export interface WeekRecord {
    * money out of the till without costing the week anything.
    */
   profit: number;
+  /**
+   * The same week, split across the four things the business sells and the cost
+   * of having a business at all.
+   *
+   * `null` on a week filed before the split existed. Nothing is invented for
+   * those — see the v20 -> v21 migration — because there is no way to work out
+   * from one net figure which department earned it, and a guess would be a
+   * confident lie on the one screen built to answer that exact question.
+   */
+  lines: WeekLines | null;
 }
+
+/**
+ * The business lines a week's money is split across.
+ *
+ * Four things the business sells and one thing it pays for regardless. They are
+ * departments in the sense a real dealership means it — the used-car department
+ * carries its own floorplan, the shop carries its own technicians — rather than
+ * a tidy split of revenue, and the whole point of the split is that a line can
+ * be losing money while the business as a whole is fine.
+ *
+ * `metal` and `paper` only make sense read together on a financing stage.
+ * `acceptFinance` books the car out at its down payment against its whole cost,
+ * so metal takes the hit at signing and paper collects it back a week at a time
+ * over the life of the contract. That is not an artefact of the accounting; it
+ * is buy-here-pay-here, and seeing it is the point.
+ */
+export type BookLine = 'metal' | 'paper' | 'plans' | 'shop' | 'overhead';
+
+/** What one line took, and what was left of it. */
+export interface LineResult {
+  revenue: number;
+  profit: number;
+}
+
+export type WeekLines = Record<BookLine, LineResult>;
 
 export interface Stats {
   carsSold: number;
@@ -738,6 +773,17 @@ export interface GameState {
   weeks: WeekRecord[];
   /** Money in since the last bill. Closed and filed by `stepBills`. */
   weekRevenue: number;
+  /**
+   * The week in progress, split by line. Filed and reset by `closeTheWeek`.
+   *
+   * THESE ARE RUNNING TOTALS, which the week's headline profit deliberately is
+   * not — it is a subtraction off `lifetimeProfit` so the two can never drift.
+   * A split has no such option: there is nothing to subtract a department from.
+   * What keeps it honest is that every mutation of `lifetimeProfit` goes through
+   * `bookProfit`, so the five lines add up to the subtraction by construction,
+   * and there is a test that says so in the only way that can fail.
+   */
+  weekLines: WeekLines;
   /**
    * `lifetimeProfit` as it stood when this week opened, so the week's profit is
    * a subtraction rather than a second running total that could drift from it.

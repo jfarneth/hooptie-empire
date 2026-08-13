@@ -871,6 +871,61 @@ the end state, which is the guard that lives outside the UI — it is the only l
 in that report that is a rate rather than a level, and a rate is the only thing
 that can say whether the business above it is healthy or merely large.
 
+### Where the week's money came from
+
+**A DEALERSHIP IS FOUR BUSINESSES AND ONE LANDLORD, and the books used to report
+one number for all five.** `WeekRecord.lines` splits every week across `metal`,
+`paper`, `plans`, `shop` and `overhead`; the books sheet draws them as tiles,
+green or red on the sign and washed deeper the bigger the line, and `npm run sim`
+prints the same split per store. The first run of that column found the shop
+billing $122k and keeping **−$62k** — the exact trap the harness's own history
+records costing 66 hours on the premium franchise, visible in one line for the
+first time.
+
+- **`bookProfit(s, line, amount)` IS THE ONLY DOOR `lifetimeProfit` MOVES
+  THROUGH.** The week's headline is a subtraction off it and the five lines are
+  running totals — precisely the drift the headline was designed to avoid one
+  level up — so the only thing keeping them together is that there is no other
+  door. `s.stats.lifetimeProfit += x` written anywhere else leaves the tiles
+  short by exactly that much, silently. The reconciliation test in
+  `books.test.ts` is what goes red, and it is mutation-tested.
+- **The weekly bill is one cheque and three departments.** Floorplan goes to the
+  CARS (it is interest on unsold stock, the same money the ageing report charges
+  car by car) and the technicians go to the BAYS. Leave either in overhead and a
+  shop that bills a fortune and loses money on wages reads as pure profit. The
+  test that pins this arranges a QUIET TICK — no notes, no plans, no jobs, no
+  buyers — because a whole-week measurement asserting directions passed with the
+  floorplan filed under overhead. Overhead is the one line nothing else ever
+  touches, so pinning its delta to the dollar pins all three at once.
+- **METAL AND PAPER ONLY MEAN ANYTHING TOGETHER.** `acceptFinance` books a car
+  out at its down payment against the whole of what it cost, so metal takes the
+  hit at signing and paper collects it back a week at a time. That is
+  buy-here-pay-here, not an artefact — and it is the first time the game has
+  shown it. Measured at an Okabe store: $236k of metal kept $1,330 while the book
+  kept $10,350. "The loan book is the game" is a number now.
+- **`fileWeekLines` rounds the split to whole dollars against the headline**,
+  because lines accrue in cents (a note payment is a level payment at two
+  decimal places) and rounding both sides independently lands them a dollar
+  apart — under a caption that says they add up. The residual goes on the
+  biggest line, and **only when it is under $3**: five roundings cannot exceed
+  $2.50, so anything larger is not rounding, it is profit that bypassed the
+  seam, and absorbing it would hide the one bug the test exists to catch.
+- **A line the week never ran is not drawn.** A curbstone has no finance desk,
+  no plan desk and no bays, so three of five tiles would be a permanent row of
+  zeroes. Read off the WEEK rather than the stage, so a business that walked
+  back down still sees claims on cover it sold upstairs.
+- **A part-week flatters every line and says so.** Rent, wages and floorplan are
+  one cheque on the bill beat, so a Wednesday reading shows four departments
+  that have taken money and paid nobody — the bays read 100% until Sunday. Same
+  argument as the hollow part-week bar on the chart: not hidden, labelled.
+- **The v20 -> v21 migration gives filed weeks `null`, not five zeroes.** One net
+  figure cannot say which department earned it, and zeroes would render as
+  "every department did nothing" beside a headline saying the week made $40,000.
+
+Overhead gets the full width under the grid rather than a fifth tile in it: it
+is not a department competing with the others, it is what the four of them have
+to cover between them.
+
 ## The ageing report, and the per-car cost ledger
 
 **`costBasis` COULD NEVER ANSWER "WHAT DID I PAY FOR THIS", and for most of this
@@ -1211,7 +1266,7 @@ change can actually move what they measure.
 | anything stage-, margin- or ladder-shaped | plus the whole ladder (~2m45s) |
 
 ```bash
-npm test        # 521 tests, ~12s
+npm test        # 530 tests, ~13s
 npm run typecheck
 npm run sim     # balance harness — 4h of simulated play in ~3s
 npm run sim -- --hours=350 --seeds=8   # the whole ladder, ~2m45s
@@ -1946,7 +2001,7 @@ Most have a guarding test; check before "simplifying" the code around them.
   internally consistent and simply described a different game. `shopLossRatio`
   is the measured outcome and `expectedLossRatio()` is the only place to get it.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v20**. Saves are long-lived and local to the device; "we wiped
+  Currently **v21**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4

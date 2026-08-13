@@ -1,5 +1,5 @@
 import { MS_PER_GAME_WEEK } from './balance';
-import { SAVE_VERSION, createInitialState } from './engine';
+import { SAVE_VERSION, createInitialState, emptyWeekLines } from './engine';
 import type { GameState } from './types';
 
 /**
@@ -556,6 +556,28 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       listings: (s.listings ?? []).map((l: any) => ({ ...l, car: ledger(l.car) })),
     };
   },
+
+  /**
+   * v20 -> v21: the weekly books split into business lines.
+   *
+   * ALREADY-FILED WEEKS GET NO BREAKDOWN, and `null` is the honest value rather
+   * than five zeroes. A closed week is one net figure and one revenue figure;
+   * there is no way to work backwards from those to which department earned
+   * them, and five zeroes would not read as "unknown", it would read as "every
+   * department did nothing" — on a screen built to answer exactly that
+   * question, next to a headline saying the week made $40,000. The books sheet
+   * says so in as many words for the two months it takes to age out.
+   *
+   * The week IN PROGRESS starts from zero, which loses at most one week's split
+   * and is the only available answer for the same reason. It is not `null`: the
+   * tick writes to it on the very next sale, and a null there would be a crash
+   * rather than a gap.
+   */
+  20: (s) => ({
+    ...s,
+    weeks: (s.weeks ?? []).map((w: any) => ({ ...w, lines: w.lines ?? null })),
+    weekLines: emptyWeekLines(),
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {
