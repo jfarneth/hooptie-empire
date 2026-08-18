@@ -494,13 +494,13 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Halvorsen',
     blurb:
       'A sign with somebody else’s name on it. Every car is new, every car is a Halvorsen, and every price comes off an invoice — the guesswork is over and the volume starts.',
-    entryCost: 5_400_000,
+    entryCost: 3_000_000,
     baseCarCapacity: 22,
     capacityUpgradeId: 'lot',
     capacityPerLevel: 4,
     financing: true,
-    upgradeCostMultiplier: 5,
-    rentPerWeek: 4000,
+    upgradeCostMultiplier: 6,
+    rentPerWeek: 3500,
     trafficPerCar: 0.5,
     bhphMultiplier: 1.3,
     creditShift: 0.9,
@@ -516,7 +516,7 @@ export const STAGES: readonly StageDef[] = [
     // franchise's: under a hundred an hour, and the volume comes from being the
     // only Halvorsen dealer in town.
     shop: { hourlyRates: [45, 58, 72, 90, 115], demandPerSec: 0.5, jobScale: 1 },
-    sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.16, askMax: 1.24, makeId: 'halvorsen' },
+    sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.18, askMax: 1.26, makeId: 'halvorsen' },
   },
   {
     id: 'midsizeFranchise',
@@ -524,13 +524,13 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Okabe',
     blurb:
       'The full Okabe lineup, trucks included. Thinner margin on every unit and a great many more units.',
-    entryCost: 20_000_000,
+    entryCost: 6_000_000,
     baseCarCapacity: 32,
     capacityUpgradeId: 'lot',
     capacityPerLevel: 4,
     financing: true,
-    upgradeCostMultiplier: 10,
-    rentPerWeek: 9000,
+    upgradeCostMultiplier: 12,
+    rentPerWeek: 6000,
     trafficPerCar: 0.5,
     bhphMultiplier: 1.22,
     creditShift: 1.6,
@@ -539,7 +539,7 @@ export const STAGES: readonly StageDef[] = [
     desk: { title: 'Sales manager', commission: 0.1, salaried: true },
     serviceContracts: true,
     shop: { hourlyRates: [55, 72, 92, 118, 150], demandPerSec: 0.65, jobScale: 1.4 },
-    sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.2, askMax: 1.27, makeId: 'okabe' },
+    sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.22, askMax: 1.29, makeId: 'okabe' },
   },
   {
     id: 'premiumFranchise',
@@ -547,13 +547,13 @@ export const STAGES: readonly StageDef[] = [
     shortName: 'Valmont',
     blurb:
       'Valmont. Six figures a car, customers with real credit, and a finance desk that finally has nothing to apologise for.',
-    entryCost: 70_000_000,
+    entryCost: 24_000_000,
     baseCarCapacity: 42,
     capacityUpgradeId: 'lot',
     capacityPerLevel: 4,
     financing: true,
-    upgradeCostMultiplier: 18,
-    rentPerWeek: 20000,
+    upgradeCostMultiplier: 22,
+    rentPerWeek: 12000,
     trafficPerCar: 0.5,
     bhphMultiplier: 1.15,
     creditShift: 2.6,
@@ -570,7 +570,7 @@ export const STAGES: readonly StageDef[] = [
     // here is 6.8% against the big lot's 18.6%, so a dollar of labour is worth
     // nearly three times as much of a car as it is further down.
     shop: { hourlyRates: [95, 125, 160, 205, 265], demandPerSec: 1, jobScale: 3 },
-    sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.23, askMax: 1.29, makeId: 'valmont' },
+    sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.25, askMax: 1.31, makeId: 'valmont' },
   },
 ];
 

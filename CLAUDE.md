@@ -267,7 +267,7 @@ harness and automation use. Two rules make it work and both are easy to break
 into generosity without a test noticing:
 
 - **A dealership costs its own entry price, whichever rung you were on.**
-  Skipping does not compound. Grinding out $32M at a small lot really does buy a
+  Skipping does not compound. Grinding out $24M at a small lot really does buy a
   Valmont store — you just arrive with a two-man payroll and a book sized for a
   small lot, which is punishment enough and is what the confirmation says.
 - **Going down is free and refunds nothing.** Cash, paper and skills come
@@ -1245,9 +1245,9 @@ well under it on the franchises:
 | Curbstone | 0.80–1.42 | +41% to **−5%** |
 | Small used | 0.84–1.38 | +38% to **−2%** |
 | Large used | 0.90–1.30 | +33% to +4% |
-| Low-cost franchise | 1.16–1.24 | +14% to +8% |
-| Midsize franchise | 1.20–1.27 | +11% to +6% |
-| Premium franchise | 1.23–1.29 | +9% to +4.5% |
+| Low-cost franchise | 1.18–1.26 | +12.7% to +6.8% |
+| Midsize franchise | 1.22–1.29 | +9.7% to +4.5% |
+| Premium franchise | 1.25–1.31 | +7.5% to +3.1% |
 
 The percentage falls as the dollars rise, which is what makes the top a volume
 business and the bottom a judgement one. **This table was stale for the three
@@ -1322,19 +1322,18 @@ against ~264h before, and the business **keeps trading** rather than bleeding to
 healthy business up there and is no longer a distress signal on its own — read
 cash, the book and the portfolio instead.
 
-**The upgrade table is badly out of scale with the ladder, and it is the next
-thing to fix.** A sales manager costs 1:18 of the store at a small lot and
-1:1111 at a premium franchise — the store gets 1000x dearer and the hire only
-18x. Raising `upgradeCostMultiplier` to hold that ratio near 1:38 was measured
-and it makes the midsize franchise unreachable inside 350h, even with entry
-costs cut to $16M. The franchise stages simply cannot accumulate that much once
-upgrades are priced properly, which says the fix is not the multiplier alone:
-the absolute dollar figures are inflated because entry costs were raised to gate
-time against a ~26% gross margin. Thinner margins would let the same pacing be
-gated by realistic figures, and the ratio would fall out of a smaller spread. A
-retune that moves margins, entry costs and the multiplier together is one job,
-not three. This is what stops a franchise
-being pure upside once its entry cost clears.
+**The upgrade table's scale problem is MOSTLY FIXED, and the deflation pass is
+what fixed it — from the entry side, exactly as this paragraph predicted.** A
+premium sales manager is 1:182 of the store now against 1:648 before (and
+1:1111 under the original base), with the multiplier only nudged 18 → 22:
+almost the whole improvement came from re-denominating the entries at realistic
+figures. The old measurement stands confirmed the hard way — the pass's first
+cut tried 12/24/45 and killed the ladder at Okabe, because `wageOfCost` makes
+the multiplier a PERMANENT PAYROLL knob rather than a one-time price (see the
+deflation table and the regressions list). If the remaining gap to the 1:38
+ideal ever matters, the lever is splitting hire cost from wage basis, not a
+bigger multiplier. This ratio is what stops a franchise being pure upside once
+its entry cost clears.
 
 **Cash at zero used to be an ABSORBING state; now it is a visible hole.** Under
 the old floored bills, a business at $0 paid nothing, earned nothing, and froze
@@ -1417,12 +1416,13 @@ and the desk do not, so treat the deltas as cross-build:
 | Midsize franchise | 44h13m | 49h46m | ~39h18m |
 | Premium franchise | 264h29m, then dead | 320h34m | ~212h18m, **still trading** |
 
-That shipped column has since moved twice: the bigger book at the top two
-stores took the premium franchise to **~164h** (see the A/B table below; the
-four rungs under it untouched to the minute), and the four-knob retune that
+That shipped column has since moved three times: the bigger book at the top
+two stores took the premium franchise to **~164h** (see the A/B table below;
+the four rungs under it untouched to the minute), the four-knob retune that
 followed — books to 75/100, the per-stage haggle depth, the shop's job scale
-and the skill cap at 100 — takes it to **~104h** with the whole ladder
-re-priced. See the retune table below.
+and the skill cap at 100 — took it to **~104h**, and the deflation pass that
+re-denominated the franchise tier takes it to **~80h** with every store
+healthy. See the retune and deflation tables below.
 
 The reach column is a true A/B — `balance.market.supplyScale=0` leaves only
 local stock and reproduces the middle column on an identical RNG stream, because
@@ -1565,6 +1565,51 @@ later if a number needs attributing:
   `upgradeCostMultiplier` remain the honest levers, and the open questions say
   so.
 
+**THE DEFLATION PASS, measured at `--hours=350 --seeds=8` against the retune
+above.** The owner's directive: dollar values had inflated past meaning, so the
+franchise tier is re-denominated at realistic figures — entries $5.4M / $20M /
+$70M → **$3M / $6M / $24M**, rents 4000/9000/20000 → 3500/6000/12000, ask bands
+thinned (see the margin table), `upgradeCostMultiplier` 5/10/18 → 6/12/22:
+
+| | before | shipped | the dead first cut |
+|---|---|---|---|
+| Small used dealership | 2h29m | 2h29m | 2h29m |
+| Large used dealership | 6h39m | 6h39m | 6h39m |
+| Low-cost franchise | 10h49m | 9h45m | 9h31m |
+| Midsize franchise | 38h25m | 30h00m | 103h58m |
+| Premium franchise | 104h19m | **80h09m** | never, dead at −$103M |
+| end cash | $1.364B | $1.057B | −$103M |
+| Metal (last 12 wks) | 3.5% | **1.8%** | — |
+| net margin, last wk | 5.1% | 2.6-5.4% | −210% |
+| lot full | 92.5% | 90.0% | 37.6% |
+
+- **The dead column is the lesson, and it is a new entry in the regressions
+  list: `upgradeCostMultiplier` IS A PAYROLL KNOB.** `wageOfCost` derives every
+  weekly wage from what the hire cost, so the first cut's 12/24/45 multipliers
+  did not raise a one-time rebuild price — they raised the franchise tier's
+  PERMANENT weekly payroll ~2.4x while margins thinned, and Okabe went
+  insolvent exactly like the old premium flatline: book 0/75, lot 38% full,
+  −210% margins, the whole run −$103M. The knife-edge is real and it is always
+  fixed costs.
+- **TIME-TO-TOP CANNOT BE STRETCHED AT REALISTIC PRICES, and the plan changed
+  mid-pass because of it.** The plan said premium at 120-150h; the only lever
+  that reaches that at $24M entry is margin starvation, and the dead column is
+  what that looks like — every intermediate setting is a rung that FEELS
+  broken (a store barely clearing its own payroll). The shipped pass chooses
+  store health and realistic dollars, accepts 80h to the top, and moves the
+  long endgame clock to the property sink (the next phase), which is what can
+  be arbitrarily long without making any store miserable to stand in.
+- **End cash barely moved ($1.36B → $1.06B), and no margin setting can move
+  it.** The book and the shop earn independently of the ask bands, so ~270h of
+  idling at the top compounds whatever metal does. The sink is the fix; this
+  pass was never going to be.
+- **The manager ratio improved 3.5x without the multiplier doing it.** A
+  premium sales manager is 1:182 of the store now (was 1:648, spec'd ideal
+  1:38) — almost all of it from the entry cut. Pushing the multiplier further
+  is bounded by the payroll coupling above; if the ratio ever needs to close
+  the rest of the way, the lever is a `wageOfCost` split (staff cost vs staff
+  wage), not a bigger multiplier.
+
 `npm run sim` prints both features now:
 
 ```
@@ -1617,6 +1662,10 @@ agree to within a tenth of a point at every rung:
 | Halvorsen | 9.3% ±2.6 | 9.4% ±2.5 |
 | Okabe | 7.4% ±2.1 | 7.4% ±2.0 |
 | Valmont | 6.4% ±1.6 | 6.4% ±1.6 |
+
+(The franchise rows of that table read under the pre-deflation ask bands; the
+derivation in `margins.ts` reads the live `STAGES` table, so the model follows
+the deflated bands automatically — the agreement is the claim, not the values.)
 
 Freight is in both columns and it has to be, because it is drawn per listing:
 `margins.ts` carries a spread on the haul as well as a mean, and without that
@@ -2096,7 +2145,16 @@ Most have a guarding test; check before "simplifying" the code around them.
   and a seventh of it on an $86,000 Valmont — so reach gets better as you climb,
   which is exactly where the empty lot hurts. Capped at half the car so a $900
   beater is never worth less than its own truck.
-- **A gate that is a flat count is wrong at both ends of a 1000x ladder.** The
+- **`upgradeCostMultiplier` IS A PAYROLL KNOB, NOT A PRICE KNOB.** `wageOfCost`
+  derives every staff line's weekly wage from what the hire cost, and hire cost
+  is base price times the store's multiplier — so raising the multiplier raises
+  the franchise tier's PERMANENT weekly burn, not a one-time rebuild bill. The
+  deflation pass's first cut (12/24/45 against margins thinned at the same
+  time) put ~2.4x payroll under ~40% less gross and Okabe went insolvent: book
+  0/75, lot 38% full, the whole 350h run ending at −$103M. It looked exactly
+  like the old premium flatline, because it was the same disease — fixed costs
+  a store's own economics cannot cover. Move the multiplier last, gently, and
+  re-run the ladder every time.
   reopening float asked for six cars at every rung — three driveways' worth at a
   curbstone, one seventh of a lot at a Valmont store. Nothing waits once a move
   is affordable, so that number is not a gate, it is the balance the new store
@@ -2380,16 +2438,16 @@ should happen before any listing copy gets written.
   the back half of the game. If that reads badly in play, the honest fix is to
   give Buying a franchise-side effect (allocation throughput, say) rather than to
   put fake uncertainty back on a new car.
-- **The top rung has swung from under-gated to HOT, and nobody has chosen its
-  pace on purpose at any point.** The midsize → premium step was 6.5x, then
-  5.4x (reach), then 3.8x (the bigger book), and is **2.7x** since the
-  four-knob retune (38h25m to 104h19m) — the first time the top step has been
-  SHALLOWER than the ~3x ladder norm — while end cash quintupled to $1.36B and
-  the last-week net margin doubled to 5.1%. Every move was a directive with its
-  own justification; the pace of the top rung has only ever been their side
-  effect. If a deliberate number is wanted, `entryCost` and
-  `upgradeCostMultiplier` are still the honest levers and the note below on the
-  upgrade table still stands.
+- **The ladder's pace is now a CHOSEN number for the first time, and the choice
+  was store health over stretch.** The deflation pass (see the Verify section)
+  proved time-to-top cannot be lengthened at realistic entry prices without
+  margin-starving rungs into the flatline failure mode, so premium at ~80h is
+  deliberate: every store is worth standing in, the dollars read like a real
+  business, and the LONG clock is the property sink's job (the planned next
+  phase — points-bearing property purchases priced in multiples of a store's
+  annual profit). Until that lands, the end of a run is ~270h of compounding
+  at the top with nothing to buy, and end cash near $1B is the standing
+  evidence for why the sink is next.
 - **Nothing measures a player who declines market reach.** The harness bot buys
   it as soon as it can afford it, so every number in the shipped column assumes
   it. A player who stays local keeps the full margin on every car and runs a
