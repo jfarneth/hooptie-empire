@@ -16,6 +16,9 @@ export const theme = {
     accentDim: '#8a5f22',
     money: '#4ec97e',
     moneyDim: '#2c6b46',
+    /** Owned ground. The empire's blue — kept clear of rarity's rare-blue on
+     *  purpose, because a deed is not a trim grade. */
+    deed: '#5b9ce6',
     danger: '#e0685a',
     dangerDim: '#7a3229',
     warn: '#e3b341',

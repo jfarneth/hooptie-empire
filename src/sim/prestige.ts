@@ -1,4 +1,8 @@
 import { BALANCE } from './balance';
+// Function-level circular import with empire.ts (it reads `ownsProperty` from
+// here). Safe: both modules export only functions and neither touches the
+// other at module-init time.
+import { selloffValue } from './empire';
 import { wholesaleValue } from './economy';
 import { getStage, typicalCarPrice } from './stages';
 import { weeklyPayment } from './economy';
@@ -93,6 +97,9 @@ export interface RetirementPreview {
    *  the one asset a retiring dealer is not forced to discount. */
   propertyValue: number;
   propertyCount: number;
+  /** Kept stores, sold to their managers at the standing goodwill price. */
+  keptValue: number;
+  keptCount: number;
   /** Everything above, before the shark is paid. */
   gross: number;
   /** What the shark is owed. Settled off the top; he does not negotiate. */
@@ -137,7 +144,8 @@ export function retirementPreview(state: GameState): RetirementPreview {
   const cash = Math.round(state.cash);
   const debt = loanBalance(state.loan);
   const propertyValue = propertyHolding(state);
-  const gross = cash + lotValue + bookValue + propertyValue;
+  const keptValue = state.empire.reduce((sum, k) => sum + selloffValue(k.stage), 0);
+  const gross = cash + lotValue + bookValue + propertyValue + keptValue;
   const net = Math.max(0, gross - debt);
 
   return {
@@ -148,6 +156,8 @@ export function retirementPreview(state: GameState): RetirementPreview {
     bookNotes: openNotes.length,
     propertyValue,
     propertyCount: state.properties.length,
+    keptValue,
+    keptCount: state.empire.length,
     gross,
     debt,
     net,

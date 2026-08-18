@@ -166,6 +166,19 @@ describe('the stage table', () => {
     }
   });
 
+  /**
+   * A kept store on rent (green) must clear its rent, at every rung. A managed
+   * net under the rent would make "keep it running" a silent weekly drain — a
+   * trap dressed as a feature, which is exactly the shape the repo trigger
+   * rule exists to forbid. Blue minus green is the rent itself, so this also
+   * pins what a deed is worth to a kept store.
+   */
+  it('pays every kept store more than its rent', () => {
+    for (const def of STAGES) {
+      expect(def.managedNetPerWeek).toBeGreaterThan(def.rentPerWeek);
+    }
+  });
+
   it('sources from a market or a manufacturer, never both and never neither', () => {
     for (const def of STAGES) {
       const { tiers, makeId } = def.sourcing;

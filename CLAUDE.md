@@ -1179,7 +1179,7 @@ Rules that carry the mechanic, each with a test named for it in `desk.test.ts`:
   never had. Desks on existing saves start charging from migration forward —
   terms change on a bought upgrade, deliberately; nothing held is destroyed.
 
-## Property, retirement, and the shark
+## Property, the empire, retirement, and the shark
 
 **THE PROPERTY IS THE ENDGAME SINK, AND THE ONLY MINT PRESTIGE HAS.**
 `STAGES[].propertyCost` is the land under each store — 500k / 1.2M / 4M / 12M /
@@ -1213,6 +1213,54 @@ Four rules carry it, each mutation-tested:
 - **`propertyPreview` is the one place a deed is priced** — the StageCard
   confirmation renders it and `buyProperty` pays it, same rule as
   `stageMovePreview` and `retirementPreview`.
+
+**THE EMPIRE: A STORE YOU LEAVE CAN KEEP RUNNING, and it is a record and a
+weekly cheque, NOT a second simulation.** `src/sim/empire.ts` is the whole
+module and its header carries the boundary: the engine ticks ONE business, and
+a kept store's entire economic life is one line on the bill beat. Leaving a
+store with a sales desk offers the choice — keep it under its manager, or walk
+away exactly as before. Kept: the office (minus the collections desk, which
+follows the paper and therefore the player) and the technicians stay with the
+store, nobody is released, and it pays `STAGES[].managedNetPerWeek` less rent
+each week — rent that stops if you hold the deed, which is what makes the
+property system and the empire one design: **green (renting) clears a little,
+blue (owned) clears the rent too.** The ladder sheet is the empire interface,
+in exactly the owner's colours: no chip for a dark rung, green for a store
+running on rent, blue for one on your own ground.
+
+The rules that carry it, each mutation-tested in `empire.test.ts`:
+
+- **The managed net is MEASURED, then discounted.** An automation-run store
+  (the dumpsave build — automation on, desk on auto, nobody playing) nets
+  $456 / $7.4k / $16.8k / $10.6k / $23.6k / $59.2k a game week at steady
+  state; the managed figure is ~40% of that operating net. The manager's cut
+  is the fiction AND the balance — a store that runs without you must never
+  out-earn one you stand at. The ladder is deliberately NOT monotonic: the
+  big lot out-earns the first franchise under a manager, because fat used
+  margins survive automation better than thin franchise ones.
+- **A green store must clear its rent** — the guard in `stages.test.ts` — or
+  "keep it running" would be a silent weekly drain wearing a feature's clothes.
+- **Returning to a kept store is FREE and restores its office and crew**, plus
+  whatever the travelling desk grew to while you were away. This is the one
+  amendment to "coming back up pays full price": that rule now belongs to
+  stores you ABANDONED, which still work exactly as they always did — the
+  default `moveToStage` is byte-identical to the old one, and there is a test
+  that says so. Free return is what turns the walk-down deed run from a round
+  price into a round trip, and the whole loop — keep the franchise, drive
+  down, buy the house, drive back free — is one test.
+- **The lot still liquidates and the book still travels.** Keeping the store
+  is not keeping the stock; cars and paper stay single-owner, which is what
+  keeps this a flag-and-cheque feature instead of a rewrite.
+- **Selling a kept store off** pays `selloffWeeks` (26) of its managed net —
+  generous against the zero that walking away used to pay, nowhere near an
+  entry price, so it can never be a pump. The deed, if held, stays yours.
+- **The cheques land on a sixth book line, `empire` ("The group")**, and the
+  v22 → v23 migration gives old filed weeks a ZERO line rather than null —
+  unlike the v20 split, zero is the truth here: the group did nothing in weeks
+  that predate its existence.
+- **`chequeScale` is the A/B constant**: at 0 the empire pays nothing and the
+  pre-empire economy reproduces on an identical stream, because keeping a
+  store never consumes a draw.
 
 **Retirement is the escape hatch, and it stopped being the reward.** `retire()`
 still sells the whole operation — cash, the lot at `forcedSaleRate`, the book
@@ -2305,7 +2353,7 @@ Most have a guarding test; check before "simplifying" the code around them.
   internally consistent and simply described a different game. `shopLossRatio`
   is the measured outcome and `expectedLossRatio()` is the only place to get it.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v22**. Saves are long-lived and local to the device; "we wiped
+  Currently **v23**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4
@@ -2477,6 +2525,31 @@ should happen before any listing copy gets written.
   deliberate: every store is worth standing in, the dollars read like a real
   business, and the LONG clock is the property collection's job — the $400M
   Valmont deed is roughly a hundred hours of top-store compounding on its own.
+**THE EMPIRE, measured at `--hours=350 --seeds=8` — and its A/B is exact.** The
+bot keeps every store it leaves, and `--set=balance.empire.chequeScale=0`
+reproduces the pre-empire ladder TO THE MINUTE on every milestone and TO THE
+DOLLAR on end cash ($1,600,094,350), which is the A/B property claimed and now
+verified end to end: keeping stores consumes no draws, so the cheques are the
+whole difference.
+
+| | cheques off (= phase 2) | the empire |
+|---|---|---|
+| Small used dealership | 2h29m | 2h29m |
+| Large used dealership | 6h39m | 6h43m |
+| Low-cost franchise | 9h45m | 9h47m |
+| Midsize franchise | 30h00m | **25h51m** |
+| Premium franchise | 80h09m | **65h51m** |
+| end cash | $1.600B | $1.927B |
+| lifetime profit | $2.11B | $2.44B |
+| kept stores | 5 / 5 ($0/wk) | **5 / 5 ($16.3k/wk)** |
+| The group (last 12 wks) | — | $195k, all kept |
+
+The cheques compound mid-climb — three kept stores pay ~$10k a week while the
+bot banks for an Okabe store — which is why the top two milestones came in 14%
+and 18%. That is the feature working as designed ("the old dealership makes
+money at idle"), priced: the ladder gets faster again, and the open question
+about the top of the game being hot gets another entry in its ledger.
+
 - **THE TOP DEED PAYS FOR ITSELF SEVERAL TIMES OVER, and that is the first
   thing to decide about the property system.** Measured at 350h over 8 seeds:
   milestones identical to the deflation build to the minute (the deed only
@@ -2491,13 +2564,21 @@ should happen before any listing copy gets written.
   points banked at career start — the old prestige semantics with the new
   mint), or shrink `edgePerPoint` so the full collection caps nearer 5% than
   15%. Both preserve the collection; neither has been chosen.
+- **The empire's numbers are the bot's numbers, and the bot keeps everything.**
+  Always-keep is the generous case; nobody has measured a player who sells
+  stores off (the goodwill price is a designed-cheap consolation, unmeasured in
+  play), and the managed-net table's ~40% share of automation net is one
+  choice of discount, felt by nobody. If kept income reads as too strong, the
+  honest levers are per-stage `managedNetPerWeek` and the global `chequeScale`
+  — both in Office → Admin.
 - **Nobody has played the walk-down loop the deeds were priced for.** Every
   property costs more than the next store's keys precisely so that "drive back
   down and buy the house" is the way to collect the cheap deeds — and the bot
   cannot represent it, so the measured build only ever exercises the top deed.
-  Whether the loop FEELS worth it (down is free, but the return trip pays the
-  entry again until the empire phase lands its keep-the-store mechanic) is a
-  playtest question, and the next phase changes its economics anyway.
+  Whether the loop FEELS worth it is a playtest question — though its
+  economics are now what they were designed to be: keep the store, drive
+  down, buy the deed, drive back free. The whole loop is a test in
+  `empire.test.ts`.
 - **Nothing measures a player who declines market reach.** The harness bot buys
   it as soon as it can afford it, so every number in the shipped column assumes
   it. A player who stays local keeps the full margin on every car and runs a

@@ -766,6 +766,26 @@ export const BALANCE = {
     },
   },
 
+  // ------------------------------------------------------------------ the empire
+  /**
+   * Stores left running under managers. See empire.ts for the whole design;
+   * the per-stage cheque lives in `STAGES[].managedNetPerWeek`.
+   */
+  empire: {
+    /**
+     * Scales every kept store's cheque. THE A/B CONSTANT: at 0 a kept store
+     * pays nothing and the pre-empire economy reproduces on an identical
+     * stream, because keeping a store never consumes a draw.
+     */
+    chequeScale: 1,
+    /**
+     * Selling a kept store off fetches this many weeks of its managed net.
+     * Half a game year — generous against the zero that walking away used to
+     * pay, and nowhere near an entry price, so it can never be a pump.
+     */
+    selloffWeeks: 26,
+  },
+
   // ------------------------------------------------------ prestige & retirement
   /**
    * Selling the whole operation, and the prestige system. `src/sim/prestige.ts`

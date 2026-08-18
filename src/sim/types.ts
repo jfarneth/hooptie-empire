@@ -583,7 +583,7 @@ export interface WeekRecord {
  * just contracts that have not paid yet — buy-here-pay-here, and seeing it is
  * the point.
  */
-export type BookLine = 'metal' | 'paper' | 'plans' | 'shop' | 'overhead';
+export type BookLine = 'metal' | 'paper' | 'plans' | 'shop' | 'empire' | 'overhead';
 
 /** What one line took, and what was left of it. */
 export interface LineResult {
@@ -747,6 +747,22 @@ export interface OwnedProperty {
   boughtAt: Millis;
 }
 
+/**
+ * A store you left RUNNING instead of walking away from. The office you built
+ * and the technicians you trained stay with it — that is why it earns — and
+ * returning to it restores both, free. It is a record and a weekly cheque, not
+ * a second simulation: the lot was still liquidated on the way out, the book
+ * still travels with you, and nothing in here ticks.
+ */
+export interface KeptStore {
+  stage: StageId;
+  /** The office as it stood, minus the lines that travel with the player. */
+  upgrades: Record<string, number>;
+  /** The service roster, experience and all. They work here now. */
+  techs: ServiceTech[];
+  keptAt: Millis;
+}
+
 export interface GameState {
   version: number;
   /** Simulation clock. Monotonic, advanced only by the engine. */
@@ -786,6 +802,12 @@ export interface GameState {
    * is deliberately no mid-career sale.
    */
   properties: OwnedProperty[];
+  /**
+   * Stores left running under their managers. Each pays a weekly cheque on the
+   * bill beat — the stage's managed net, less rent unless the property is
+   * owned. See empire.ts.
+   */
+  empire: KeptStore[];
   /** Outstanding shark loan, or null. One at a time, enforced in takeLoan. */
   loan: Loan | null;
   /**

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { buyProperty, moveToStage, stageMovePreview } from '../../sim/actions';
+import { buyProperty, moveToStage, sellKeptStore, stageMovePreview } from '../../sim/actions';
+import { keptAt, keptChequePerWeek, selloffValue } from '../../sim/empire';
 import { ownsProperty, propertyPreview } from '../../sim/prestige';
 import { STAGE_ORDER, getStage, isFranchise, nextStage, stageRank } from '../../sim/stages';
 import type { GameState, StageId } from '../../sim/types';
@@ -88,9 +89,21 @@ export function StageCard({ state }: { state: GameState }) {
         </>
       ) : null}
 
+      {/* The empire's colours, per the owner's spec: gray is no business (no
+          chip at all), green is a store operating on rent, blue is one on land
+          you own. The store you are standing at keeps its own chip. */}
       {move.direction === 'stay' ? (
-        <Row>
+        <Row gap={6}>
           <Chip text="You are here" color={theme.colors.money} />
+          {ownsProperty(state, viewing) ? <Chip text="Yours outright" color={theme.colors.deed} /> : null}
+        </Row>
+      ) : keptAt(state, viewing) ? (
+        <Row gap={6}>
+          <Chip
+            text={`Manager-run · ${money(keptChequePerWeek(state, viewing))}/wk`}
+            color={ownsProperty(state, viewing) ? theme.colors.deed : theme.colors.money}
+          />
+          {ownsProperty(state, viewing) ? <Chip text="Yours outright" color={theme.colors.deed} /> : null}
         </Row>
       ) : null}
 
@@ -139,13 +152,23 @@ export function StageCard({ state }: { state: GameState }) {
         />
       ) : null}
 
+      {keptAt(state, viewing) && !confirming ? (
+        <Button
+          label={`Sell it to the manager — ${money(selloffValue(viewing))}`}
+          sublabel="One cheque, and the store goes dark. The deed, if you hold it, stays yours."
+          tone="ghost"
+          onPress={() => apply((s) => sellKeptStore(s, viewing))}
+          style={{ marginTop: 6 }}
+        />
+      ) : null}
+
       {confirming ? (
         <Confirmation
           move={move}
           onCancel={() => setConfirming(false)}
-          onConfirm={() => {
+          onConfirm={(keep) => {
             setConfirming(false);
-            apply((s) => moveToStage(s, viewing));
+            apply((s) => moveToStage(s, viewing, { keepCurrent: keep }));
           }}
         />
       ) : (
@@ -222,6 +245,19 @@ function MoveButton({
 
   const target = move.target!;
 
+  // A store you left running: driving back is free, whichever direction it is.
+  if (move.resuming) {
+    return (
+      <Button
+        label={`Drive back to the ${target.name.toLowerCase()}`}
+        sublabel="Free — it is your store, and the crew never left"
+        tone="primary"
+        onPress={onPress}
+        style={{ marginTop: 10 }}
+      />
+    );
+  }
+
   if (move.direction === 'down') {
     return (
       <Button
@@ -262,7 +298,7 @@ function Confirmation({
 }: {
   move: Move;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (keep: boolean) => void;
 }) {
   const target = move.target!;
   const down = move.direction === 'down';
@@ -343,15 +379,47 @@ function Confirmation({
           : 'Cash, the book and everything the work has taught you come with you. The lot is sold and the office is left behind.'}
       </Text>
 
-      <Row gap={6} style={{ marginTop: 4 }}>
-        <Button label="Not yet" tone="ghost" onPress={onCancel} style={{ flex: 1 }} />
-        <Button
-          label={down ? 'Walk away' : `Sign — ${moneyShort(move.cost)}`}
-          tone={down ? 'danger' : 'primary'}
-          onPress={onConfirm}
-          style={{ flex: 1 }}
-        />
-      </Row>
+      {/*
+        THE KEEP CHOICE, when the store being left has a desk to run it. Keeping
+        changes the whole cost of the move: nobody is released, the office stays
+        with the store, and it pays its managed net (less rent, unless you own
+        the ground) every week until you come back — which is free — or sell it
+        off. Walking away is the old move, worded exactly as it always was.
+      */}
+      {move.canKeep ? (
+        <>
+          <Text style={styles.confirmBody}>
+            Or leave it RUNNING: the office and the crew stay, and it pays about{' '}
+            {money(move.keptCheque)} a week under its manager. Come back any time, free — or sell it
+            to him outright later.
+          </Text>
+          <Button
+            label={`Move — and keep this store running`}
+            sublabel={`${money(move.keptCheque)}/wk, nobody released${move.resuming ? '' : move.cost > 0 ? ` · ${moneyShort(move.cost)} for the keys` : ''}`}
+            tone="primary"
+            onPress={() => onConfirm(true)}
+          />
+          <Row gap={6}>
+            <Button label="Not yet" tone="ghost" onPress={onCancel} style={{ flex: 1 }} />
+            <Button
+              label={down ? 'Walk away from it' : `Walk away — ${moneyShort(move.cost)}`}
+              tone="danger"
+              onPress={() => onConfirm(false)}
+              style={{ flex: 1 }}
+            />
+          </Row>
+        </>
+      ) : (
+        <Row gap={6} style={{ marginTop: 4 }}>
+          <Button label="Not yet" tone="ghost" onPress={onCancel} style={{ flex: 1 }} />
+          <Button
+            label={down ? 'Walk away' : `Sign — ${moneyShort(move.cost)}`}
+            tone={down ? 'danger' : 'primary'}
+            onPress={() => onConfirm(false)}
+            style={{ flex: 1 }}
+          />
+        </Row>
+      )}
     </View>
   );
 }

@@ -66,10 +66,11 @@ export function weekSoFar(
 }
 
 /**
- * The five business lines, in the order they read on screen: the four things
- * the business sells, then the cost of having a business at all.
+ * The six business lines, in the order they read on screen: the four things
+ * the business sells, the group's cheques, then the cost of having a business
+ * at all.
  */
-export const BOOK_LINES: BookLine[] = ['metal', 'paper', 'plans', 'shop', 'overhead'];
+export const BOOK_LINES: BookLine[] = ['metal', 'paper', 'plans', 'shop', 'empire', 'overhead'];
 
 /**
  * What each line is called, and what is in it.
@@ -95,6 +96,10 @@ export const BOOK_LINE_COPY: Record<BookLine, { name: string; note: string }> = 
   },
   plans: { name: 'Cover', note: 'service plans sold, less the claims paid on them' },
   shop: { name: 'Service bay', note: 'labour billed, less the technicians who billed it' },
+  empire: {
+    name: 'The group',
+    note: 'cheques from stores you left running, after their own costs and rent',
+  },
   overhead: { name: 'Overhead', note: 'rent, the payroll and the shark' },
 };
 
