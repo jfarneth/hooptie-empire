@@ -381,11 +381,21 @@ export function carCapacity(state: GameState): number {
 /**
  * Active notes the desk will carry. A hard ceiling on the book — see
  * `bookRoom()` in notes.ts, which is what the finance desk actually asks.
+ *
+ * TWO TERMS, AND THEY ANSWER DIFFERENT QUESTIONS. The upgrade ladder is how much
+ * desk the player has BOUGHT; `collectionsCapacityMult` is how much desk the
+ * STORE is worth. Without the second one a premium franchise carried exactly as
+ * much paper as a small lot, which left the only profitable product at the top
+ * of the ladder rationed at 43 contracts while the store sold sixty cars a week
+ * — see the field's own comment in stages.ts for what that measured.
+ *
+ * Rounded, not floored: the multiplier is a property of the premises and there
+ * is no argument for the store also taking the half contract off you.
  */
-export function collectionsCapacity(state: Pick<GameState, 'upgrades'>): number {
-  return (
-    BALANCE.baseCollectionsCapacity + level(state, 'collections') * BALANCE.collectionsCapacityPerLevel
-  );
+export function collectionsCapacity(state: Pick<GameState, 'upgrades' | 'stage'>): number {
+  const desk =
+    BALANCE.baseCollectionsCapacity + level(state, 'collections') * BALANCE.collectionsCapacityPerLevel;
+  return Math.round(desk * getStage(state.stage).collectionsCapacityMult);
 }
 
 export function offlineCapMs(state: GameState): number {

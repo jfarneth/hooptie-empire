@@ -301,6 +301,15 @@ export const TUNABLES: readonly TunableDef[] = [
         min: 1,
         max: 5,
       });
+      rows.push({
+        path: `stages.${stage.id}.collectionsCapacityMult`,
+        label: `${stage.name} — book size ×`,
+        group: 'Financing',
+        kind: 'ratio',
+        min: 0.25,
+        max: 6,
+        help: 'Multiplies what the collections desk carries at this store. The desk ladder is what the player buys; this is what the premises are worth.',
+      });
     }
     // The ask band is per stage because a franchise buys at invoice and a used
     // lot buys at auction. It is still the sharpest knob in the game.

@@ -77,6 +77,26 @@ describe('the stage table', () => {
     }
   });
 
+  /**
+   * A bigger store runs a bigger collections department, and the ladder must
+   * never say otherwise — a rung that shrank the book would default the paper
+   * you carried into it.
+   *
+   * The shape, not the literal: the used stages take what the desk buys and the
+   * top two are worth more than that. Pinning 1.5 here would only restate the
+   * table, which is the mistake `financeGrossMultiple` spent months making.
+   */
+  it('never shrinks the book as you climb, and pays the top stores for their desk', () => {
+    for (let i = 1; i < STAGES.length; i++) {
+      expect(STAGES[i].collectionsCapacityMult).toBeGreaterThanOrEqual(
+        STAGES[i - 1].collectionsCapacityMult,
+      );
+    }
+    for (const def of STAGES.slice(0, 4)) expect(def.collectionsCapacityMult).toBe(1);
+    expect(getStage('midsizeFranchise').collectionsCapacityMult).toBeGreaterThan(1);
+    expect(getStage('premiumFranchise').collectionsCapacityMult).toBeGreaterThan(1);
+  });
+
   it('sources from a market or a manufacturer, never both and never neither', () => {
     for (const def of STAGES) {
       const { tiers, makeId } = def.sourcing;
@@ -416,6 +436,35 @@ describe('jumping rungs and walking back down', () => {
     }
     expect(after.dealPolicy).toBe('manual');
     expect(after.listings).toEqual([]);
+  });
+
+  /**
+   * The book capacity on the confirmation is the TARGET store's, in both
+   * directions — half of it is a property of the premises now, so a preview
+   * computed at the store being left would promise a Valmont-sized book to
+   * somebody who has not moved yet, and hide the shrink on the way back down.
+   *
+   * The pair is the point. Reading the current stage instead of the target
+   * fails going up; hard-coding the target's own multiplier fails coming down.
+   */
+  it('quotes the book capacity at the store being moved to, both ways', () => {
+    const up = goingConcern('lowCostFranchise', 400_000_000);
+    const climbed = moveToStage(up, 'premiumFranchise');
+    expect(stageMovePreview(up, 'premiumFranchise').bookAfter.capacity).toBe(
+      collectionsCapacity(climbed),
+    );
+    expect(stageMovePreview(up, 'premiumFranchise').bookAfter.capacity).toBeGreaterThan(
+      collectionsCapacity(up),
+    );
+
+    const down = goingConcern('premiumFranchise', 400_000_000);
+    const dropped = moveToStage(down, 'largeUsed');
+    expect(stageMovePreview(down, 'largeUsed').bookAfter.capacity).toBe(
+      collectionsCapacity(dropped),
+    );
+    expect(stageMovePreview(down, 'largeUsed').bookAfter.capacity).toBeLessThan(
+      collectionsCapacity(down),
+    );
   });
 
   it('costs nothing to go down, and the cash comes with you', () => {

@@ -307,6 +307,44 @@ a capability by comparing stage ids — ask the stage. `financing` is true for f
 of the six, and a `=== 'smallUsed'` check silently means "no finance desk at a
 Valmont store".
 
+**THE BOOK IS A PROPERTY OF THE STORE NOW, NOT JUST OF THE DESK.**
+`collectionsCapacity` is two terms: the `collections` upgrade ladder, which is
+how much desk the player has BOUGHT, times `STAGES[].collectionsCapacityMult`,
+which is how much desk the premises are worth. The top two rungs run at 1.5 and
+everything below at 1.
+
+It is there because the game asserted "the loan book is the game" and then
+rationed the loan book. Measured on the shipped build at 350h over 8 seeds, the
+run wrote **13,725 contracts against 323,534 cash deals** — 96% of the business
+was the side this file calls the tutorial — and that was cash by RATIONING rather
+than by choice: `chooseDeal` takes finance whenever its expected value beats the
+cash offer, which at a franchise is always, so the only thing holding the split
+there was a book pinned at 43/43 for the entire run. The books said it in one
+line: metal turned **$45.8M and kept −$264k** while a 43-note book kept $1.58M
+and carried the whole operation.
+
+Two things worth knowing before touching it:
+
+- **A rung must never SHRINK the book**, which is why the guard is ascending
+  rather than a pair of literals. Moving up raises the ceiling on arrival;
+  walking back down lowers it under paper you already hold, which is the
+  `overCapacityFactor` path — degrading, never tearing contracts up. Both
+  directions are on the move preview, and `afterMove` therefore has to carry the
+  TARGET's stage. There is a test on the pair, and it is mutation-tested both
+  ways.
+- **It is deliberately not a sixth `collections` level.** The upgrade ladder is
+  what the player buys with money; this is what the address is worth. Same line
+  the rest of the table draws.
+
+It does **not** fix the other half of what that measurement found, and this file
+should not pretend otherwise: **a cash deal at the top of the ladder keeps almost
+nothing**, because listing margin thins 18.7% → 7.0% up the rungs while the
+haggle takes a flat ~6% off the ask at every store. Measured per deal at level-1
+Closing: 12.6% of retail kept at a curbstone against **0.9% at a Valmont store**,
+which floorplan and the desk's cut finish off — that is the −0.6% metal margin,
+and it is real rather than an artefact of the metal/paper split. A per-stage
+haggle term is the obvious lever and is unmeasured; see the open questions.
+
 ## Trim grades
 
 **Rarity is PUBLIC. Condition is PRIVATE. That asymmetry is the whole design.**
@@ -877,7 +915,9 @@ that can say whether the business above it is healthy or merely large.
 one number for all five.** `WeekRecord.lines` splits every week across `metal`,
 `paper`, `plans`, `shop` and `overhead`; the books sheet draws them as tiles,
 green or red on the sign and washed deeper the bigger the line, and `npm run sim`
-prints the same split per store. The first run of that column found the shop
+prints the same split — **pooled over the last 12 filed weeks, NOT per store**,
+which on a long run means "at whatever store the business ended in". The first
+run of that column found the shop
 billing $122k and keeping **−$62k** — the exact trap the harness's own history
 records costing 66 hours on the premium franchise, visible in one line for the
 first time.
@@ -2148,13 +2188,39 @@ should happen before any listing copy gets written.
   cars as you level" brief. Both levers were built and measured and both are
   simply money (see above). The machinery is intact and tested — raising either
   `atMax` in `BALANCE.skills.buy` turns it back on.
-- **The collections ladder still caps the book at 43 contracts at every stage.**
-  `collections` maxes at level 5 and the stage table does not touch it, so a
-  premium franchise carries exactly as much paper as a small lot — only each
-  contract is worth ten times more. That is defensible (the desk is the desk) but
-  nobody has argued it, and "the loan book is the game" sits oddly next to a book
-  whose *count* never grows. A per-stage capacity term in `STAGES` is the obvious
-  lever if it needs one.
+- **The collections ladder is still flat for the bottom four stores.**
+  `STAGES[].collectionsCapacityMult` now pays the top two rungs for their desk
+  (see the section above), but the four below it still take whatever
+  `collections` buys and nothing more. Whether the big lot and the low-cost
+  franchise want a term too is unargued — the measurement that justified the top
+  two was that finance was rationed to 4% of deals there, and nobody has taken
+  the same reading at the stores where cash is still genuinely profitable.
+- **THE HAGGLE NEVER LEARNED ABOUT THE LADDER, and it is why a cash deal at the
+  top keeps nothing.** Listing margin thins 18.7% → 7.0% from the curbstone to a
+  Valmont store, but the buyer still takes ~6% off the ask at every rung, because
+  `BALANCE.negotiation` has no per-stage term. Measured per closed deal at
+  level-1 Closing: 12.6% of retail kept at a curbstone, 5.3% at a Halvorsen,
+  **0.9% at a Valmont** — and floorplan (~0.4%/week against a ~7-day dwell) plus
+  the desk's cut take that under water. The harness reads it as a **−0.6% metal
+  margin on $45.8M of turnover**. A per-stage room multiplier is the obvious fix
+  and is on theme (a new-car buyer at a franchise genuinely haggles less than
+  somebody at a Tuesday auction lot), but this file's own warning applies —
+  franchise margin is a cliff, not a dial, and the last attempt to move it took
+  the midsize rung from 49h to 76h. Nobody has measured it.
+- **The service bay is losing money again on the shipped build.** The 350h ladder
+  reads `Service bay took $412,112, kept $-93,648 (-22.7%)`. That is the same
+  over-staffing trap the harness bot was fixed for once already and which this
+  file records costing 66 hours on the premium franchise. It is not diagnosed —
+  the bot staffs against queued work now, so this is either the rate slider
+  sitting wrong at the default or the promotion policy putting expensive hands on
+  benches that do not need them.
+- **`npm run sim` does NOT print the business-line split per store**, whatever
+  the books section above says. It prints one pooled figure over the last 12
+  filed weeks, which in a 350h run means "at whatever store the business ended
+  in" — a Valmont store, as it happens, which is why the numbers in the two
+  entries above read the way they do. A per-store column is the readout that
+  would have made all of this visible without a scratch script, and it is the
+  same argument the shop's `turned away` counter won.
 - **Buying goes dead at the top.** `appraisalSigmaMult: 0` retires the appraisal
   on all three franchise stages, so a maxed Buying skill buys nothing there. That
   is the intended character change, but it does leave a levelled skill inert for

@@ -132,6 +132,44 @@ describe('the book limit is a limit', () => {
     expect(after.prospects.length).toBe(1);
   });
 
+  /**
+   * THE STORE'S MULTIPLIER HAS TO MOVE THE GATE, NOT A READOUT.
+   *
+   * The whole reason the book cap was made hard is that the number on the HUD
+   * used to be a suggestion — a player who read it as a limit was wrong and one
+   * who ignored it was rewarded. A per-store multiplier that showed up in
+   * `collectionsCapacity` and not in `canWriteNote` would reintroduce exactly
+   * that, in the other direction: the top two stores would advertise a bigger
+   * book and refuse to write into it.
+   *
+   * Stated as behaviour on purpose. Both stores get the identical desk, are
+   * filled to the SMALLER store's ceiling, and then asked for one more contract.
+   * Deleting the multiply in `collectionsCapacity` makes them agree, and this
+   * goes red.
+   */
+  it('lets the bigger store write paper the smaller one has to refuse', () => {
+    const atHalvorsen = lotWithProspect();
+    atHalvorsen.stage = 'lowCostFranchise';
+    atHalvorsen.upgrades = { ...atHalvorsen.upgrades, collections: 5 };
+
+    const atOkabe = cloneState(atHalvorsen);
+    atOkabe.stage = 'midsizeFranchise';
+
+    const smaller = collectionsCapacity(atHalvorsen);
+    expect(collectionsCapacity(atOkabe)).toBeGreaterThan(smaller);
+
+    fillBook(atHalvorsen, smaller);
+    fillBook(atOkabe, smaller);
+
+    expect(canWriteNote(atHalvorsen)).toBe(false);
+    expect(canWriteNote(atOkabe)).toBe(true);
+
+    // And the desk really writes it, rather than merely being allowed to.
+    const after = takeFinanceDeal(atOkabe, atOkabe.prospects[0].id);
+    expect(activeNotes(after.notes).length).toBe(smaller + 1);
+    expect(after.stats.financeDeals).toBe(1);
+  });
+
   it('writes the contract when there is exactly one slot left', () => {
     const s = lotWithProspect();
     fillBook(s, collectionsCapacity(s) - 1);

@@ -394,7 +394,13 @@ export function stageMovePreview(state: GameState, targetId?: StageId): StageMov
   // capacity quoted here is the one that survives. This used to model the desk
   // resetting to eight, which was accurate and was the single sharpest edge in
   // the move: a full book landed 2.9x over the line and defaulted entirely.
+  // The STORE is half of what the book can hold, so this has to be the target's
+  // stage and not the one being left. Moving up to a Valmont store raises the
+  // ceiling the moment you arrive, and walking back down lowers it under a book
+  // you already hold — which is the `overCapacityFactor` path, degrading rather
+  // than tearing contracts up. Either way the confirmation has to say so.
   const afterMove = {
+    stage: target?.id ?? state.stage,
     upgrades: Object.fromEntries(
       UPGRADES.filter((u) => u.carriesOnMove).map((u) => [u.id, level(state, u.id)]),
     ) as Record<string, number>,

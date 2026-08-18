@@ -195,6 +195,30 @@ export interface StageDef {
    */
   creditShift: number;
   /**
+   * How much paper this store's collections desk can carry, as a multiple of
+   * what the `collections` upgrade buys.
+   *
+   * THE ONLY PROFITABLE PRODUCT USED TO BE THE RATIONED ONE. The desk maxes at
+   * 43 contracts and the table did not touch it, so a premium franchise carried
+   * exactly as much paper as a small lot — while `chooseDeal` takes finance
+   * whenever its expected value beats the cash offer, which up there is always.
+   * Measured over 350h at 8 seeds, the shipped build wrote 13,725 contracts
+   * against 323,534 cash deals: 96% of the business was the side the game calls
+   * the tutorial, and it was cash by RATIONING rather than by choice. The books
+   * said so in one line — metal turning $45.8M for −$264k while a book capped at
+   * 43 notes kept $1.58M and carried the entire operation.
+   *
+   * A bigger store genuinely runs a bigger collections department, so the fix is
+   * the same shape as every other thing that varies by rung. It is deliberately
+   * NOT a new `collections` level: the upgrade ladder is what the player buys,
+   * and this is what the premises are worth.
+   *
+   * Consumes no RNG draw, so setting every stage back to 1 reproduces the
+   * previous build on an identical stream — the same A/B property
+   * `trafficPerCar` and `market.supplyScale` carry.
+   */
+  collectionsCapacityMult: number;
+  /**
    * Who runs the sales side when you are not standing there, and what they
    * charge for it.
    *
@@ -338,6 +362,7 @@ export const STAGES: readonly StageDef[] = [
     trafficPerCar: 1,
     bhphMultiplier: 1,
     creditShift: 0,
+    collectionsCapacityMult: 1,
     desk: { title: 'Business partner', commission: 0.5, salaried: false },
     // Average deal 19%, and the band reaches 55% on a rare trim bought cheap.
     // Level 1 is break-even because a curbstone ask band genuinely straddles it:
@@ -362,6 +387,7 @@ export const STAGES: readonly StageDef[] = [
     trafficPerCar: 0.6,
     bhphMultiplier: 1.5,
     creditShift: 0,
+    collectionsCapacityMult: 1,
     desk: { title: 'Sales manager', commission: 0.25, salaried: true },
     // Cash averages 19% here as well; paper averages 33%, because the window
     // markup is at its highest at the store that sells approval for a living.
@@ -389,6 +415,7 @@ export const STAGES: readonly StageDef[] = [
     trafficPerCar: 0.5,
     bhphMultiplier: 1.42,
     creditShift: 0.4,
+    collectionsCapacityMult: 1,
     desk: { title: 'Sales manager', commission: 0.2, salaried: true },
     // The band no longer reaches a loss (worst case 4%), so the bottom stop
     // stops being break-even and starts being a thin deal. This is also the
@@ -424,6 +451,7 @@ export const STAGES: readonly StageDef[] = [
     trafficPerCar: 0.5,
     bhphMultiplier: 1.3,
     creditShift: 0.9,
+    collectionsCapacityMult: 1,
     desk: { title: 'Sales manager', commission: 0.12, salaried: true },
     // An invoice is nearly flat, so the whole ladder lives inside thirteen
     // points. This is the store where a percentage-based rule set at a used lot
@@ -452,6 +480,7 @@ export const STAGES: readonly StageDef[] = [
     trafficPerCar: 0.5,
     bhphMultiplier: 1.22,
     creditShift: 1.6,
+    collectionsCapacityMult: 1.5,
     desk: { title: 'Sales manager', commission: 0.1, salaried: true },
     serviceContracts: true,
     shop: { hourlyRates: [55, 72, 92, 118, 150], demandPerSec: 0.65 },
@@ -473,6 +502,7 @@ export const STAGES: readonly StageDef[] = [
     trafficPerCar: 0.5,
     bhphMultiplier: 1.15,
     creditShift: 2.6,
+    collectionsCapacityMult: 1.5,
     desk: { title: 'Sales manager', commission: 0.08, salaried: true },
     // The two ladders finally converge, which is `bhphMultiplier` telling the
     // truth: at 1.15 the window markup no longer covers what collections eat,
