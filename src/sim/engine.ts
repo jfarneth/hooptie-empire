@@ -54,6 +54,7 @@ import {
   repoCarryingValue,
 } from './notes';
 import { ownsProperty, prestigeEdge } from './prestige';
+import { keptChequePerWeek } from './empire';
 import { baseTrim, rarityAskMult } from './rarity';
 import {
   expirePromotions,
@@ -101,7 +102,7 @@ import type {
   WeekLines,
 } from './types';
 
-export const SAVE_VERSION = 22;
+export const SAVE_VERSION = 23;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -216,6 +217,7 @@ function blankState(seed: number, wallNow: number): GameState {
     events: [],
     prestige: { count: 0, points: 0, propertyStages: [], history: [] },
     properties: [],
+    empire: [],
     loan: null,
     // The first bill lands a week in, not on the opening tick: a new game should
     // not owe rent before it has seen a car.
@@ -393,6 +395,28 @@ function stepBills(s: GameState): void {
       amount: -s.loan.paymentAmount,
     });
     if (s.loan.paymentsRemaining <= 0) s.loan = null;
+  }
+
+  // THE GROUP'S CHEQUES, one line for however many stores are kept. Each pays
+  // its managed net less its rent (nothing, once you own the ground — see
+  // empire.ts), and the money is real revenue: somebody's customers paid it,
+  // one abstraction away. Negative cheques are possible only through the admin
+  // console pushing a managed net under a rent, and are charged honestly when
+  // they happen rather than floored — the floored-bill lesson, again.
+  if (s.empire.length > 0) {
+    let total = 0;
+    for (const kept of s.empire) total += keptChequePerWeek(s, kept.stage);
+    if (total !== 0) {
+      s.cash += total;
+      if (total > 0) bookRevenue(s, 'empire', total);
+      bookProfit(s, 'empire', total);
+      logEvent(s, {
+        t: s.t,
+        kind: 'expense',
+        label: `The group — ${s.empire.length} store${s.empire.length > 1 ? 's' : ''} under management`,
+        amount: total,
+      });
+    }
   }
 
   // Last, so the week owns every cost it incurred.
@@ -1315,6 +1339,7 @@ export function emptyWeekLines(): WeekLines {
     paper: { revenue: 0, profit: 0 },
     plans: { revenue: 0, profit: 0 },
     shop: { revenue: 0, profit: 0 },
+    empire: { revenue: 0, profit: 0 },
     overhead: { revenue: 0, profit: 0 },
   };
 }
@@ -1330,8 +1355,8 @@ export function emptyWeekLines(): WeekLines {
  * one, which on a screen that says "together they come to X, which is exactly
  * what the week made" is a visible lie about arithmetic.
  *
- * THE RESIDUAL IS ONLY EVER ABSORBED WHEN IT IS ROUNDING. Five roundings cannot
- * be more than $2.50 out; anything larger is not rounding, it is profit that
+ * THE RESIDUAL IS ONLY EVER ABSORBED WHEN IT IS ROUNDING. Six roundings cannot
+ * be more than $3 out; anything larger is not rounding, it is profit that
  * moved without going through `bookProfit`, and quietly folding that into the
  * biggest tile would hide exactly the bug the reconciliation test exists to
  * catch. Past the threshold it is left alone and the test says so.
@@ -1349,7 +1374,7 @@ function fileWeekLines(lines: WeekLines, profit: number, revenue: number): WeekL
   // rounding error.
   const settle = (key: 'profit' | 'revenue', target: number) => {
     const residual = target - ids.reduce((n, id) => n + out[id][key], 0);
-    if (residual === 0 || Math.abs(residual) > 3) return;
+    if (residual === 0 || Math.abs(residual) > 3.5) return;
     let biggest: BookLine | null = null;
     for (const id of ids) {
       if (out[id][key] === 0) continue;
@@ -1369,6 +1394,7 @@ export function cloneWeekLines(lines: WeekLines): WeekLines {
     paper: { ...lines.paper },
     plans: { ...lines.plans },
     shop: { ...lines.shop },
+    empire: { ...lines.empire },
     overhead: { ...lines.overhead },
   };
 }
@@ -1455,6 +1481,11 @@ export function cloneState(s: GameState): GameState {
       history: s.prestige.history.map((r) => ({ ...r })),
     },
     properties: s.properties.map((p) => ({ ...p })),
+    empire: s.empire.map((k) => ({
+      ...k,
+      upgrades: { ...k.upgrades },
+      techs: k.techs.map((t) => ({ ...t })),
+    })),
     loan: s.loan ? { ...s.loan } : null,
     tuning: { ...s.tuning },
     stats: { ...s.stats },

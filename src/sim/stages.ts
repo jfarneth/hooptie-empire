@@ -268,6 +268,21 @@ export interface StageDef {
    */
   propertyPoints: number;
   /**
+   * What this store nets per game week under a MANAGER — the cheque a kept
+   * store pays, before the rent term (see empire.ts).
+   *
+   * MEASURED, then discounted: an automation-run store at this rung (the
+   * dumpsave build — automation on, desk on auto, nobody playing) nets
+   * $456 / $7.4k / $16.8k / $10.6k / $23.6k / $59.2k a week at steady state,
+   * and this figure is ~40% of that operating net. The manager keeps the
+   * rest, which is both the fiction and the balance: a store that runs
+   * without you must never out-earn one you are standing at. Note the ladder
+   * is deliberately NOT monotonic — the big lot out-earns the first franchise
+   * under a manager, because fat used margins survive automation better than
+   * thin franchise ones, and that is the measured truth rather than a typo.
+   */
+  managedNetPerWeek: number;
+  /**
    * Who runs the sales side when you are not standing there, and what they
    * charge for it.
    *
@@ -441,6 +456,7 @@ export const STAGES: readonly StageDef[] = [
     haggleDepth: 1,
     propertyCost: 500_000,
     propertyPoints: 3,
+    managedNetPerWeek: 180,
     desk: { title: 'Business partner', commission: 0.5, salaried: false },
     // Average deal 19%, and the band reaches 55% on a rare trim bought cheap.
     // Level 1 is break-even because a curbstone ask band genuinely straddles it:
@@ -469,6 +485,7 @@ export const STAGES: readonly StageDef[] = [
     haggleDepth: 1,
     propertyCost: 1_200_000,
     propertyPoints: 5,
+    managedNetPerWeek: 3_000,
     desk: { title: 'Sales manager', commission: 0.25, salaried: true },
     // Cash averages 19% here as well; paper averages 33%, because the window
     // markup is at its highest at the store that sells approval for a living.
@@ -500,6 +517,7 @@ export const STAGES: readonly StageDef[] = [
     haggleDepth: 1,
     propertyCost: 4_000_000,
     propertyPoints: 8,
+    managedNetPerWeek: 7_500,
     desk: { title: 'Sales manager', commission: 0.2, salaried: true },
     // The band no longer reaches a loss (worst case 4%), so the bottom stop
     // stops being break-even and starts being a thin deal. This is also the
@@ -539,6 +557,7 @@ export const STAGES: readonly StageDef[] = [
     haggleDepth: 0.8,
     propertyCost: 12_000_000,
     propertyPoints: 12,
+    managedNetPerWeek: 5_500,
     desk: { title: 'Sales manager', commission: 0.12, salaried: true },
     // An invoice is nearly flat, so the whole ladder lives inside thirteen
     // points. This is the store where a percentage-based rule set at a used lot
@@ -571,6 +590,7 @@ export const STAGES: readonly StageDef[] = [
     haggleDepth: 0.7,
     propertyCost: 50_000_000,
     propertyPoints: 19,
+    managedNetPerWeek: 12_000,
     desk: { title: 'Sales manager', commission: 0.1, salaried: true },
     serviceContracts: true,
     shop: { hourlyRates: [55, 72, 92, 118, 150], demandPerSec: 0.65, jobScale: 1.4 },
@@ -596,6 +616,7 @@ export const STAGES: readonly StageDef[] = [
     haggleDepth: 0.6,
     propertyCost: 400_000_000,
     propertyPoints: 28,
+    managedNetPerWeek: 28_000,
     desk: { title: 'Sales manager', commission: 0.08, salaried: true },
     // The two ladders finally converge, which is `bhphMultiplier` telling the
     // truth: at 1.15 the window markup no longer covers what collections eat,

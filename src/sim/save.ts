@@ -596,6 +596,26 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
       propertyStages: s.prestige?.propertyStages ?? [],
     },
   }),
+
+  /**
+   * v22 -> v23: the empire — stores kept running under managers, and a sixth
+   * line in the weekly books for their cheques.
+   *
+   * Old careers kept nothing (there was no way to), and their filed weeks gain
+   * an `empire` line of ZERO rather than null — unlike the v20 -> v21 split,
+   * zero here is the truth and not a fabrication: the group genuinely did
+   * nothing in a week that predates its existence.
+   */
+  22: (s) => ({
+    ...s,
+    empire: s.empire ?? [],
+    weekLines: { ...(s.weekLines ?? {}), empire: s.weekLines?.empire ?? { revenue: 0, profit: 0 } },
+    weeks: (s.weeks ?? []).map((w: any) =>
+      w.lines
+        ? { ...w, lines: { ...w.lines, empire: w.lines.empire ?? { revenue: 0, profit: 0 } } }
+        : w,
+    ),
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {

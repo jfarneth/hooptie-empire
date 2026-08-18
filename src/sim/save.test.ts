@@ -660,6 +660,36 @@ describe('migration chain', () => {
     expect(owned.prestige.points).toBe(9 + getStage('smallUsed').propertyPoints);
   });
 
+  /**
+   * v22 -> v23. The empire, and the group's line in the books.
+   *
+   * Filed weeks gain a ZERO empire line rather than null — unlike the v20
+   * split, zero is the truth here: the group genuinely did nothing in a week
+   * that predates its existence.
+   */
+  it('lands a v22 save with no kept stores and zeroed group lines', () => {
+    let live = createInitialState(41, 0);
+    live.cash = 500_000;
+    live.stage = 'smallUsed';
+    live.upgrades = { autoBuy: 1, autoList: 1, salesDesk: 1, collections: 2 };
+    live.dealPolicy = 'auto';
+    live = advance(live, 3 * 140_000 + 2_000);
+
+    const v22: any = JSON.parse(JSON.stringify(live));
+    v22.version = 22;
+    delete v22.empire;
+    delete v22.weekLines.empire;
+    for (const w of v22.weeks) if (w.lines) delete w.lines.empire;
+
+    const migrated = migrate(v22, 22);
+    expect(migrated.empire).toEqual([]);
+    expect(migrated.weekLines.empire).toEqual({ revenue: 0, profit: 0 });
+    for (const w of migrated.weeks) {
+      if (w.lines) expect(w.lines.empire).toEqual({ revenue: 0, profit: 0 });
+    }
+    expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+  });
+
   it('gives a v9 save no promotions rather than a back-dated one', () => {
     const v9: any = JSON.parse(JSON.stringify(createInitialState(92, 0)));
     v9.version = 9;

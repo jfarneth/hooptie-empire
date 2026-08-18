@@ -59,6 +59,11 @@ export const TUNABLE_GROUPS = [
 ] as const;
 
 export const TUNABLES: readonly TunableDef[] = [
+  // ---------------------------------------------------------------- the empire
+  { path: 'balance.empire.chequeScale', label: 'Kept-store cheques ×', group: 'The ladder', kind: 'ratio', min: 0, max: 5,
+    help: 'Scales every kept store’s weekly cheque. At 0 the empire pays nothing, which reproduces the pre-empire economy exactly.' },
+  { path: 'balance.empire.selloffWeeks', label: 'Sell-off price, weeks of managed net', group: 'The ladder', kind: 'int', min: 0, max: 200 },
+
   // ------------------------------------------------------------------ economy
   { path: 'balance.startingCash', label: 'Starting cash', group: 'Economy', kind: 'money', min: 0, max: 1_000_000 },
   { path: 'balance.wholesaleOfRetail', label: 'Wholesale as share of retail', group: 'Economy', kind: 'ratio', min: 0.3, max: 1,
@@ -329,6 +334,15 @@ export const TUNABLES: readonly TunableDef[] = [
         help: 'The land under the store, bought only while standing there. Ends the rent and mints prestige. Applies to future purchases; a deed already held keeps its price.',
       });
     }
+    rows.push({
+      path: `stages.${stage.id}.managedNetPerWeek`,
+      label: `${stage.name} — managed net /wk`,
+      group: 'The ladder',
+      kind: 'money',
+      min: 0,
+      max: 500_000,
+      help: 'What this store nets weekly under a manager if you keep it when you leave. Rent still comes out unless you own the ground.',
+    });
     if (stage.shop) {
       rows.push({
         path: `stages.${stage.id}.shop.jobScale`,

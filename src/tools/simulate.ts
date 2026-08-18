@@ -48,6 +48,7 @@ import { RARITIES, RARITY_ORDER } from '../sim/rarity';
 import os from 'node:os';
 import { landedCost } from '../sim/market';
 import { ownsProperty, prestigeEdge, propertyHolding } from '../sim/prestige';
+import { empireChequePerWeek } from '../sim/empire';
 import { freightMoments, marginScale } from '../sim/margins';
 import { applyTuning, getTunable } from '../sim/tuning';
 import type { GameState, Rarity } from '../sim/types';
@@ -233,7 +234,12 @@ function botTurn(state: GameState, appraisal: AppraisalTally, stay = false): Gam
   //    payroll reset against a full book; the bot takes every rung as it comes,
   //    which makes it the *worst* case for the move and the right thing to
   //    measure the ladder against.
-  if (!stay && canAdvanceStage(s)) s = advanceStage(s);
+  // KEEPS EVERY STORE IT LEAVES. The desk is hired well before any move is
+  // affordable, so the option is always live, and taking it is both the
+  // generous measurement (the feature working as designed) and what a player
+  // who built an office would do. `--set=balance.empire.chequeScale=0` is the
+  // A/B that measures the same runs with the cheques turned off.
+  if (!stay && canAdvanceStage(s)) s = advanceStage(s, { keepCurrent: true });
 
   // 1b. At the TOP of the ladder, buy the ground. The deed is the endgame sink
   //     and the bot has to exercise it or the whole feature ships unmeasured —
@@ -861,6 +867,9 @@ async function main() {
   // measured endgame sink working and the five below it are hand-play territory.
   console.log(
     `  deeds held         ${String(median((s) => s.properties.length)).padStart(6)} /    6  (${fmtMoney(median((s) => propertyHolding(s)))} held, ${String(median((s) => s.prestige.points)).padStart(2)} pts, edge ${(median((s) => prestigeEdge(s) * 1000)) / 10}%)`,
+  );
+  console.log(
+    `  kept stores        ${String(median((s) => s.empire.length)).padStart(6)} /    5  (${fmtMoney(median((s) => empireChequePerWeek(s)))}/wk in cheques)`,
   );
   console.log(`  cash / finance     ${String(median((s) => s.stats.cashDeals)).padStart(6)} /${String(median((s) => s.stats.financeDeals)).padStart(5)}`);
   console.log(`  notes paid / dflt  ${String(median((s) => s.stats.notesPaidOff)).padStart(6)} /${String(median((s) => s.stats.notesDefaulted)).padStart(5)}`);

@@ -28,6 +28,7 @@ import {
   hireTech,
 } from './shop';
 import { loanBalance, ownsProperty, propertyPreview, retirementPreview, sharkOffer } from './prestige';
+import { keptAt, keptChequePerWeek, selloffValue } from './empire';
 import { getStage, nextStage, stageRank, typicalCarPrice, type StageDef } from './stages';
 import { applyTuning, coerceTunable, defaultValue, getTunable, pruneTuning } from './tuning';
 import { range } from './rng';
@@ -320,6 +321,23 @@ export interface StageMovePreview {
   affordable: boolean;
   /** Whether `moveToStage` would actually do this. The gate to put on a button. */
   allowed: boolean;
+  /**
+   * Whether the store being left could be KEPT — running under its manager for
+   * a weekly cheque instead of being written off. Requires a sales desk:
+   * somebody has to run the place. See empire.ts.
+   */
+  canKeep: boolean;
+  /** Whether this preview is priced with the keep option taken. */
+  keeping: boolean;
+  /** The weekly cheque the current store would pay if kept. */
+  keptCheque: number;
+  /**
+   * Whether the target is a store you LEFT RUNNING. Resuming is free — it is
+   * your store, still trading — and its office and technicians come back the
+   * moment you do. This is the one amendment to "coming back up pays full
+   * price": that rule now belongs to stores you abandoned.
+   */
+  resuming: boolean;
   /** Employees who do not come with you, by name, at their current level. */
   staffLost: { name: string; level: number }[];
   /**
@@ -349,7 +367,11 @@ export interface StageMovePreview {
   liquidation: { cars: number; proceeds: number };
 }
 
-export function stageMovePreview(state: GameState, targetId?: StageId): StageMovePreview {
+export function stageMovePreview(
+  state: GameState,
+  targetId?: StageId,
+  opts: { keepCurrent?: boolean } = {},
+): StageMovePreview {
   const from = getStage(state.stage);
   const target = targetId
     ? stageRank(targetId) >= 0
@@ -362,7 +384,14 @@ export function stageMovePreview(state: GameState, targetId?: StageId): StageMov
   const direction: StageMovePreview['direction'] =
     !target || there === here ? 'stay' : there > here ? 'up' : 'down';
 
-  const cost = direction === 'up' ? target!.entryCost : 0;
+  // A store you left running is resumed, not re-bought: no entry price, no
+  // float gate — the doors never closed. The full-price rule below is for
+  // stores you walked away from.
+  const resuming = direction !== 'stay' && !!target && keptAt(state, target.id) !== undefined;
+  const canKeep = direction !== 'stay' && level(state, 'salesDesk') > 0;
+  const keeping = canKeep && opts.keepCurrent === true;
+
+  const cost = direction === 'up' && !resuming ? target!.entryCost : 0;
   /**
    * What you must still be holding after the cheque clears.
    *
@@ -378,17 +407,20 @@ export function stageMovePreview(state: GameState, targetId?: StageId): StageMov
    * the keys. A share of the entry cost to restock with, plus a few weeks of the
    * new store's rent.
    */
-  const float = direction === 'up' ? reopeningFloat(state, target!) : 0;
+  const float = direction === 'up' && !resuming ? reopeningFloat(state, target!) : 0;
   const affordable = state.cash >= cost + float;
 
   // Everything owned goes, except the one line that follows the paper. The
   // preview must name exactly what `moveToStage` releases and nothing else —
   // there is a test that compares the two lists, because a confirmation that
-  // over-warns is as wrong as one that under-warns.
-  const staffLost = UPGRADES.filter((u) => !u.carriesOnMove && level(state, u.id) > 0).map((u) => ({
-    name: u.name,
-    level: level(state, u.id),
-  }));
+  // over-warns is as wrong as one that under-warns. Keeping the store releases
+  // NOBODY: the whole point is that the crew stays and runs the place.
+  const staffLost = keeping
+    ? []
+    : UPGRADES.filter((u) => !u.carriesOnMove && level(state, u.id) > 0).map((u) => ({
+        name: u.name,
+        level: level(state, u.id),
+      }));
 
   // The book comes with you AND so does the desk that services it, so the
   // capacity quoted here is the one that survives. This used to model the desk
@@ -416,8 +448,12 @@ export function stageMovePreview(state: GameState, targetId?: StageId): StageMov
     rungsSkipped: direction === 'up' ? there - here - 1 : 0,
     affordable,
     allowed: direction !== 'stay' && affordable,
+    canKeep,
+    keeping,
+    keptCheque: canKeep ? keptChequePerWeek(state, state.stage) : 0,
+    resuming,
     staffLost,
-    techsReleased: state.shop?.techs.length ?? 0,
+    techsReleased: keeping ? 0 : (state.shop?.techs.length ?? 0),
     bookAfter: {
       active: activeNotes(state.notes).length,
       capacity: collectionsCapacity(afterMove),
@@ -551,15 +587,43 @@ export function canAdvanceStage(state: GameState): boolean {
  * belongs: whether to sell the lot down at retail *before* you move, or take the
  * wholesaler's price and start clean.
  */
-export function moveToStage(state: GameState, targetId: StageId): GameState {
+export function moveToStage(
+  state: GameState,
+  targetId: StageId,
+  opts: { keepCurrent?: boolean } = {},
+): GameState {
   return act(state, (s) => {
-    const move = stageMovePreview(s, targetId);
+    const move = stageMovePreview(s, targetId, opts);
     const target = move.target;
     if (!target || !move.allowed) return false;
 
     const leaving = move.from;
     s.cash -= move.cost;
     s.stage = target.id;
+
+    // KEEPING THE STORE: the office and the technicians stay with it, and it
+    // starts paying its weekly cheque. The lines that travel with the player —
+    // `carriesOnMove`, i.e. the collections desk that services the book — are
+    // NOT stored, because they leave with you; everything else is the store's
+    // own crew now. Nothing is "released", because nobody left.
+    if (move.keeping) {
+      s.empire.push({
+        stage: leaving.id,
+        upgrades: Object.fromEntries(
+          UPGRADES.filter((u) => !u.carriesOnMove && level(s, u.id) > 0).map((u) => [
+            u.id,
+            level(s, u.id),
+          ]),
+        ),
+        techs: s.shop.techs.map((t) => ({ ...t, jobId: null })),
+        keptAt: s.t,
+      });
+      logEvent(s, {
+        t: s.t,
+        kind: move.direction === 'up' ? 'stage-up' : 'stage-down',
+        label: `Left the ${leaving.name.toLowerCase()} running under its manager — ${'$' + move.keptCheque.toLocaleString()}/wk.`,
+      });
+    }
 
     // NOTHING ON THE UPGRADE TABLE COMES WITH YOU. Not the payroll, not the
     // paving, not the process — the office you built was that store's office,
@@ -578,14 +642,15 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
     for (const def of UPGRADES) {
       if (def.carriesOnMove) continue;
       if (level(s, def.id) === 0) continue;
-      released.push(def.name);
+      if (!move.keeping) released.push(def.name);
       delete s.upgrades[def.id];
     }
 
     // The sales manager was staff, so the standing order has nobody to carry it
     // out. Left set, the policy would silently do nothing and the player would
-    // think the desk was still running.
-    if (s.dealPolicy !== 'manual') s.dealPolicy = 'manual';
+    // think the desk was still running. A RESUMED store gets its desk back with
+    // the rest of the office, so the standing order survives the trip.
+    if (!move.resuming && s.dealPolicy !== 'manual') s.dealPolicy = 'manual';
 
     // The technicians are staff too, and they follow the same rule the rest of
     // the payroll does: at a new store they would have to be hired again. Their
@@ -597,7 +662,10 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
     // business exactly like the loan book does — you still owe those customers
     // their repairs, and you will be honouring them at the new store without the
     // bays you used to have. That asymmetry is the point of it.
-    const techsReleased = closeTheShop(s);
+    // Kept: the roster was copied into the empire record above, so this clear
+    // is a hand-over rather than a redundancy. Abandoned: they are released,
+    // and the preview named them first.
+    const techsReleased = move.keeping ? (closeTheShop(s), 0) : closeTheShop(s);
 
     // The lot does not come with you. Sold before the staff are released so the
     // ledger reads in the order the day would have happened: you clear the
@@ -628,6 +696,23 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
     // the used stages, quietly lets a big lot buy the small lot's inventory.
     // Cars already bought are yours; leads are not.
     s.listings = [];
+
+    // RESUMING A KEPT STORE: it never stopped being yours, so the office and
+    // the technicians come back exactly as they were left — plus whatever the
+    // carriesOnMove lines have since grown to, because those travelled with you
+    // and are yours wherever you stand. The cheque stops the moment you do.
+    if (move.resuming) {
+      const kept = keptAt(s, target.id)!;
+      for (const [id, lvl] of Object.entries(kept.upgrades)) s.upgrades[id] = lvl;
+      s.shop.techs = kept.techs.map((t) => ({ ...t, jobId: null }));
+      s.shop.jobs = [];
+      s.empire = s.empire.filter((k) => k.stage !== target.id);
+      logEvent(s, {
+        t: s.t,
+        kind: move.direction === 'up' ? 'stage-up' : 'stage-down',
+        label: `Back at the ${target.name.toLowerCase()} — the crew never left.`,
+      });
+    }
 
     if (move.direction === 'up') {
       logEvent(s, {
@@ -667,9 +752,38 @@ export function moveToStage(state: GameState, targetId: StageId): GameState {
 }
 
 /** Take on the next dealership up. The common case, and what automation uses. */
-export function advanceStage(state: GameState): GameState {
+export function advanceStage(state: GameState, opts: { keepCurrent?: boolean } = {}): GameState {
   const next = nextStage(state.stage);
-  return next ? moveToStage(state, next.id) : state;
+  return next ? moveToStage(state, next.id, opts) : state;
+}
+
+/**
+ * Sell a kept store off: a one-time goodwill cheque, and the page goes gray.
+ *
+ * Priced at `selloffWeeks` of its managed net — modest on purpose. Walking away
+ * used to pay zero, so this is already generosity, and a figure anywhere near
+ * an entry price would make move-in-and-sell-off a pump. Booked through the
+ * group's line: somebody paid for a running business.
+ */
+export function sellKeptStore(state: GameState, stageId: StageId): GameState {
+  return act(state, (s) => {
+    const kept = keptAt(s, stageId);
+    if (!kept) return false;
+
+    const proceeds = selloffValue(stageId);
+    s.cash += proceeds;
+    bookRevenue(s, 'empire', proceeds);
+    bookProfit(s, 'empire', proceeds);
+    s.empire = s.empire.filter((k) => k.stage !== stageId);
+
+    logEvent(s, {
+      t: s.t,
+      kind: 'expense',
+      label: `Sold the ${getStage(stageId).name.toLowerCase()} to its manager`,
+      amount: proceeds,
+    });
+    return true;
+  });
 }
 
 // -------------------------------------------------------- the service bays
