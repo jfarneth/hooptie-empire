@@ -129,15 +129,15 @@ export function BooksSheet({
             not. Money spent filling the lot is not a bad week; it is stock.
           */}
           <Text style={styles.footnote}>
-            Revenue is what customers paid — metal, down payments, weekly collections, plans and
-            labour. A financed car leaves the metal line at its down payment against the whole of
-            what it cost, and comes back on the book a week at a time over the life of the contract,
-            so those two only mean anything read together — that gap is buy-here-pay-here, not an
-            artefact of the split. Profit charges the cars sold at what they cost, plus rent, wages, floorplan and
-            claims, so buying stock is not a loss and selling it below cost is. A bar fades with how
-            little came in: a week that sold nothing and only collected payments runs at a huge
-            percentage on very little money, because the metal behind those payments was charged
-            when it left the lot.
+            Revenue is what customers paid — cash sales, down payments, weekly collections, plans
+            and labour. The split is by deal: Metal is the cash car business, and The book is the
+            finance business whole — a financed car charges its full cost against the book the day
+            it signs, then pays it back a week at a time over the life of the contract. That lag is
+            buy-here-pay-here: a week that wrote a lot of paper reads deep red on the book and is
+            just contracts that have not paid yet. Profit charges the cars at what they cost, plus
+            rent, wages, floorplan and claims, so buying stock is not a loss and selling it below
+            cost is. A bar fades with how little came in: a quiet week of collections runs at a huge
+            percentage on very little money.
           </Text>
         </>
       )}

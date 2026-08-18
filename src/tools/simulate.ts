@@ -965,10 +965,12 @@ async function main() {
    * printed at the time. Read `kept` against `took`: a line taking a fortune and
    * keeping nothing is a policy problem, not a balance one.
    *
-   * `metal` and `paper` only mean anything together on a financing stage. A
-   * financed car leaves the metal line at its down payment against its whole
-   * cost, so metal runs deeply negative and paper collects it back a week at a
-   * time. That is buy-here-pay-here, not a bug in the split.
+   * The split is by DEAL TYPE: `metal` is the cash car business and `paper` is
+   * the finance business whole — down payments and collections in, the cars it
+   * financed out and the repossessions it worked. Each line is a complete P&L,
+   * so `kept` really is what that side of the house made. The one reading trap
+   * left is timing: a store still writing paper hard shows a book depressed by
+   * contracts that have not had time to pay yet — buy-here-pay-here, not a bug.
    */
   {
     console.log(`\nBusiness lines (median across seeds, every filed week)`);

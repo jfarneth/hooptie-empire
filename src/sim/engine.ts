@@ -738,11 +738,14 @@ function repossess(s: GameState, carId: string, customer: string, note: Note, la
   // three game hours understated profit by $200,678.
   const carrying = repoCarryingValue(car.costBasis, fee, note);
   car.costBasis = carrying;
-  // Against METAL, not paper. The write-back reverses the expense `acceptFinance`
-  // charged the car out at, and the asset it puts back on the lot is the sales
-  // side's to resell. What the finance desk pays for a repossession is the
-  // recovery fee above.
-  bookProfit(s, 'metal', carrying);
+  // Against PAPER, because the write-back reverses an expense and has to land
+  // on the line that was charged it: `acceptFinance` expensed the whole basis
+  // against paper at signing, so the recovered unit is the paper desk's income
+  // in kind — down, payments, and what the tow truck brought back is the whole
+  // P&L of a note that went bad. From here the car is stock: it re-enters the
+  // metal side through its cost basis, and the resale — on the lot or straight
+  // to auction below — is an ordinary metal sale priced against `carrying`.
+  bookProfit(s, 'paper', carrying);
 
   // ...but only if there is a stall for it. THE LOT IS A HARD LIMIT: every
   // buying path is gated on capacity, and a repo is the one event that can add
@@ -1546,10 +1549,14 @@ function commissionOn(s: GameState, profitAtSigning: number, cashReceived: numbe
   return Math.min(cut, Math.max(0, cashReceived));
 }
 
-function payCommission(s: GameState, cut: number, dealLabel: string): void {
+function payCommission(s: GameState, line: BookLine, cut: number, dealLabel: string): void {
   if (cut <= 0) return;
   s.cash -= cut;
-  bookProfit(s, 'metal', -cut);
+  // Charged to the line of the deal it was earned on. The split is by DEAL
+  // TYPE — a cut paid for closing a finance deal is a cost of the paper, and
+  // filing it under metal would bleed the cash tile for work the book got the
+  // benefit of.
+  bookProfit(s, line, -cut);
   s.stats.commissionPaid += cut;
   logEvent(s, {
     t: s.t,
@@ -1590,7 +1597,7 @@ function acceptCash(s: GameState, prospectId: string, closer: DealCloser = 'play
     amount: price,
   });
   if (closer === 'desk') {
-    payCommission(s, commissionOn(s, profit, price), carLabel(car));
+    payCommission(s, 'metal', commissionOn(s, profit, price), carLabel(car));
   }
 
   sellServicePlan(s, prospect, car);
@@ -1656,11 +1663,18 @@ function acceptFinance(
   const note = openNote(s, { ...prospect, financeTerms: asked.terms }, label, s.t);
   s.notes.push(note);
 
+  // THE SPLIT IS BY DEAL TYPE: this car left on finance, so the whole deal is
+  // the paper desk's — the down payment lands as paper revenue and the car's
+  // full cost is expensed against the same line. Metal is cash deals only.
+  // It used to book here against metal, which made metal "the cars, wherever
+  // they went" and paper a pure collections rate — internally consistent, and
+  // unreadable: at an Okabe store metal turned $44M for a loss while paper ran
+  // at 99.7%, and neither number described a decision anybody could make.
   s.cash += prospect.downPayment;
-  bookRevenue(s, 'metal', prospect.downPayment);
+  bookRevenue(s, 'paper', prospect.downPayment);
   s.stats.carsSold += 1;
   s.stats.financeDeals += 1;
-  bookProfit(s, 'metal', prospect.downPayment - car.costBasis);
+  bookProfit(s, 'paper', prospect.downPayment - car.costBasis);
 
   logEvent(s, {
     t: s.t,
@@ -1677,7 +1691,7 @@ function acceptFinance(
     // cap in commissionOn keeps the cut inside the down payment, the only cash
     // this deal has produced so far.
     const profitAtSigning = prospect.downPayment + asked.terms.amountFinanced - car.costBasis;
-    payCommission(s, commissionOn(s, profitAtSigning, prospect.downPayment), label);
+    payCommission(s, 'paper', commissionOn(s, profitAtSigning, prospect.downPayment), label);
   }
 
   sellServicePlan(s, prospect, car);

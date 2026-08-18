@@ -321,7 +321,9 @@ than by choice: `chooseDeal` takes finance whenever its expected value beats the
 cash offer, which at a franchise is always, so the only thing holding the split
 there was a book pinned at 43/43 for the entire run. The books said it in one
 line: metal turned **$45.8M and kept −$264k** while a 43-note book kept $1.58M
-and carried the whole operation.
+and carried the whole operation. (Both lines figures read under the asset-class
+split in force at the time — the split is by deal type now; see the weekly
+books section.)
 
 Measured after: the premium rung came in from 228h07m to **163h59m**, lifetime
 profit went $272.4M to $435.6M, and the four rungs below it are identical to the
@@ -945,12 +947,29 @@ first time.
   buyers — because a whole-week measurement asserting directions passed with the
   floorplan filed under overhead. Overhead is the one line nothing else ever
   touches, so pinning its delta to the dollar pins all three at once.
-- **METAL AND PAPER ONLY MEAN ANYTHING TOGETHER.** `acceptFinance` books a car
-  out at its down payment against the whole of what it cost, so metal takes the
-  hit at signing and paper collects it back a week at a time. That is
-  buy-here-pay-here, not an artefact — and it is the first time the game has
-  shown it. Measured at an Okabe store: $236k of metal kept $1,330 while the book
-  kept $10,350. "The loan book is the game" is a number now.
+- **THE SPLIT IS BY DEAL TYPE, and that is the second answer this split has
+  had.** Metal is the cash car business; paper is the finance business whole —
+  `acceptFinance` books the down payment AND the car's entire cost against the
+  book at signing, collections pay it back weekly, the commission on a
+  desk-closed finance deal charges the book, and a repossession returns the
+  unit through the same line at `repoCarryingValue`. From the tow truck onward
+  the car is ordinary stock: it re-enters metal only through the cost basis its
+  resale is priced against. The first answer split by ASSET CLASS instead —
+  every car's cost on metal, paper as pure collections — which was internally
+  consistent and unreadable: an Okabe store showed metal turning $44M at a loss
+  beside a book at 99.7%, and the owner's read of it ("my loans make all the
+  money and my cash deals lose money") was accurate and un-actionable. Split by
+  deal, the same store reads metal 24% and book 24% at a small lot — two
+  departments a person can actually compare. Three costs of the change worth
+  knowing: **filed weeks on old saves keep old-split history** (a net cannot be
+  un-netted — the v19→v20 argument — so no migration touches them); **every
+  lines figure this file quotes from before the change reads under the old
+  scheme**; and the book now runs deep red at any store still filling it,
+  because contracts young enough not to have paid yet are all cost — that lag
+  IS buy-here-pay-here, and the footnote says so. The reconciliation test
+  CANNOT catch a mislabel (five lines sum to the same total whichever tile an
+  entry lands on), which is why `books.test.ts` pins each booking's LINE to the
+  dollar in three direction tests, all mutation-tested.
 - **`fileWeekLines` rounds the split to whole dollars against the headline**,
   because lines accrue in cents (a note payment is a level payment at two
   decimal places) and rounding both sides independently lands them a dollar
@@ -1462,11 +1481,11 @@ true A/B rather than a cross-build read:
   RELIEVED, not removed — if the paper is ever meant to be the majority of the
   business at the top, this multiplier is nowhere near large enough and the
   honest lever is a much bigger one, not a different one.
-- **Metal got worse on the books — −$264k to −$1.12M — and that is the artefact
-  rather than the economy.** More contracts means more cost basis landing on the
-  metal line at signing against a down payment, which is the split doing exactly
-  what the books section says it does. Read the pair: the book went $1.58M to
-  $2.43M and net margin on the last week went 2.4% to 2.7%.
+- **Metal read worse on the books — −$264k to −$1.12M — and that artefact is
+  what got the split re-cut.** Under the asset-class split, more contracts meant
+  more cost basis landing on metal at signing against a down payment. The split
+  is by deal type now (see the books section), so both figures are old-scheme
+  readings and the artefact itself no longer exists.
 
 The service bay is unchanged at −24.5% and is still a live bug; see the open
 questions.
@@ -2257,8 +2276,10 @@ should happen before any listing copy gets written.
   `BALANCE.negotiation` has no per-stage term. Measured per closed deal at
   level-1 Closing: 12.6% of retail kept at a curbstone, 5.3% at a Halvorsen,
   **0.9% at a Valmont** — and floorplan (~0.4%/week against a ~7-day dwell) plus
-  the desk's cut take that under water. The harness reads it as a **−0.6% metal
-  margin on $45.8M of turnover**. A per-stage room multiplier is the obvious fix
+  the desk's cut take that under water. The harness read it as a **−0.6% metal
+  margin on $45.8M of turnover** under the old asset-class split; the deal-type
+  split shows the same fact undiluted, since metal is now cash deals only. A
+  per-stage room multiplier is the obvious fix
   and is on theme (a new-car buyer at a franchise genuinely haggles less than
   somebody at a Tuesday auction lot), but this file's own warning applies —
   franchise margin is a cliff, not a dial, and the last attempt to move it took

@@ -575,11 +575,13 @@ export interface WeekRecord {
  * a tidy split of revenue, and the whole point of the split is that a line can
  * be losing money while the business as a whole is fine.
  *
- * `metal` and `paper` only make sense read together on a financing stage.
- * `acceptFinance` books the car out at its down payment against its whole cost,
- * so metal takes the hit at signing and paper collects it back a week at a time
- * over the life of the contract. That is not an artefact of the accounting; it
- * is buy-here-pay-here, and seeing it is the point.
+ * The split is by DEAL TYPE. `metal` is the cash car business; `paper` is the
+ * finance business whole — `acceptFinance` books the down payment and the car's
+ * entire cost against it at signing, the collections pay it back a week at a
+ * time, and a repossession returns the unit through the same line at what is
+ * left in it. So a week that wrote a lot of paper runs the book deep red and is
+ * just contracts that have not paid yet — buy-here-pay-here, and seeing it is
+ * the point.
  */
 export type BookLine = 'metal' | 'paper' | 'plans' | 'shop' | 'overhead';
 

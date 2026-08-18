@@ -74,15 +74,25 @@ export const BOOK_LINES: BookLine[] = ['metal', 'paper', 'plans', 'shop', 'overh
 /**
  * What each line is called, and what is in it.
  *
+ * THE SPLIT IS BY DEAL TYPE: metal is the cash car business, paper is the
+ * finance business whole — down payments and collections in, the cars it
+ * financed and the repossessions it worked out. Each line is a complete P&L a
+ * player could act on. It used to split by asset class instead (every car's
+ * cost on metal, paper as pure collections), which made metal read as a huge
+ * loss and paper as a 99% margin at any store that wrote paper — internally
+ * consistent, and no use to anybody deciding anything.
+ *
  * The `note` is not decoration — every one of these lines has something in it
- * the player would otherwise have to guess at, and three of them have something
- * genuinely surprising: floorplan is charged to the cars, the technicians are
- * charged to the bays, and the whole of a financed car leaves on the metal line
- * at signing.
+ * the player would otherwise have to guess at: floorplan is charged to the
+ * cars, the technicians to the bays, and a financed car's whole cost lands on
+ * the book the day it is signed.
  */
 export const BOOK_LINE_COPY: Record<BookLine, { name: string; note: string }> = {
-  metal: { name: 'Metal', note: 'cars sold, less what they cost, floorplan and commission' },
-  paper: { name: 'The book', note: 'weekly collections, less what repossessions cost to work' },
+  metal: { name: 'Metal', note: 'cash sales, less what those cars cost, floorplan and commission' },
+  paper: {
+    name: 'The book',
+    note: 'down payments and weekly collections, less the cars financed out and the cost of repossessions',
+  },
   plans: { name: 'Cover', note: 'service plans sold, less the claims paid on them' },
   shop: { name: 'Service bay', note: 'labour billed, less the technicians who billed it' },
   overhead: { name: 'Overhead', note: 'rent, the payroll and the shark' },

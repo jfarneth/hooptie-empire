@@ -13,15 +13,23 @@ import {
 } from './books';
 import { sellToWholesaler, setCash, takeLoan } from './actions';
 import { hireServiceTech } from './actions';
+import { repoThreshold } from './business';
+import { generateCar } from './cars';
+import { generateProspect } from './customers';
 import {
+  acceptFinance,
   advance,
   cloneState,
   cloneWeekLines,
   createInitialState,
   emptyWeekLines,
+  listCar,
   weeklyExpenses,
 } from './engine';
-import type { GameState, WeekLines, WeekRecord } from './types';
+import { getModel } from './models';
+import { haggleSkillFor } from './skills';
+import { repoFee } from './upgrades';
+import type { GameState, Note, WeekLines, WeekRecord } from './types';
 
 /**
  * The weekly books.
@@ -403,5 +411,147 @@ describe('the business lines', () => {
     expect(lineActive(totals.shop)).toBe(false);
     expect(lineActive(totals.metal)).toBe(true);
     expect(lineActive(totals.overhead)).toBe(true);
+  });
+});
+
+/**
+ * THE SPLIT IS BY DEAL TYPE. Metal is the cash car business; paper is the
+ * finance business whole — down payments and collections in, the cars it
+ * financed out, the commission its deals paid and the repossessions it worked.
+ *
+ * These are direction tests, and they exist because the reconciliation test
+ * CANNOT catch a mislabel: the five lines sum to the same lifetime profit
+ * whichever tile an entry lands on, so a financed car booked against metal
+ * keeps every total green and quietly redraws both tiles into the old
+ * asset-class split. Each one pins a delta to a line, to the dollar.
+ */
+describe('the split is by deal type', () => {
+  /** A small lot with one listed car and a buyer standing at it. */
+  function dealReady(seed = 2024): GameState {
+    const s = cloneState(createInitialState(seed, 0));
+    s.stage = 'smallUsed';
+    s.cash = 100_000;
+    s.listings = [];
+    const car = generateCar(s, s.rng, getModel('civet'), s.t);
+    car.costBasis = 6_000;
+    s.cars.push(car);
+    listCar(s, car);
+    s.prospects.push(generateProspect(s, s.rng, car, 0, haggleSkillFor(s), s.t));
+    return s;
+  }
+
+  it('books a financed car against the book, whole, and touches metal not at all', () => {
+    const s = dealReady();
+    const prospect = s.prospects[0];
+    const basis = s.cars[0].costBasis;
+    const before = cloneWeekLines(s.weekLines);
+
+    expect(acceptFinance(s, prospect.id, 'player')).toBe(true);
+
+    expect(s.weekLines.metal.revenue - before.metal.revenue).toBe(0);
+    expect(s.weekLines.metal.profit - before.metal.profit).toBe(0);
+    expect(s.weekLines.paper.revenue - before.paper.revenue).toBe(prospect.downPayment);
+    expect(s.weekLines.paper.profit - before.paper.profit).toBeCloseTo(
+      prospect.downPayment - basis,
+      6,
+    );
+  });
+
+  it("charges the desk's cut on a financed deal to the book, not the cars", () => {
+    const s = dealReady(2025);
+    const prospect = s.prospects[0];
+    const basis = s.cars[0].costBasis;
+    const before = cloneWeekLines(s.weekLines);
+
+    expect(acceptFinance(s, prospect.id, 'desk')).toBe(true);
+
+    // The window price is 1.5x retail here against a basis under wholesale, so
+    // the deal has real profit at signing and the cut is real money.
+    const cut = s.stats.commissionPaid;
+    expect(cut).toBeGreaterThan(0);
+    expect(s.weekLines.metal.profit - before.metal.profit).toBe(0);
+    expect(s.weekLines.paper.profit - before.paper.profit).toBeCloseTo(
+      prospect.downPayment - basis - cut,
+      6,
+    );
+  });
+
+  /**
+   * A repossession returns the unit to the book's line: paper expensed the whole
+   * basis at signing, so what the tow truck brings back is the paper desk's
+   * income in kind — and from there the car is ordinary stock, priced into metal
+   * through its carrying basis. Booked to metal instead, the paper tile would
+   * understate the finance business by the carrying value of every car it ever
+   * recovered, and metal would be credited for cars it never paid for.
+   *
+   * `missChance` caps at 0.95, so the default cannot be forced on one tick; the
+   * loop walks week to week until it lands, snapshotting just before each due
+   * beat. The note is due mid-week on purpose — the bill beat resets the running
+   * lines at the week boundary, and a snapshot straddling it would measure
+   * nothing.
+   */
+  it('returns a repossessed car through the book, priced at what is left in it', () => {
+    let s = cloneState(createInitialState(31, 0));
+    s.stage = 'smallUsed';
+    s.cash = 60_000;
+    s.listings = [];
+
+    const car = generateCar(s, s.rng, getModel('civet'), s.t);
+    car.status = 'sold';
+    car.costBasis = 9_000;
+    s.cars.push(car);
+
+    const note: Note = {
+      id: 'note_repo',
+      carId: car.id,
+      carLabel: 'Test Civet',
+      customerName: 'About To Default',
+      customerTier: 'D',
+      originalPrincipal: 8_000,
+      downPayment: 2_500,
+      principal: 7_200,
+      apr: 0.289,
+      paymentAmount: 380,
+      paymentsTotal: 24,
+      paymentsRemaining: 18,
+      // Mid-week, clear of the bill beat that resets the running lines.
+      nextDueAt: s.t + MS_PER_GAME_WEEK / 2,
+      missedPayments: repoThreshold(s) - 1,
+      collected: 1_900,
+      status: 'delinquent',
+      openedAt: 0,
+    };
+    s.notes.push(note);
+
+    // Walk the weekly beats until the default lands (delinquent D-tier misses
+    // ~half the time), measuring only the tick the payment falls due on.
+    let deltas: { metal: number; paper: number; paperRevenue: number } | null = null;
+    let fee = 0;
+    for (let i = 0; i < 40 && s.stats.reposCompleted === 0; i++) {
+      const due = s.notes.find((n) => n.id === 'note_repo')!.nextDueAt;
+      s = advance(s, due - s.t - 1_000);
+      const before = cloneWeekLines(s.weekLines);
+      fee = repoFee(s, s.cars.find((c) => c.id === car.id));
+      s = advance(s, 2_000);
+      if (s.stats.reposCompleted > 0) {
+        deltas = {
+          metal: s.weekLines.metal.profit - before.metal.profit,
+          paper: s.weekLines.paper.profit - before.paper.profit,
+          paperRevenue: s.weekLines.paper.revenue - before.paper.revenue,
+        };
+      }
+    }
+
+    expect(s.stats.reposCompleted).toBe(1);
+    const recovered = s.cars.find((c) => c.id === car.id)!;
+    expect(recovered.status).toBe('ready');
+
+    // The write-back landed on paper — carrying value in, recovery fee out —
+    // and metal did not move: the car re-enters the cash business only through
+    // the basis its eventual resale will be priced against.
+    expect(deltas!.metal).toBe(0);
+    expect(deltas!.paper).toBeCloseTo(recovered.costBasis - fee, 0);
+    // A repossession is not revenue; nobody paid for anything.
+    expect(deltas!.paperRevenue).toBe(0);
   });
 });
