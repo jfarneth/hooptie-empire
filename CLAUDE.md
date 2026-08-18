@@ -323,6 +323,14 @@ there was a book pinned at 43/43 for the entire run. The books said it in one
 line: metal turned **$45.8M and kept −$264k** while a 43-note book kept $1.58M
 and carried the whole operation.
 
+Measured after: the premium rung came in from 228h07m to **163h59m**, lifetime
+profit went $272.4M to $435.6M, and the four rungs below it are identical to the
+minute. **The rationing is relieved and not removed** — the run still ends pinned
+at its cap (65/65 now instead of 43/43) and the finance share only moved 4.1% to
+5.7% of deals, so if paper is ever meant to be the *majority* of the business up
+there, this multiplier is nowhere near big enough. Full table in the Verify
+section.
+
 Two things worth knowing before touching it:
 
 - **A rung must never SHRINK the book**, which is why the guard is ascending
@@ -1359,6 +1367,10 @@ and the desk do not, so treat the deltas as cross-build:
 | Midsize franchise | 44h13m | 49h46m | ~39h18m |
 | Premium franchise | 264h29m, then dead | 320h34m | ~212h18m, **still trading** |
 
+That shipped column has since moved on the top rung only — the bigger book at the
+top two stores takes the premium franchise to **~164h**. See the A/B table below;
+the four rungs under it are untouched to the minute.
+
 The reach column is a true A/B — `balance.market.supplyScale=0` leaves only
 local stock and reproduces the middle column on an identical RNG stream, because
 the feature consumes no draw until it is bought.
@@ -1414,6 +1426,50 @@ which reads like a contradiction and is not: the bot buys bays and hires against
 the same cash it would otherwise be saving for the next store. Later and richer
 is the same trade as later and alive, and it is the trade this file has taken
 before.
+
+**Paying the top two stores for their collections desk moved ONE RUNG, and that
+is the guard.** `collectionsCapacityMult` at 1.5 on Okabe and Valmont, measured
+at `--hours=350 --seeds=8` against the build immediately before it — and the
+baseline reproduced the documented shipped column to the minute, so this is a
+true A/B rather than a cross-build read:
+
+| | before | with the bigger book |
+|---|---|---|
+| Small used dealership | 2h32m | 2h32m |
+| Large used dealership | 6h44m | 6h44m |
+| Low-cost franchise | 10h33m | 10h33m |
+| Midsize franchise | 42h41m | 42h41m |
+| Premium franchise | 228h07m | **163h59m** |
+| end cash | $111.0M | **$275.1M** |
+| lifetime profit | $272.4M | **$435.6M** |
+| book / limit | 43 / 43 | **65 / 65** |
+| finance deals | 13,725 | **20,033** |
+
+- **The first four rungs are identical to the minute**, and that is the property
+  to preserve rather than a coincidence. The multiplier is 1 below the midsize
+  franchise, and the midsize MILESTONE is reached *from* the low-cost store —
+  so the first rung that can move is the premium one, and it is the only one
+  that did. Setting both multipliers back to 1 reproduces this table's left
+  column on an identical stream.
+- **It also flattens the step this file has complained about.** Midsize to
+  premium was a 5.3x jump where the rest of the ladder runs about 3x; it is
+  **3.8x** now. That was filed as an open question ("the top two rungs are not
+  re-gated") and this is most of the answer, arrived at from a different
+  direction.
+- **THE BOOK IS STILL THE BINDING CONSTRAINT, and 1.5x did not change that.**
+  It ends the run pinned at 65/65 exactly as it used to end pinned at 43/43, and
+  the finance share only moved from 4.1% to 5.7% of deals. The rationing is
+  RELIEVED, not removed — if the paper is ever meant to be the majority of the
+  business at the top, this multiplier is nowhere near large enough and the
+  honest lever is a much bigger one, not a different one.
+- **Metal got worse on the books — −$264k to −$1.12M — and that is the artefact
+  rather than the economy.** More contracts means more cost basis landing on the
+  metal line at signing against a down payment, which is the split doing exactly
+  what the books section says it does. Read the pair: the book went $1.58M to
+  $2.43M and net margin on the last week went 2.4% to 2.7%.
+
+The service bay is unchanged at −24.5% and is still a live bug; see the open
+questions.
 
 `npm run sim` prints both features now:
 
@@ -2227,11 +2283,16 @@ should happen before any listing copy gets written.
   the back half of the game. If that reads badly in play, the honest fix is to
   give Buying a franchise-side effect (allocation throughput, say) rather than to
   put fake uncertainty back on a new car.
-- **The top two rungs are not re-gated.** 39h and 212h is a 5.4x step where the
-  rest of the ladder is roughly 3x — flatter than it was (6.5x) because reach
-  lets the top stores actually trade, but still the steepest part of the game.
-  `entryCost` and `upgradeCostMultiplier` are the honest levers and the note
-  below on the upgrade table still stands.
+- **The top rung is MOSTLY re-gated now, and nobody chose the number.** The step
+  from midsize to premium was 6.5x, then 5.4x once reach let the top stores
+  trade, and is **3.8x** (42h41m to 163h59m) since the top two got a bigger
+  book — against roughly 3x for the rest of the ladder. That is close enough to
+  call it fixed, but it was fixed as a side effect of relieving the finance
+  rationing rather than by anybody picking a pace: 1.5 was chosen because the
+  premises are worth about half as much desk again, not because it landed the
+  ladder. If the step wants deliberate tuning, `entryCost` and
+  `upgradeCostMultiplier` are still the honest levers and the note below on the
+  upgrade table still stands.
 - **Nothing measures a player who declines market reach.** The harness bot buys
   it as soon as it can afford it, so every number in the shipped column assumes
   it. A player who stays local keeps the full margin on every car and runs a
