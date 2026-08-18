@@ -6,14 +6,21 @@ import { TIER_BLURB } from '../../sim/customers';
 import { expectedCollections } from '../../sim/engine';
 import {
   countersRemaining,
+  paymentAcceptance,
   readCounter,
+  readOffer,
   roundingIncrement,
   tellFor,
 } from '../../sim/haggle';
-import { activeNotes, overCapacityFactor } from '../../sim/notes';
+import { pushedTerms } from '../../sim/actions';
+import { repoThreshold } from '../../sim/business';
+import { getStage } from '../../sim/stages';
+import { level } from '../../sim/upgrades';
+import { activeNotes, canWriteNote, overCapacityFactor } from '../../sim/notes';
+import { haggleSkillFor } from '../../sim/skills';
 import { collectionsCapacity } from '../../sim/upgrades';
 import type { GameState, Prospect } from '../../sim/types';
-import { TIER_COLOR, money, theme } from '../theme';
+import { OFFER_COLOR, TIER_COLOR, money, theme } from '../theme';
 import { PriceSlider } from './PriceSlider';
 import { Sheet } from './Sheet';
 import { Button, Chip, Row } from './ui';
@@ -39,10 +46,17 @@ export function DealSheet({
   prospect: Prospect | null;
   onCash: () => void;
   onCounter: (price: number) => void;
-  onFinance: () => void;
+  onFinance: (push: number) => void;
   onDecline: () => void;
   onClose: () => void;
 }) {
+  // The sheet being open IS the claim — the staff stand back the moment you sit
+  // down (see claimDeal in LotScreen), so what the subtitle owes the player is
+  // the fact that this deal is now theirs to keep the whole margin on.
+  const deskWaiting =
+    level(state, 'salesDesk') > 0 && state.dealPolicy !== 'manual' && prospect != null;
+  const deskTitle = getStage(state.stage).desk.title;
+
   // Hooks must run unconditionally, so the counter lives above the early return.
   const neg = prospect?.negotiation ?? null;
   const step = neg ? roundingIncrement(neg.anchor) : 100;
@@ -52,6 +66,10 @@ export function DealSheet({
   const openingCounter = neg ? Math.min(neg.currentOffer + step, neg.anchor) : 0;
 
   const [counter, setCounter] = useState(openingCounter);
+  // How far past their own payment we are asking. 1 is their number, which
+  // always signs — the slider opens where the old take-it-or-leave-it button
+  // used to be, so doing nothing behaves exactly as financing always did.
+  const [push, setPush] = useState(1);
 
   // Reset the slider whenever a new buyer appears or they move their number.
   const negKey = neg ? `${prospect!.id}:${neg.currentOffer}:${neg.countersMade}` : null;
@@ -60,6 +78,7 @@ export function DealSheet({
     if (negKey && negKey !== lastKey.current) {
       lastKey.current = negKey;
       setCounter(openingCounter);
+      setPush(1);
     }
   }, [negKey, openingCounter]);
 
@@ -69,35 +88,65 @@ export function DealSheet({
 
   const car = state.cars.find((c) => c.id === prospect.carId);
   const costBasis = car?.costBasis ?? 0;
-  const financeAvailable = state.stage === 'bhph';
+  const financeAvailable = getStage(state.stage).financing;
 
-  const countersLeft = countersRemaining(neg);
+  const countersLeft = countersRemaining(neg, haggleSkillFor(state));
   const agreed = neg.status === 'accepted';
   // Once they have said yes there is nothing left to argue about; without the
   // status check the sheet would render a counter control that silently no-ops,
   // because the action layer rejects counters on a closed negotiation.
   const canCounter = neg.status === 'open' && countersLeft > 0 && neg.currentOffer < neg.anchor;
 
-  const capFactor = overCapacityFactor(activeNotes(state.notes).length, collectionsCapacity(state));
-  const missChance = BALANCE.creditTiers[prospect.tier].missChance * capFactor;
-  const { expectedCollected, defaultProbability } = expectedCollections(
-    prospect.financeTerms.weeks,
-    prospect.financeTerms.weeklyPayment,
-    missChance,
-  );
+  const bookSize = activeNotes(state.notes).length;
+  const bookLimit = collectionsCapacity(state);
+  const bookOpen = canWriteNote(state);
 
-  const financeEv = prospect.downPayment + expectedCollected;
+  const capFactor = overCapacityFactor(bookSize, bookLimit);
+  const missChance = BALANCE.creditTiers[prospect.tier].missChance * capFactor;
+  // Quoted against the player's own repo trigger, not the house default: this
+  // number is presented as exact, so it has to be the rule they actually set.
+
+  // Everything on the finance card is quoted at the payment currently on the
+  // slider, through the same function the button writes the contract with — a
+  // readout computed separately from the action is a readout that will
+  // eventually lie about what the button does.
+  const asked = pushedTerms(prospect, push);
+  const pushedCollections = expectedCollections(
+    asked.terms.weeks,
+    asked.payment,
+    missChance,
+    repoThreshold(state),
+  );
+  const financeEv = prospect.downPayment + pushedCollections.expectedCollected;
+  const signOdds = paymentAcceptance(
+    asked.payment,
+    prospect.financeTerms.weeklyPayment,
+    prospect.paymentCeiling,
+  );
   const cashProfit = neg.currentOffer - costBasis;
+  // Follows the CURRENT offer, not the opening one: counter them up and the
+  // headline goes amber and then green as they climb toward the sticker.
+  const offerRead = readOffer(neg.currentOffer, neg.anchor);
   const financeEvProfit = financeEv - costBasis;
   const financeBeatsC = financeEv > neg.currentOffer;
 
-  const scheduled = Math.round(prospect.financeTerms.weeklyPayment * prospect.financeTerms.weeks);
+  const scheduled = Math.round(asked.payment * asked.terms.weeks);
+  // The top of the slider is deliberately past what most buyers can carry: the
+  // rule is "you can price them out", and a track that stopped at a safe number
+  // would make that unsayable. Rounded to a payment a person would quote.
+  const maxPush = BALANCE.business.paymentPushes[BALANCE.business.paymentPushes.length - 1];
 
   return (
     <Sheet
       visible
       title={prospect.name}
-      subtitle={car ? `wants the ${carLabel(car)}` : undefined}
+      subtitle={
+        car
+          ? deskWaiting
+            ? `wants the ${carLabel(car)} — yours to close, ${deskTitle.toLowerCase()} waived off`
+            : `wants the ${carLabel(car)}`
+          : undefined
+      }
       onClose={onClose}
     >
       <Row gap={8}>
@@ -116,7 +165,11 @@ export function DealSheet({
           <Text style={styles.optionTitle}>
             {agreed ? 'They agreed' : neg.countersMade > 0 ? 'Their new offer' : 'Cash'}
           </Text>
-          <Text style={styles.optionHeadline}>{money(neg.currentOffer)}</Text>
+          {/* The same red/amber/green the lot painted this buyer, so the colour
+              that made you walk over means one thing on both screens. */}
+          <Text style={[styles.optionHeadline, { color: OFFER_COLOR[offerRead] }]}>
+            {money(neg.currentOffer)}
+          </Text>
         </Row>
         <Text style={styles.optionNote}>
           {agreed
@@ -191,15 +244,38 @@ export function DealSheet({
 
       {/* ------------------------------------------------------- finance */}
       {financeAvailable ? (
-        <View style={[styles.option, financeBeatsC && styles.optionHighlight]}>
+        <View style={[styles.option, financeBeatsC && bookOpen && styles.optionHighlight]}>
           <Row style={{ justifyContent: 'space-between' }}>
             <Text style={styles.optionTitle}>Finance it</Text>
             <Text style={styles.optionHeadline}>{money(prospect.downPayment)}</Text>
           </Row>
           <Text style={styles.optionNote}>
-            down today, then {money(prospect.financeTerms.weeklyPayment)}/wk ×{' '}
-            {prospect.financeTerms.weeks} at {(prospect.financeTerms.apr * 100).toFixed(1)}%
+            down today, then {money(asked.payment)}/wk × {asked.terms.weeks} at{' '}
+            {(asked.terms.apr * 100).toFixed(1)}%
+            {push > 1 ? ` — they asked for ${money(prospect.financeTerms.weeklyPayment)}` : ''}
           </Text>
+
+          {/* ------------------------------------------------ the payment push */}
+          <View style={styles.counterBlock}>
+            <Row style={{ justifyContent: 'space-between' }}>
+              <Text style={styles.counterTitle}>Weekly payment</Text>
+              <Text style={[styles.counterValue, { color: OFFER_COLOR[readPush(signOdds)] }]}>
+                {money(asked.payment)}
+              </Text>
+            </Row>
+
+            <PriceSlider
+              min={prospect.financeTerms.weeklyPayment}
+              max={Math.round(prospect.financeTerms.weeklyPayment * maxPush)}
+              step={paymentStep(prospect.financeTerms.weeklyPayment)}
+              value={asked.payment}
+              onChange={(next) => setPush(next / prospect.financeTerms.weeklyPayment)}
+              minLabel="what they offered"
+              maxLabel="all they could carry"
+            />
+
+            <Text style={styles.read}>{readPayment(signOdds, push)}</Text>
+          </View>
 
           <View style={styles.evBlock}>
             <Row style={{ justifyContent: 'space-between' }}>
@@ -211,9 +287,20 @@ export function DealSheet({
               <Text style={styles.evStrong}>{money(financeEv)}</Text>
             </Row>
             <Row style={{ justifyContent: 'space-between' }}>
+              <Text style={styles.evLabel}>Chance they sign</Text>
+              <Text
+                style={[
+                  styles.evStrong,
+                  { color: signOdds >= 0.95 ? theme.colors.money : theme.colors.warn },
+                ]}
+              >
+                {(signOdds * 100).toFixed(0)}%
+              </Text>
+            </Row>
+            <Row style={{ justifyContent: 'space-between' }}>
               <Text style={styles.evLabel}>Chance you take it back</Text>
               <Text style={[styles.evStrong, { color: theme.colors.warn }]}>
-                {(defaultProbability * 100).toFixed(0)}%
+                {(pushedCollections.defaultProbability * 100).toFixed(0)}%
               </Text>
             </Row>
           </View>
@@ -234,13 +321,35 @@ export function DealSheet({
             </Text>
           </Row>
 
-          <Button
-            label="Write the note"
-            sublabel={financeBeatsC ? `+${money(financeEv - neg.currentOffer)} over cash` : undefined}
-            tone={financeBeatsC ? 'primary' : 'default'}
-            onPress={onFinance}
-            style={{ marginTop: 10 }}
-          />
+          {bookOpen ? (
+            <Button
+              label={push > 1 ? `Write it at ${money(asked.payment)}/wk` : 'Write the note'}
+              sublabel={
+                financeBeatsC ? `+${money(financeEv - neg.currentOffer)} over cash` : undefined
+              }
+              tone={financeBeatsC ? 'primary' : 'default'}
+              onPress={() => onFinance(push)}
+              style={{ marginTop: 10 }}
+            />
+          ) : (
+            // A disabled button rather than a hidden one: the deal that is not
+            // available is still information, and the player needs to see what
+            // the full book is costing them on this specific customer.
+            <>
+              <Button
+                label="Book is full"
+                sublabel={`${bookSize}/${bookLimit} contracts`}
+                tone="ghost"
+                disabled
+                onPress={() => onFinance(1)}
+                style={{ marginTop: 10 }}
+              />
+              <Text style={styles.bookFull}>
+                The collections desk will not carry another contract. Take the cash, or staff the
+                desk and come back to the next one.
+              </Text>
+            </>
+          )}
         </View>
       ) : (
         <View style={styles.lockedBox}>
@@ -329,6 +438,13 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontStyle: 'italic',
   },
+  bookFull: {
+    color: theme.colors.warn,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 8,
+    textAlign: 'center',
+  },
   profitLabel: { color: theme.colors.textDim, fontSize: 12, fontWeight: '600' },
   profitValue: { fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
   lockedBox: {
@@ -340,3 +456,28 @@ const styles = StyleSheet.create({
   },
   lockedText: { color: theme.colors.textFaint, fontSize: 12, lineHeight: 17, textAlign: 'center' },
 });
+
+/**
+ * The same three-colour read the lot and the cash headline use, applied to how
+ * likely this payment is to be signed. One scale across the whole sheet.
+ */
+function readPush(odds: number): 'strong' | 'fair' | 'weak' {
+  if (odds >= 0.95) return 'strong';
+  if (odds >= 0.6) return 'fair';
+  return 'weak';
+}
+
+/** Plain English for where the payment sits against what they can carry. */
+function readPayment(odds: number, push: number): string {
+  if (push <= 1) return 'Their own number. They will sign this without blinking.';
+  if (odds >= 0.95) return 'Comfortably inside what they can carry.';
+  if (odds >= 0.75) return 'A stretch, but they can probably find it.';
+  if (odds >= 0.5) return 'Tight. About even money they balk at this.';
+  if (odds >= 0.25) return 'They are close to priced out — and some of them walk rather than haggle.';
+  return 'This is more than they earn. Expect to lose them.';
+}
+
+/** Payments are quoted in dollars, so the slider should move in them. */
+function paymentStep(base: number): number {
+  return base >= 400 ? 10 : base >= 100 ? 5 : 1;
+}

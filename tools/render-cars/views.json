@@ -1,0 +1,67 @@
+{
+  "note": [
+    "The angles the game asks for. Archetypes and paint bands are NOT repeated",
+    "here — they are read from models.json, which stays the one place a model",
+    "mapping or a paint band lives. Two copies of that table is exactly the",
+    "corpse CLAUDE.md warns about: nothing fails when they disagree, the frames",
+    "just quietly render the wrong car.",
+    "",
+    "tiltDegrees is measured off STRAIGHT DOWN, matching the Blender script and",
+    "SPRITE_TILT_DEGREES in camera.ts: 0 is a floor plan, 90 is a side",
+    "elevation. yawDegrees swings the camera right, the same direction the lot",
+    "camera's yaw goes."
+  ],
+
+  "top": {
+    "note": [
+      "The lot. Sixty of these share a screen at 34-60px, which is where the",
+      "shading earns its keep.",
+      "",
+      "12 degrees, and NOT the lot camera's 25, because LotScene lays a top-down",
+      "frame on the ground through its own rotate-and-squash: the render's own",
+      "foreshortening composes with that one, so shooting at 25 would",
+      "double-count it and squash the car by 15% instead of 9%. Baking the full",
+      "25/25 projection means the scene stops transforming the art at all, which",
+      "is a different change to a different file. SPRITE_TILT_DEGREES is the",
+      "honest record of where these came from and must match this number.",
+      "",
+      "aspect is the CAR_BOX artboard from src/ui/lot/layout.ts, pinned so the",
+      "lot positions these frames exactly as it always has."
+    ],
+    "tiltDegrees": 12,
+    "yawDegrees": 0,
+    "aspect": [60, 124],
+    "anchorCentred": true,
+    "marginFactor": 1.0,
+    "renderWidth": 512,
+    "shipWidth": 192
+  },
+
+  "side": {
+    "note": [
+      "The feed and the sheets, where one car fills the card at 96px and 220px.",
+      "Ships at 512 because 220 logical points is 660 physical on a phone, and at",
+      "288 the card was visibly soft. The palette step in render.js is what makes",
+      "that affordable: these are a third the size of the 288px frames were.",
+      "",
+      "A three-quarter shot rather than a flat elevation, because this is the",
+      "'listing photograph' angle the vector renderer was always approximating",
+      "and could not reach: an elevation shows one flank and no roof, which is",
+      "the least flattering way to photograph a car and the reason forecourt",
+      "photos are never taken that way.",
+      "",
+      "62 degrees off vertical is 28 above the ground — high enough to show the",
+      "roof and the bonnet, low enough that the car still reads as standing on",
+      "something. Yawed 34 so the near front wing leads.",
+      "",
+      "No aspect: the box is fitted to the geometry, because nothing downstream",
+      "depends on this artboard's shape. CarArt takes the height from the frame."
+    ],
+    "tiltDegrees": 62,
+    "yawDegrees": 66,
+    "faceLeft": false,
+    "marginFactor": 1.12,
+    "renderWidth": 1024,
+    "shipWidth": 512
+  }
+}

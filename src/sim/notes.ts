@@ -1,6 +1,7 @@
 import { BALANCE, MS_PER_GAME_WEEK } from './balance';
 import { weeklyPayment } from './economy';
 import { mintId } from './ids';
+import { collectionsCapacity } from './upgrades';
 import type { CreditTier, GameState, Millis, Note, Prospect } from './types';
 
 /**
@@ -26,6 +27,7 @@ export function openNote(
     customerName: prospect.name,
     customerTier: prospect.tier,
     originalPrincipal: amountFinanced,
+    downPayment: prospect.downPayment,
     principal: amountFinanced,
     apr,
     paymentAmount: payment,
@@ -45,14 +47,44 @@ export function activeNotes(notes: Note[]): Note[] {
 }
 
 /**
+ * Contracts the desk will still take. Zero means the finance desk is closed
+ * until something on the book pays off or goes bad.
+ *
+ * This is a hard limit, not a target. The number was already on the HUD and on
+ * the ledger; it just wasn't enforced, so a player who read it as a limit was
+ * wrong and a player who ignored it was rewarded. Staffing the desk is now what
+ * buys the right to write more paper.
+ *
+ * Clamped at zero rather than allowed to go negative, because a save from before
+ * the cap can legitimately be sitting over the line. Those books shrink back
+ * under it by attrition; nothing is torn up.
+ */
+export function bookRoom(state: GameState): number {
+  return Math.max(0, collectionsCapacity(state) - activeNotes(state.notes).length);
+}
+
+/** True when the finance desk can write another contract right now. */
+export function canWriteNote(state: GameState): boolean {
+  return bookRoom(state) > 0;
+}
+
+/**
  * Multiplier applied to every borrower's miss chance once the portfolio outgrows
  * the collections desk. Growing the book without staffing it is a real and
  * punishing mistake, which is the point.
+ *
+ * With the cap enforced this only bites on a book that was already over the line
+ * — a save written before the cap, or one that has since been carried across a
+ * shrinking desk. It stays because degrading is the right way to meet that
+ * state; the alternative is a rule that only applies to new games.
  */
 export function overCapacityFactor(activeCount: number, capacity: number): number {
   if (activeCount <= capacity || capacity <= 0) return 1;
   const overage = (activeCount - capacity) / capacity;
-  return 1 + overage * BALANCE.overCapacityMissPenalty;
+  return Math.min(
+    BALANCE.overCapacityMissPenaltyCap,
+    1 + overage * BALANCE.overCapacityMissPenalty,
+  );
 }
 
 /** Odds this borrower misses the payment that is due right now. */
@@ -75,14 +107,22 @@ export interface PaymentResult {
 /**
  * Apply the payment that is due. Mutates the note and advances `nextDueAt` by a
  * game week whether or not the borrower paid — a missed week still passes.
+ *
+ * `repoAfter` is the player's repo trigger; it defaults to the house number so
+ * callers that have no state to hand (the amortization tests, mostly) still
+ * describe the shipped rule.
  */
-export function applyDuePayment(note: Note, made: boolean): PaymentResult {
+export function applyDuePayment(
+  note: Note,
+  made: boolean,
+  repoAfter: number = BALANCE.repoAfterMissedPayments,
+): PaymentResult {
   note.nextDueAt += MS_PER_GAME_WEEK;
 
   if (!made) {
     note.missedPayments += 1;
     note.status = 'delinquent';
-    const defaulted = note.missedPayments >= BALANCE.repoAfterMissedPayments;
+    const defaulted = note.missedPayments >= Math.max(1, repoAfter);
     if (defaulted) note.status = 'defaulted';
     return { paid: false, amount: 0, closed: false, defaulted };
   }
@@ -109,6 +149,41 @@ export function applyDuePayment(note: Note, made: boolean): PaymentResult {
   return { paid: true, amount: payment, closed, defaulted: false };
 }
 
+/**
+ * WHAT A REPOSSESSED CAR IS STILL WORTH TO THE BUSINESS, and therefore what it
+ * goes back on the books at.
+ *
+ * A car that comes back is not the car that left. It left carrying what it cost
+ * to buy and recondition; it comes back having already returned a down payment
+ * and however many weekly payments the customer made, and having cost a recovery
+ * fee to get. The carrying value is what is left of the investment:
+ *
+ *     purchase + recon + recovery fee − down payment − payments collected
+ *
+ * Using the ORIGINAL basis instead — which is what this did until it was found
+ * in playtesting — is wrong twice over, and the second way is worse than the
+ * first. It makes the deal sheet's margin read against money the customer has
+ * already handed over, so a car that has paid for itself twice still looks like
+ * a thin deal. And because `acceptFinance` already expensed the whole basis
+ * against `lifetimeProfit` at signing, charging it again on the resale
+ * double-counts it: measured over a 3h run with 25 repossessions, the books
+ * understated profit by $200,678, about $8k a repo.
+ *
+ * FLOORED AT ZERO, and that floor is load-bearing rather than defensive. A note
+ * that collected more than the car cost genuinely leaves a negative investment,
+ * and a negative basis would pay the player floorplan interest on a car they
+ * are holding. Zero says the true thing — the business has nothing left in this
+ * unit, and every dollar it now sells for is profit.
+ */
+export function repoCarryingValue(
+  costBasis: number,
+  fee: number,
+  note: Pick<Note, 'downPayment' | 'collected'>,
+): number {
+  const returned = (note.downPayment ?? 0) + (note.collected ?? 0);
+  return Math.max(0, Math.round(costBasis + fee - returned));
+}
+
 /** What the player would collect if this note ran to term from here. */
 export function remainingScheduled(note: Note): number {
   return Math.round(note.paymentAmount * note.paymentsRemaining);
@@ -130,5 +205,50 @@ export function buildTerms(
     apr: cfg.apr,
     weeklyPayment: weeklyPayment(amountFinanced, cfg.apr, weeks),
     weeks,
+  };
+}
+
+/**
+ * `repoAfter` widens the chain rather than being a constant, because the player
+ * sets it. The deal sheet quotes this number as exact, so it has to be the
+ * player's rule and not the house default the moment those differ.
+ */
+export function expectedCollections(
+  weeks: number,
+  paymentAmount: number,
+  baseMissChance: number,
+  repoAfter: number = BALANCE.repoAfterMissedPayments,
+): { expectedCollected: number; defaultProbability: number } {
+  const threshold = Math.max(1, Math.round(repoAfter));
+  const pFresh = Math.min(0.95, baseMissChance);
+  const pBehind = Math.min(0.95, baseMissChance * BALANCE.delinquencyMissMultiplier);
+
+  // states[k] = probability of being alive with k consecutive missed payments.
+  // The chain is `threshold` wide: the miss that takes k to `threshold` is the
+  // one that takes the car back, so there is no live state at that index.
+  let states = new Array<number>(threshold).fill(0);
+  states[0] = 1;
+  let dead = 0;
+  let expectedPayments = 0;
+
+  for (let week = 0; week < weeks; week++) {
+    const next = new Array<number>(threshold).fill(0);
+    for (let k = 0; k < threshold; k++) {
+      const mass = states[k];
+      if (mass === 0) continue;
+      const p = k === 0 ? pFresh : pBehind;
+      // Paid: collect and reset to zero consecutive misses.
+      next[0] += mass * (1 - p);
+      expectedPayments += mass * (1 - p);
+      // Missed: advance, or die at the repo threshold.
+      if (k + 1 >= threshold) dead += mass * p;
+      else next[k + 1] += mass * p;
+    }
+    states = next;
+  }
+
+  return {
+    expectedCollected: Math.round(expectedPayments * paymentAmount),
+    defaultProbability: dead,
   };
 }

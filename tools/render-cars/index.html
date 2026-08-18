@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>hooptie car renderer</title>
+<style>
+  body { margin: 0; background: #101219; }
+  canvas { display: block; }
+</style>
+<script type="importmap">
+  {
+    "imports": {
+      "three": "/vendor/three/build/three.module.js",
+      "three/addons/": "/vendor/three/examples/jsm/"
+    }
+  }
+</script>
+<script type="module">
+  import * as scene from './scene.js';
+  // The node driver calls into this. A module's bindings are not on `window`,
+  // so it is hung there explicitly rather than by evaluating strings.
+  window.carRenderer = scene;
+  window.carRendererReady = true;
+</script>

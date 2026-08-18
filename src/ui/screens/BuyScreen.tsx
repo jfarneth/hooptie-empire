@@ -1,14 +1,18 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { buyListing } from '../../sim/actions';
-import { retailValue, wholesaleValue } from '../../sim/economy';
+import { appraisalBand, estimatedCondition, estimatedWholesale } from '../../sim/appraisal';
+import { appraisalSigma } from '../../sim/skills';
 import { getModel } from '../../sim/models';
+import { RARITIES } from '../../sim/rarity';
 import { carCapacity } from '../../sim/upgrades';
 import type { GameState, Listing } from '../../sim/types';
 import { useGame } from '../../state/store';
-import { duration, money, theme } from '../theme';
-import { CarSvg } from '../components/CarSvg';
+import { RARITY_COLOR, duration, money, theme } from '../theme';
+import { HUD_HEIGHT } from '../components/Hud';
+import { CarArt } from '../art/CarArt';
 import { Chip, EmptyState, Label, Row } from '../components/ui';
+import { getMarketTier, landedCost } from '../../sim/market';
 
 /**
  * The sourcing feed. Deals rotate off after a while, so this is the screen that
@@ -39,7 +43,7 @@ export function BuyScreen({ state }: { state: GameState }) {
             key={listing.id}
             listing={listing}
             state={state}
-            disabled={full || state.cash < listing.price}
+            disabled={full || state.cash < landedCost(listing)}
             onBuy={() => apply((s) => buyListing(s, listing.id))}
           />
         ))
@@ -60,27 +64,44 @@ function ListingRow({
   onBuy: () => void;
 }) {
   const model = getModel(listing.car.modelId);
-  const wholesale = wholesaleValue(listing.car);
-  const retail = retailValue(listing.car);
-  const underWholesale = listing.price <= wholesale;
-  const spread = retail - listing.price;
+  // Everything quoted here is an appraisal, not a fact. Mileage and price are
+  // exact; how tired the car is underneath is a guess that sharpens with Buying.
+  const sigma = appraisalSigma(state);
+  const condition = estimatedCondition(listing, sigma);
+  const band = appraisalBand(listing, sigma);
+  // EVERY NUMBER ON THIS ROW IS THE LANDED COST — the ask plus the transporter.
+  // Quoting the sticker and charging the sticker plus freight would put a green
+  // margin on a row that loses money, which is the whole reason the buyer's
+  // ceiling is denominated this way too.
+  const landed = landedCost(listing);
+  const tier = getMarketTier(listing.origin);
+  const looksCheap = landed <= estimatedWholesale(listing, sigma);
   const expiresIn = listing.expiresAt - state.t;
+  const spreadLow = band.low - landed;
+  const spreadHigh = band.high - landed;
+  // Rarity is not an appraisal — you can see a spoiler — so it is stated flatly
+  // rather than hedged the way condition is.
+  const badge = RARITIES[listing.car.rarity].badge;
 
   return (
     <Pressable
       onPress={disabled ? undefined : onBuy}
       style={({ pressed }) => [
         styles.row,
-        underWholesale && styles.rowDeal,
+        looksCheap && styles.rowDeal,
+        // A graded car outranks the deal border: the two can both be true, and
+        // the rarer fact is the one worth colouring the whole row for.
+        badge ? { borderColor: RARITY_COLOR[listing.car.rarity] } : null,
         disabled && styles.rowDisabled,
         pressed && !disabled && { borderColor: theme.colors.accent },
       ]}
     >
       <View style={styles.thumb}>
-        <CarSvg
-          bodyStyle={model.bodyStyle}
+        <CarArt
+          modelId={listing.car.modelId}
           colorIndex={listing.car.colorIndex}
           condition={listing.car.condition}
+          rarity={listing.car.rarity}
           width={96}
         />
       </View>
@@ -89,31 +110,64 @@ function ListingRow({
         <Text style={styles.name} numberOfLines={1}>
           {model.name}
         </Text>
-        <Text style={styles.meta}>
-          {listing.car.mileage.toLocaleString('en-US')} mi · {Math.round(listing.car.condition * 100)}%
+        <Text style={styles.meta} numberOfLines={1}>
+          {listing.car.mileage.toLocaleString('en-US')} mi · {band.exact ? '' : '~'}
+          {Math.round(condition * 100)}%
           {' · '}
           {listing.source}
         </Text>
-        <Row gap={6} style={{ marginTop: 4 }}>
-          {underWholesale ? <Chip text="UNDER WHOLESALE" color={theme.colors.money} /> : null}
-          <Text style={styles.expiry}>gone in {duration(expiresIn)}</Text>
+        {/* Wraps, because SPECIAL EDITION next to LOOKS CHEAP leaves the expiry
+            no room and it silently truncated to "gone in …" — the sort of thing
+            a green test suite has nothing to say about. */}
+        <Row gap={6} style={{ marginTop: 4, flexWrap: 'wrap' }}>
+          {/* The trim badge comes first: it is the only thing here that is a
+              plain fact about the car rather than an estimate, and on the one
+              listing in ten that has one it is the reason to look. */}
+          {badge ? (
+            <Chip text={badge.toUpperCase()} color={RARITY_COLOR[listing.car.rarity]} filled />
+          ) : null}
+          {listing.origin !== 'local' ? (
+            <Chip text={tier.name.toUpperCase()} color={theme.colors.textFaint} />
+          ) : null}
+          {looksCheap ? (
+            <Chip
+              text={band.exact ? 'UNDER WHOLESALE' : 'LOOKS CHEAP'}
+              color={theme.colors.money}
+            />
+          ) : null}
+          <Text style={styles.expiry} numberOfLines={1}>
+            gone in {duration(expiresIn)}
+          </Text>
         </Row>
       </View>
 
       <View style={styles.priceCol}>
-        <Text style={styles.price}>{money(listing.price)}</Text>
-        <Text style={[styles.spread, { color: spread > 0 ? theme.colors.money : theme.colors.danger }]}>
-          {spread > 0 ? '+' : ''}
-          {money(spread)}
+        <Text style={styles.price}>{money(landed)}</Text>
+        {listing.freight > 0 ? (
+          // Broken out rather than folded in silently: the player is choosing to
+          // pay for distance and should see what it costs them per car.
+          <Text style={styles.freight}>
+            {money(listing.price)} + {money(listing.freight)} freight
+          </Text>
+        ) : null}
+        <Text
+          style={[
+            styles.spread,
+            { color: spreadLow > 0 ? theme.colors.money : theme.colors.danger },
+          ]}
+        >
+          {band.exact
+            ? `${spreadHigh > 0 ? '+' : ''}${money(spreadHigh)}`
+            : `${money(spreadLow)} – ${money(spreadHigh)}`}
         </Text>
-        <Text style={styles.spreadLabel}>vs retail</Text>
+        <Text style={styles.spreadLabel}>{band.exact ? 'vs retail' : 'est. vs retail'}</Text>
       </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 8, paddingBottom: 32 },
+  content: { padding: 16, paddingTop: HUD_HEIGHT + 12, gap: 8, paddingBottom: 32 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -132,6 +186,7 @@ const styles = StyleSheet.create({
   meta: { color: theme.colors.textDim, fontSize: 11 },
   expiry: { color: theme.colors.textFaint, fontSize: 10 },
   priceCol: { alignItems: 'flex-end', gap: 1 },
+  freight: { color: theme.colors.textFaint, fontSize: 9 },
   price: {
     color: theme.colors.text,
     fontSize: 16,
