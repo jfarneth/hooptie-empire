@@ -1,7 +1,16 @@
-import { retire, takeLoan, payOffLoan } from './actions';
+import { buyProperty, retire, takeLoan, payOffLoan } from './actions';
 import { BALANCE, MS_PER_GAME_WEEK } from './balance';
 import { advance, cloneState, createInitialState, weeklyExpenses } from './engine';
-import { loanBalance, prestigeEdge, retirementPreview, sharkOffer } from './prestige';
+import {
+  loanBalance,
+  ownsProperty,
+  prestigeEdge,
+  propertyHolding,
+  propertyPreview,
+  retirementPreview,
+  sharkOffer,
+} from './prestige';
+import { getStage } from './stages';
 import { SKILL_IDS } from './skills';
 import type { GameState } from './types';
 
@@ -21,7 +30,7 @@ function richRun(): GameState {
   s.cash = 2_500_000;
   s.skills.buy.level = 7;
   s.skills.sell.level = 5;
-  s.prestige = { count: 1, points: 2, history: [
+  s.prestige = { count: 1, points: 2, propertyStages: [], history: [
     { n: 1, at: 500_000, hours: 10, stage: 'smallUsed', gross: 2_000_000, debt: 0, net: 2_000_000, points: 2 },
   ] };
   return s;
@@ -41,9 +50,11 @@ describe('retirement value', () => {
 
     const p = retirementPreview(s);
     expect(p.bookValue).toBe(Math.round(8_000 * BALANCE.prestige.notesSaleRate));
-    expect(p.gross).toBe(p.cash + p.lotValue + p.bookValue);
+    expect(p.gross).toBe(p.cash + p.lotValue + p.bookValue + p.propertyValue);
     expect(p.net).toBe(p.gross); // no loan
-    expect(p.points).toBe(Math.floor(p.net / BALANCE.prestige.pointDollars));
+    // Retirement mints nothing, whatever the sale fetches — the mint is
+    // `buyProperty` and nowhere else.
+    expect(p.points).toBe(0);
   });
 
   it('settles the shark off the top, and floors the scoreboard at zero', () => {
@@ -80,6 +91,10 @@ describe('retire()', () => {
     expect(after.tuning).toEqual(before.tuning);
     expect(after.prestige.count).toBe(2);
     expect(after.prestige.history).toHaveLength(2);
+    // Points ride across unchanged — the sale pays the scoreboard, not the mint.
+    expect(after.prestige.points).toBe(before.prestige.points);
+    // The deeds are sold with everything else; the fresh career owns nothing.
+    expect(after.properties).toEqual([]);
   });
 
   it('increments the counter even on a worthless bail-out', () => {
@@ -117,6 +132,106 @@ describe('retire()', () => {
     expect(b.listings.length).toBe(a.listings.length);
     const cheaper = b.listings.filter((l, i) => l.price < a.listings[i].price);
     expect(cheaper.length).toBe(a.listings.length);
+  });
+});
+
+/**
+ * The deed: the endgame sink and the only prestige mint.
+ *
+ * The rules under test are the ones a player could exploit if they broke: the
+ * purchase must be an ASSET SWAP (no profit booked, or the books lie), the
+ * points must mint ONCE PER STAGE EVER (or retire-and-rebuy is a pump), and
+ * the rent must actually stop (or the deed is a very expensive badge).
+ */
+describe('buying the property', () => {
+  function atStore(stageId: 'smallUsed' | 'largeUsed' = 'smallUsed', cash = 5_000_000): GameState {
+    const s = cloneState(createInitialState(11, 0));
+    s.stage = stageId;
+    s.cash = cash;
+    return s;
+  }
+
+  it('sells the deed once, for cash on hand, and never twice', () => {
+    const s = atStore();
+    const cost = getStage('smallUsed').propertyCost;
+
+    const broke = { ...cloneState(s), cash: cost - 1 };
+    expect(buyProperty(broke)).toBe(broke); // refused, identity unchanged
+
+    const after = buyProperty(s);
+    expect(after.cash).toBe(s.cash - cost);
+    expect(ownsProperty(after, 'smallUsed')).toBe(true);
+    expect(after.properties).toEqual([{ stage: 'smallUsed', price: cost, boughtAt: 0 }]);
+
+    // Already owned: refused outright, identity unchanged.
+    expect(buyProperty(after)).toBe(after);
+  });
+
+  it('stops the rent at that store, and only that store', () => {
+    const s = atStore();
+    const rentBefore = weeklyExpenses(s).rent;
+    expect(rentBefore).toBe(getStage('smallUsed').rentPerWeek);
+    expect(rentBefore).toBeGreaterThan(0);
+
+    const owned = buyProperty(s);
+    expect(weeklyExpenses(owned).rent).toBe(0);
+
+    // The deed is for one address. Standing anywhere else, full rent.
+    const moved = { ...cloneState(owned), stage: 'largeUsed' as const };
+    expect(weeklyExpenses(moved).rent).toBe(getStage('largeUsed').rentPerWeek);
+  });
+
+  it('mints the stage points immediately, once per stage, EVER', () => {
+    const s = atStore();
+    const pts = getStage('smallUsed').propertyPoints;
+
+    const preview = propertyPreview(s);
+    expect(preview.points).toBe(pts);
+
+    const owned = buyProperty(s);
+    expect(owned.prestige.points).toBe(pts);
+    // The edge is live the moment the deed is signed — no retirement required.
+    expect(prestigeEdge(owned)).toBeCloseTo(pts * BALANCE.prestige.edgePerPoint, 10);
+
+    // Sell the empire (the deed goes with it), start over, climb back, rebuy:
+    // the points do NOT mint again. Without this, retire-and-rebuy is a pump.
+    const fresh = retire(owned);
+    expect(fresh.properties).toEqual([]);
+    expect(fresh.prestige.points).toBe(pts);
+    expect(fresh.prestige.propertyStages).toEqual(['smallUsed']);
+
+    const back = { ...cloneState(fresh), stage: 'smallUsed' as const, cash: 5_000_000 };
+    const rebought = buyProperty(back);
+    expect(ownsProperty(rebought, 'smallUsed')).toBe(true);
+    expect(rebought.prestige.points).toBe(pts); // unchanged
+  });
+
+  it('is an asset swap: the books do not move', () => {
+    const s = atStore();
+    const owned = buyProperty(s);
+
+    expect(owned.stats.lifetimeProfit).toBe(s.stats.lifetimeProfit);
+    expect(owned.weekRevenue).toBe(s.weekRevenue);
+    expect(owned.weekLines).toEqual(s.weekLines);
+    expect(propertyHolding(owned)).toBe(getStage('smallUsed').propertyCost);
+  });
+
+  it('joins the retirement sale at what was paid', () => {
+    const s = atStore();
+    const owned = buyProperty(s);
+    const sale = retirementPreview(owned);
+    expect(sale.propertyValue).toBe(getStage('smallUsed').propertyCost);
+    expect(sale.propertyCount).toBe(1);
+    expect(sale.gross).toBe(sale.cash + sale.lotValue + sale.bookValue + sale.propertyValue);
+  });
+
+  it('does not share the deeds between a state and its clone', () => {
+    const owned = buyProperty(atStore());
+    const copy = cloneState(owned);
+    copy.properties[0].price = 1;
+    copy.prestige.propertyStages.push('largeUsed');
+    expect(owned.properties[0].price).toBe(getStage('smallUsed').propertyCost);
+    expect(owned.prestige.propertyStages).toEqual(['smallUsed']);
   });
 });
 

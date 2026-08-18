@@ -243,6 +243,31 @@ export interface StageDef {
    */
   haggleDepth: number;
   /**
+   * What the land under this store costs, and the prestige it mints.
+   *
+   * THE PROPERTY IS THE ENDGAME SINK. Bought only while STANDING at the store
+   * — which is what makes walking back down the ladder a real play for the
+   * first time: the curbstone house is priced past anything a curbstone
+   * bankroll can reach, so you climb, bank, and come back for it. The guard in
+   * stages.test.ts states the design in one line: every property costs more
+   * than the NEXT store's keys, so at every rung "own this land" is a bigger
+   * decision than "move up".
+   *
+   * Owning ends the rent line for good, mints `propertyPoints` of prestige
+   * (once ever per stage, across careers — see PrestigeState.propertyStages),
+   * and is sold only by retirement. The top two are priced in careers rather
+   * than in months deliberately; the deflation pass measured that time cannot
+   * be bought with margins at realistic entry prices, so the property is where
+   * the long clock lives.
+   */
+  propertyCost: number;
+  /**
+   * Prestige points minted the first time this store's land is ever bought.
+   * The six sum to 75 — exactly the edge cap at `edgePerPoint` — so a full
+   * collection IS a maxed edge, and the board can say so.
+   */
+  propertyPoints: number;
+  /**
    * Who runs the sales side when you are not standing there, and what they
    * charge for it.
    *
@@ -414,6 +439,8 @@ export const STAGES: readonly StageDef[] = [
     creditShift: 0,
     collectionsCapacityMult: 1,
     haggleDepth: 1,
+    propertyCost: 500_000,
+    propertyPoints: 3,
     desk: { title: 'Business partner', commission: 0.5, salaried: false },
     // Average deal 19%, and the band reaches 55% on a rare trim bought cheap.
     // Level 1 is break-even because a curbstone ask band genuinely straddles it:
@@ -440,6 +467,8 @@ export const STAGES: readonly StageDef[] = [
     creditShift: 0,
     collectionsCapacityMult: 1,
     haggleDepth: 1,
+    propertyCost: 1_200_000,
+    propertyPoints: 5,
     desk: { title: 'Sales manager', commission: 0.25, salaried: true },
     // Cash averages 19% here as well; paper averages 33%, because the window
     // markup is at its highest at the store that sells approval for a living.
@@ -469,6 +498,8 @@ export const STAGES: readonly StageDef[] = [
     creditShift: 0.4,
     collectionsCapacityMult: 1,
     haggleDepth: 1,
+    propertyCost: 4_000_000,
+    propertyPoints: 8,
     desk: { title: 'Sales manager', commission: 0.2, salaried: true },
     // The band no longer reaches a loss (worst case 4%), so the bottom stop
     // stops being break-even and starts being a thin deal. This is also the
@@ -506,6 +537,8 @@ export const STAGES: readonly StageDef[] = [
     creditShift: 0.9,
     collectionsCapacityMult: 1,
     haggleDepth: 0.8,
+    propertyCost: 12_000_000,
+    propertyPoints: 12,
     desk: { title: 'Sales manager', commission: 0.12, salaried: true },
     // An invoice is nearly flat, so the whole ladder lives inside thirteen
     // points. This is the store where a percentage-based rule set at a used lot
@@ -536,6 +569,8 @@ export const STAGES: readonly StageDef[] = [
     creditShift: 1.6,
     collectionsCapacityMult: 75 / 43, // a maxed desk carries 75 contracts here
     haggleDepth: 0.7,
+    propertyCost: 50_000_000,
+    propertyPoints: 19,
     desk: { title: 'Sales manager', commission: 0.1, salaried: true },
     serviceContracts: true,
     shop: { hourlyRates: [55, 72, 92, 118, 150], demandPerSec: 0.65, jobScale: 1.4 },
@@ -559,6 +594,8 @@ export const STAGES: readonly StageDef[] = [
     creditShift: 2.6,
     collectionsCapacityMult: 100 / 43, // a maxed desk carries 100 contracts here
     haggleDepth: 0.6,
+    propertyCost: 400_000_000,
+    propertyPoints: 28,
     desk: { title: 'Sales manager', commission: 0.08, salaried: true },
     // The two ladders finally converge, which is `bhphMultiplier` telling the
     // truth: at 1.15 the window markup no longer covers what collections eat,

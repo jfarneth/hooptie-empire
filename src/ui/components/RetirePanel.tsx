@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { payOffLoan, retire, takeLoan } from '../../sim/actions';
-import { BALANCE } from '../../sim/balance';
 import { loanBalance, prestigeEdge, retirementPreview, sharkOffer } from '../../sim/prestige';
 import { getStage } from '../../sim/stages';
 import type { GameState } from '../../sim/types';
 import { useGame } from '../../state/store';
-import { money, moneyShort, theme } from '../theme';
+import { money, theme } from '../theme';
 import { Button, Card, Label, Row } from './ui';
 
 /**
@@ -44,20 +43,21 @@ export function RetirePanel({ state }: { state: GameState }) {
         {edge > 0 ? (
           <Text style={styles.blurb}>
             You know where the bodies are buried: every ask on the feed, auction or invoice, is{' '}
-            {(edge * 100).toFixed(1)}% cheaper for you. Forever.
+            {(edge * 100).toFixed(1)}% cheaper for you. Forever. Prestige comes from owning the
+            ground you trade from — buy a store's property to earn more.
           </Text>
         ) : (
           <Text style={styles.blurb}>
-            Sell the whole operation, bank a point per {moneyShort(BALANCE.prestige.pointDollars)}{' '}
-            of the sale, and start over on a driveway. Points make every future buy cheaper — this
-            is how a career outgrows a single run.
+            Sell the whole operation and start over on a driveway. Retiring banks no prestige —
+            points come from buying the land under your stores, and they survive the sale. This is
+            the escape hatch, not the reward.
           </Text>
         )}
 
         {!confirming ? (
           <Button
             label="Sell the empire"
-            sublabel={`Fetches about ${money(sale.net)}${sale.points > 0 ? ` · +${sale.points} point${sale.points > 1 ? 's' : ''}` : ' · no points'}`}
+            sublabel={`Fetches about ${money(sale.net)}`}
             tone="danger"
             onPress={() => setConfirming(true)}
           />
@@ -67,14 +67,19 @@ export function RetirePanel({ state }: { state: GameState }) {
             <SaleRow label="Cash on hand" value={sale.cash} />
             <SaleRow label={`The lot — ${sale.lotCars} car${sale.lotCars === 1 ? '' : 's'}, forced sale`} value={sale.lotValue} />
             <SaleRow label={`The book — ${sale.bookNotes} note${sale.bookNotes === 1 ? '' : 's'}, sold at a discount`} value={sale.bookValue} />
+            {sale.propertyCount > 0 ? (
+              <SaleRow
+                label={`The deeds — ${sale.propertyCount} propert${sale.propertyCount === 1 ? 'y' : 'ies'}, at what you paid`}
+                value={sale.propertyValue}
+              />
+            ) : null}
             {sale.debt > 0 ? <SaleRow label="The shark, settled off the top" value={-sale.debt} /> : null}
             <View style={styles.rule} />
             <SaleRow label="You walk away with" value={sale.net} strong />
             <Text style={styles.confirmBody}>
-              {sale.points > 0
-                ? `That is ${sale.points} retirement point${sale.points > 1 ? 's' : ''} — your buying edge goes to ${(sale.edgeAfter * 100).toFixed(1)}%. `
-                : 'No points at this size — the fresh start is the whole prize. '}
-              Skills and house rules come with you. The store, the stock, the paper and every
+              No points for selling — prestige is earned buying property, and what you have earned
+              ({state.prestige.points} pt{state.prestige.points === 1 ? '' : 's'}) comes with you.
+              Skills and house rules come too. The store, the stock, the paper, the deeds and every
               upgrade do not.
             </Text>
             <Row gap={6}>
@@ -137,8 +142,10 @@ export function RetirePanel({ state }: { state: GameState }) {
                   {new Date(r.at).toLocaleDateString()}
                 </Text>
               </View>
-              <Text style={[styles.scorePts, r.points === 0 && styles.scorePtsZero]}>
-                {r.points > 0 ? `+${r.points} pt${r.points > 1 ? 's' : ''}` : 'bailed'}
+              {/* Old careers minted points at the sale; that era's records still
+                  say so. New ones read sold/bailed — the mint moved to property. */}
+              <Text style={[styles.scorePts, r.net === 0 && styles.scorePtsZero]}>
+                {r.points > 0 ? `+${r.points} pt${r.points > 1 ? 's' : ''}` : r.net > 0 ? 'sold' : 'bailed'}
               </Text>
             </Row>
           ))

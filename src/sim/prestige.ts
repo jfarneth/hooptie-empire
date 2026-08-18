@@ -2,7 +2,7 @@ import { BALANCE } from './balance';
 import { wholesaleValue } from './economy';
 import { getStage, typicalCarPrice } from './stages';
 import { weeklyPayment } from './economy';
-import type { GameState, Loan } from './types';
+import type { GameState, Loan, StageId } from './types';
 
 /**
  * Retirement — selling the whole operation — and the shark who lends against it.
@@ -15,13 +15,12 @@ import type { GameState, Loan } from './types';
  *
  * The design in three sentences. Retirement is allowed from any store at any
  * moment, because it is the game's ultimate escape hatch — a dead run with a
- * shark at the door can always be sold for whatever it is worth, even nothing.
- * Points are linear in the net proceeds (one per `pointDollars`), so a deep run
- * is the way to earn and an early bail earns roughly zero, which keeps the
- * hatch from being a farm: the reset is its own reward. The points buy a
+ * shark at the door can always be sold for whatever it is worth, even nothing —
+ * and it mints NO prestige: points come from buying the land under your stores
+ * (`buyProperty`), which is the endgame the money is for. The points buy a
  * permanent buy-side edge — every ask, auction or invoice, a little cheaper —
- * because the fiction is that a dealer on their third empire knows where the
- * bodies are buried.
+ * because the fiction is that a dealer who owns the ground they trade from
+ * knows where the bodies are buried.
  */
 
 /**
@@ -34,6 +33,52 @@ export function prestigeEdge(state: Pick<GameState, 'prestige'>): number {
   return Math.min(p.edgeCap, state.prestige.points * p.edgePerPoint);
 }
 
+/** Whether this career holds the deed to a store's land. */
+export function ownsProperty(state: Pick<GameState, 'properties'>, stage: StageId): boolean {
+  return state.properties.some((p) => p.stage === stage);
+}
+
+/** Everything the career's deeds cost, at the prices actually paid. */
+export function propertyHolding(state: Pick<GameState, 'properties'>): number {
+  return state.properties.reduce((sum, p) => sum + p.price, 0);
+}
+
+export interface PropertyPreview {
+  /** What the land under this store costs today. */
+  cost: number;
+  /** Points a purchase would mint — zero if this stage has ever minted before. */
+  points: number;
+  owned: boolean;
+  affordable: boolean;
+  /** The rent line that dies with the purchase. What the deed is worth weekly. */
+  rentPerWeek: number;
+  /** The edge after the purchase, for the confirmation to show. */
+  edgeAfter: number;
+}
+
+/**
+ * What buying the land under the CURRENT store means. The one place it is
+ * priced — the confirmation renders this and `buyProperty` pays it, the same
+ * contract `stageMovePreview` and `retirementPreview` honour.
+ */
+export function propertyPreview(state: GameState): PropertyPreview {
+  const stage = getStage(state.stage);
+  const owned = ownsProperty(state, state.stage);
+  const minted = state.prestige.propertyStages.includes(state.stage);
+  const points = owned || minted ? 0 : stage.propertyPoints;
+  return {
+    cost: stage.propertyCost,
+    points,
+    owned,
+    affordable: !owned && state.cash >= stage.propertyCost,
+    rentPerWeek: stage.rentPerWeek,
+    edgeAfter: Math.min(
+      BALANCE.prestige.edgeCap,
+      (state.prestige.points + points) * BALANCE.prestige.edgePerPoint,
+    ),
+  };
+}
+
 export interface RetirementPreview {
   /** Cash on hand. Can be negative — the shark's payments dig below zero. */
   cash: number;
@@ -44,15 +89,24 @@ export interface RetirementPreview {
   /** The book, sold to a note buyer at a discount on outstanding principal. */
   bookValue: number;
   bookNotes: number;
+  /** The deeds, sold at what was paid for them. Land holds its value; it is
+   *  the one asset a retiring dealer is not forced to discount. */
+  propertyValue: number;
+  propertyCount: number;
   /** Everything above, before the shark is paid. */
   gross: number;
   /** What the shark is owed. Settled off the top; he does not negotiate. */
   debt: number;
   /** What hits the scoreboard. Never negative. */
   net: number;
-  /** Points this retirement would earn. */
+  /**
+   * Always zero now, and kept in the shape so the record stays honest: points
+   * mint when property is BOUGHT, not when the empire is sold. Retirement is
+   * the reset and the escape hatch; it stopped being the mint because a number
+   * you earn by quitting is a number that argues against playing.
+   */
   points: number;
-  /** The edge after this retirement, for the confirmation to show. */
+  /** The edge after this retirement — unchanged, since retiring mints nothing. */
   edgeAfter: number;
 }
 
@@ -82,9 +136,9 @@ export function retirementPreview(state: GameState): RetirementPreview {
 
   const cash = Math.round(state.cash);
   const debt = loanBalance(state.loan);
-  const gross = cash + lotValue + bookValue;
+  const propertyValue = propertyHolding(state);
+  const gross = cash + lotValue + bookValue + propertyValue;
   const net = Math.max(0, gross - debt);
-  const points = Math.floor(net / BALANCE.prestige.pointDollars);
 
   return {
     cash,
@@ -92,14 +146,13 @@ export function retirementPreview(state: GameState): RetirementPreview {
     lotCars: onLot.length,
     bookValue,
     bookNotes: openNotes.length,
+    propertyValue,
+    propertyCount: state.properties.length,
     gross,
     debt,
     net,
-    points,
-    edgeAfter: Math.min(
-      BALANCE.prestige.edgeCap,
-      (state.prestige.points + points) * BALANCE.prestige.edgePerPoint,
-    ),
+    points: 0,
+    edgeAfter: prestigeEdge(state),
   };
 }
 

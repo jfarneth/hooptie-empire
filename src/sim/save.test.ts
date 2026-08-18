@@ -1,5 +1,6 @@
 import { BALANCE } from './balance';
-import { SAVE_VERSION, advance, createInitialState, listCar } from './engine';
+import { SAVE_VERSION, advance, cloneState, createInitialState, listCar } from './engine';
+import { buyProperty } from './actions';
 import { generateCar } from './cars';
 import { retailValue } from './economy';
 import { getModel } from './models';
@@ -624,6 +625,39 @@ describe('migration chain', () => {
         0,
       ),
     ).toBe(filed.profit);
+  });
+
+  /**
+   * v21 -> v22. Property, and prestige rewired onto it.
+   *
+   * An old career owns no land (there was none to buy) and its points — earned
+   * under the retirement mint — stand exactly as they are: re-deriving them
+   * would move an edge the save is already trading with. `propertyStages`
+   * opens empty, so a migrated veteran can still mint every stage's points
+   * once, same as a fresh career.
+   */
+  it('lands a v21 save with no deeds and its retirement points intact', () => {
+    let live = createInitialState(77, 0);
+    live.cash = 5_000_000;
+    live.stage = 'smallUsed';
+    live.prestige = { count: 2, points: 9, propertyStages: [], history: [] };
+
+    const v21: any = JSON.parse(JSON.stringify(live));
+    v21.version = 21;
+    delete v21.properties;
+    delete v21.prestige.propertyStages;
+
+    const migrated = migrate(v21, 21);
+    expect(migrated.properties).toEqual([]);
+    expect(migrated.prestige.points).toBe(9);
+    expect(migrated.prestige.propertyStages).toEqual([]);
+    expect(() => advance(migrated, 5 * 60 * 1000)).not.toThrow();
+
+    // And the new mint works from here: the migrated career can buy its store's
+    // land and earn the stage's points on top of what it brought.
+    const owned = buyProperty({ ...cloneState(migrated), cash: 5_000_000 });
+    expect(owned.properties).toHaveLength(1);
+    expect(owned.prestige.points).toBe(9 + getStage('smallUsed').propertyPoints);
   });
 
   it('gives a v9 save no promotions rather than a back-dated one', () => {

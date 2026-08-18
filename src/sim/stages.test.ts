@@ -132,6 +132,40 @@ describe('the stage table', () => {
     expect(shops[shops.length - 1].shop!.jobScale).toBeGreaterThan(1);
   });
 
+  /**
+   * The property ladder, and the design it carries: at EVERY rung, owning the
+   * land costs more than the next store's keys. That inequality is the
+   * walk-down loop in one line — the curbstone house cannot come out of a
+   * curbstone bankroll, so you climb, bank, and come back for the deed. If a
+   * property ever slips under the next entry price, buying it stops being a
+   * decision that competes with the ladder and becomes a stop on it.
+   */
+  it('prices every deed above the next store\'s keys, rising all the way up', () => {
+    for (let i = 1; i < STAGES.length; i++) {
+      expect(STAGES[i].propertyCost).toBeGreaterThan(STAGES[i - 1].propertyCost);
+    }
+    for (let i = 0; i < STAGES.length - 1; i++) {
+      expect(STAGES[i].propertyCost).toBeGreaterThan(STAGES[i + 1].entryCost);
+    }
+    // The top deed is the endgame clock: an order of magnitude past its own keys.
+    const top = STAGES[STAGES.length - 1];
+    expect(top.propertyCost).toBeGreaterThan(top.entryCost * 10);
+  });
+
+  /**
+   * Six deeds ARE a maxed edge: the points sum to exactly the edge cap at
+   * `edgePerPoint`, so the collection is the prestige system rather than an
+   * approximation of it. Asserted as an identity, not a tolerance — if either
+   * constant moves, the stage points must be re-cut to match, deliberately.
+   */
+  it('mints exactly the edge cap across the full collection', () => {
+    const total = STAGES.reduce((n, s) => n + s.propertyPoints, 0);
+    expect(total * BALANCE.prestige.edgePerPoint).toBeCloseTo(BALANCE.prestige.edgeCap, 10);
+    for (let i = 1; i < STAGES.length; i++) {
+      expect(STAGES[i].propertyPoints).toBeGreaterThan(STAGES[i - 1].propertyPoints);
+    }
+  });
+
   it('sources from a market or a manufacturer, never both and never neither', () => {
     for (const def of STAGES) {
       const { tiers, makeId } = def.sourcing;

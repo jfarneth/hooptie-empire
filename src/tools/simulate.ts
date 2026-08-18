@@ -11,6 +11,7 @@
 import {
   advanceStage,
   buyListing,
+  buyProperty,
   canAdvanceStage,
   counterOffer,
   hireServiceTech,
@@ -46,6 +47,7 @@ import {
 import { RARITIES, RARITY_ORDER } from '../sim/rarity';
 import os from 'node:os';
 import { landedCost } from '../sim/market';
+import { ownsProperty, prestigeEdge, propertyHolding } from '../sim/prestige';
 import { freightMoments, marginScale } from '../sim/margins';
 import { applyTuning, getTunable } from '../sim/tuning';
 import type { GameState, Rarity } from '../sim/types';
@@ -232,6 +234,18 @@ function botTurn(state: GameState, appraisal: AppraisalTally, stay = false): Gam
   //    which makes it the *worst* case for the move and the right thing to
   //    measure the ladder against.
   if (!stay && canAdvanceStage(s)) s = advanceStage(s);
+
+  // 1b. At the TOP of the ladder, buy the ground. The deed is the endgame sink
+  //     and the bot has to exercise it or the whole feature ships unmeasured —
+  //     the retainer-reserve lesson. Only at the top store, deliberately: lower
+  //     deeds compete with climbing, and the walk-down loop (bank upstairs,
+  //     drive down for the cheap deeds) is a hand-play strategy the bot's
+  //     monotonic brain cannot represent. Everything below the premium deed is
+  //     therefore UNMEASURED, and the report says what was bought.
+  if (!nextStage(s.stage) && !ownsProperty(s, s.stage)) {
+    const deed = getStage(s.stage).propertyCost;
+    if (s.cash - deed > float * 2) s = buyProperty(s);
+  }
 
   // 2. Close any walk-up standing in front of us. Paper when it pays better and
   //    the desk has room for it; otherwise sell them the car.
@@ -843,6 +857,11 @@ async function main() {
     `  book / limit       ${String(median((s) => activeNotes(s.notes).length)).padStart(6)} /${String(median((s) => collectionsCapacity(s))).padStart(5)}`,
   );
   console.log(`  collections desk   ${String(median((s) => level(s, 'collections'))).padStart(12)}`);
+  // The deeds. The bot only ever buys the top store's, so "1/6" here is the
+  // measured endgame sink working and the five below it are hand-play territory.
+  console.log(
+    `  deeds held         ${String(median((s) => s.properties.length)).padStart(6)} /    6  (${fmtMoney(median((s) => propertyHolding(s)))} held, ${String(median((s) => s.prestige.points)).padStart(2)} pts, edge ${(median((s) => prestigeEdge(s) * 1000)) / 10}%)`,
+  );
   console.log(`  cash / finance     ${String(median((s) => s.stats.cashDeals)).padStart(6)} /${String(median((s) => s.stats.financeDeals)).padStart(5)}`);
   console.log(`  notes paid / dflt  ${String(median((s) => s.stats.notesPaidOff)).padStart(6)} /${String(median((s) => s.stats.notesDefaulted)).padStart(5)}`);
   console.log(`  repos              ${String(median((s) => s.stats.reposCompleted)).padStart(12)}`);

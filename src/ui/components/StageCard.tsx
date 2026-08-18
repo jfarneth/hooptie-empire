@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { moveToStage, stageMovePreview } from '../../sim/actions';
+import { buyProperty, moveToStage, stageMovePreview } from '../../sim/actions';
+import { ownsProperty, propertyPreview } from '../../sim/prestige';
 import { STAGE_ORDER, getStage, isFranchise, nextStage, stageRank } from '../../sim/stages';
 import type { GameState, StageId } from '../../sim/types';
 import { useGame } from '../../state/store';
@@ -33,6 +34,7 @@ export function StageCard({ state }: { state: GameState }) {
   // they are standing in once there is nothing above it.
   const [viewing, setViewing] = useState<StageId>(nextStage(state.stage)?.id ?? state.stage);
   const [confirming, setConfirming] = useState(false);
+  const [confirmingDeed, setConfirmingDeed] = useState(false);
 
   // A move changes what "next" means, so follow it rather than stranding the
   // card on the store that was just bought.
@@ -48,6 +50,7 @@ export function StageCard({ state }: { state: GameState }) {
   const show = (id: StageId) => {
     setViewing(id);
     setConfirming(false);
+    setConfirmingDeed(false);
   };
 
   return (
@@ -106,7 +109,35 @@ export function StageCard({ state }: { state: GameState }) {
               : 'Base rates'
           }
         />
+        <Fact
+          k="The property"
+          v={
+            ownsProperty(state, viewing)
+              ? 'Yours — the rent stopped the day you bought it'
+              : move.direction === 'stay'
+                ? `${money(target.propertyCost)} to own outright`
+                : `${money(target.propertyCost)} — sold only to the dealer running the store`
+          }
+        />
       </View>
+
+      {/*
+        The deed. Only the store you are standing on will sell you its land —
+        that rule is the whole walk-down design, and the copy says it plainly on
+        every other page. Everything shown comes from `propertyPreview`, which
+        `buyProperty` pays exactly; same contract as the move confirmation.
+      */}
+      {move.direction === 'stay' && !ownsProperty(state, viewing) ? (
+        <DeedBlock
+          state={state}
+          confirming={confirmingDeed}
+          setConfirming={setConfirmingDeed}
+          onBuy={() => {
+            setConfirmingDeed(false);
+            apply(buyProperty);
+          }}
+        />
+      ) : null}
 
       {confirming ? (
         <Confirmation
@@ -121,6 +152,52 @@ export function StageCard({ state }: { state: GameState }) {
         <MoveButton move={move} cash={state.cash} onPress={() => setConfirming(true)} />
       )}
     </Card>
+  );
+}
+
+function DeedBlock({
+  state,
+  confirming,
+  setConfirming,
+  onBuy,
+}: {
+  state: GameState;
+  confirming: boolean;
+  setConfirming: (v: boolean) => void;
+  onBuy: () => void;
+}) {
+  const deed = propertyPreview(state);
+  if (!confirming) {
+    return (
+      <Button
+        label={`Buy the property — ${money(deed.cost)}`}
+        sublabel={
+          deed.points > 0
+            ? `Ends the rent for good · +${deed.points} prestige`
+            : 'Ends the rent for good'
+        }
+        tone={deed.affordable ? 'primary' : 'ghost'}
+        disabled={!deed.affordable}
+        onPress={() => setConfirming(true)}
+      />
+    );
+  }
+  return (
+    <View style={styles.deedConfirm}>
+      <Text style={styles.deedTitle}>The deed</Text>
+      <Text style={styles.deedBody}>
+        {money(deed.cost)}, once. The rent
+        {deed.rentPerWeek > 0 ? ` — ${money(deed.rentPerWeek)} a week —` : ''} stops forever
+        {deed.points > 0
+          ? `, and owning the ground mints ${deed.points} prestige point${deed.points === 1 ? '' : 's'}: every ask on every feed gets cheaper, permanently (${(deed.edgeAfter * 100).toFixed(1)}% after this)`
+          : ''}
+        . Land is sold only at retirement, with everything else — there is no changing your mind.
+      </Text>
+      <Row gap={6}>
+        <Button label="Not yet" tone="ghost" onPress={() => setConfirming(false)} style={{ flex: 1 }} />
+        <Button label="Sign the deed" tone="primary" onPress={onBuy} style={{ flex: 1 }} />
+      </Row>
+    </View>
   );
 }
 
@@ -376,6 +453,15 @@ const styles = StyleSheet.create({
   },
   confirmTitle: { color: theme.colors.text, fontSize: 13, fontWeight: '800' },
   confirmBody: { color: theme.colors.textDim, fontSize: 12, lineHeight: 17 },
+  deedConfirm: {
+    marginTop: 8,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    gap: 6,
+  },
+  deedTitle: { color: theme.colors.text, fontSize: 13, fontWeight: '800' },
+  deedBody: { color: theme.colors.textDim, fontSize: 12, lineHeight: 17 },
   staffList: { gap: 1, paddingLeft: 2 },
   staffRow: { color: theme.colors.warn, fontSize: 11, lineHeight: 15 },
   confirmWarn: { color: theme.colors.danger, fontSize: 11, lineHeight: 15 },

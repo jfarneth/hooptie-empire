@@ -92,8 +92,6 @@ export const TUNABLES: readonly TunableDef[] = [
     help: 'Charged on the cost basis of everything unsold on the lot. This is what makes dead stock cost money.' },
 
   // --------------------------------------------------------------- retirement
-  { path: 'balance.prestige.pointDollars', label: 'Dollars per retirement point', group: 'Retirement', kind: 'money', min: 10_000, max: 100_000_000,
-    help: 'One point per this much net sale value. Linear on purpose: deep runs earn, early bails just reset.' },
   { path: 'balance.prestige.edgePerPoint', label: 'Buy-side edge per point', group: 'Retirement', kind: 'percent', min: 0, max: 0.05,
     help: 'Every ask — auction or invoice — is this much cheaper per point.' },
   { path: 'balance.prestige.edgeCap', label: 'Edge cap', group: 'Retirement', kind: 'percent', min: 0, max: 0.5 },
@@ -320,6 +318,17 @@ export const TUNABLES: readonly TunableDef[] = [
       max: 2,
       help: 'How far below the ask this store’s buyers open, as a share of the global depth. Under ~0.3 counters stop losing buyers at all.',
     });
+    if (stage.entryCost > 0 || stage.propertyCost > 0) {
+      rows.push({
+        path: `stages.${stage.id}.propertyCost`,
+        label: `${stage.name} — property price`,
+        group: 'The ladder',
+        kind: 'money',
+        min: 10_000,
+        max: 2_000_000_000,
+        help: 'The land under the store, bought only while standing there. Ends the rent and mints prestige. Applies to future purchases; a deed already held keeps its price.',
+      });
+    }
     if (stage.shop) {
       rows.push({
         path: `stages.${stage.id}.shop.jobScale`,

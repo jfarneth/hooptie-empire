@@ -664,6 +664,7 @@ export interface SimEvent {
     | 'shop'
     | 'loan'
     | 'retire'
+    | 'property'
     | 'admin';
   label: string;
   amount?: number;
@@ -717,9 +718,33 @@ export interface RetirementRecord {
 export interface PrestigeState {
   /** Retirements completed. Increments even on a $0 bail-out. */
   count: number;
-  /** Lifetime retirement points across every sale. What the edge derives from. */
+  /**
+   * Lifetime prestige points. What the edge derives from.
+   *
+   * MINTED BY BUYING PROPERTY, and by nothing else — retirement used to be the
+   * mint and now awards zero. See `buyProperty` and the stage table's
+   * `propertyPoints`.
+   */
   points: number;
+  /**
+   * Stages whose property has EVER minted points, across every career. A
+   * property sold in a retirement and bought again next career mints nothing —
+   * without this, retire-and-rebuy would be a points pump priced at the
+   * property's resale haircut instead of at the game.
+   */
+  propertyStages: StageId[];
   history: RetirementRecord[];
+}
+
+/**
+ * A deed. The price is recorded because the invariant the books keep — profit
+ * equals cash moved plus assets at cost — needs the figure that was actually
+ * paid, not whatever the admin console says the property costs today.
+ */
+export interface OwnedProperty {
+  stage: StageId;
+  price: number;
+  boughtAt: Millis;
 }
 
 export interface GameState {
@@ -754,6 +779,13 @@ export interface GameState {
   promotions: ActivePromotion[];
   /** What carries across retirements. See PrestigeState. */
   prestige: PrestigeState;
+  /**
+   * Land this career owns, bought store by store while standing on it. Owning a
+   * store's property retires its rent line for good and is the only mint for
+   * prestige points. Sold only by retirement — see `buyProperty` for why there
+   * is deliberately no mid-career sale.
+   */
+  properties: OwnedProperty[];
   /** Outstanding shark loan, or null. One at a time, enforced in takeLoan. */
   loan: Loan | null;
   /**

@@ -766,22 +766,21 @@ export const BALANCE = {
     },
   },
 
-  // ---------------------------------------------------------------- retirement
+  // ------------------------------------------------------ prestige & retirement
   /**
-   * Selling the whole operation and starting over. `src/sim/prestige.ts` does
-   * the arithmetic; these are the dials.
+   * Selling the whole operation, and the prestige system. `src/sim/prestige.ts`
+   * does the arithmetic; these are the dials.
    *
-   * Points are LINEAR in the money retired — one point per `pointDollars` of
-   * net sale — on purpose. Value grows roughly 10x per rung while time grows
-   * roughly 3x, so a linear award makes the deep run the way to earn and the
-   * early retirement worth almost nothing, which is exactly the split wanted:
-   * bailing out of a dead run is an escape hatch, and the reset IS the reward.
+   * POINTS MINT WHEN PROPERTY IS BOUGHT, and nowhere else. Retirement used to
+   * be the mint (linear in the net sale, `pointDollars`), and that constant is
+   * deleted rather than left as a corpse: a number you earn by quitting argues
+   * against playing, where a deed is something you played for. Per-stage point
+   * awards live in `STAGES[].propertyPoints` and sum to 75 — exactly the edge
+   * cap at `edgePerPoint` — so owning all six properties IS a maxed edge.
    */
   prestige: {
     /** What a note buyer pays for the book, as a share of outstanding principal. */
     notesSaleRate: 0.7,
-    /** One retirement point per this many dollars of net sale value. */
-    pointDollars: 1_000_000,
     /** Buy-side edge per point: every ask is this much cheaper, used or invoice. */
     edgePerPoint: 0.002,
     /** The edge never exceeds this, however long the career. */
