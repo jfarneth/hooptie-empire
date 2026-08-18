@@ -250,13 +250,13 @@ export function DealSheet({
                 counter <= neg.currentOffer ? 'Slide up to counter' : `Ask for ${money(counter)}`
               }
               sublabel={
-                counter <= neg.currentOffer
-                  ? undefined
-                  : countersLeft === 1
-                    ? 'last word — they take it or leave'
-                    : counter - costBasis >= 0
-                      ? `clears ${money(counter - costBasis)}`
-                      : `still ${money(costBasis - counter)} under your cost`
+                // The profit readout lives beside the counter value above the
+                // slider; repeating it here said the same number twice on one
+                // card. The last-word warning is the only sublabel that earns
+                // the space.
+                counter > neg.currentOffer && countersLeft === 1
+                  ? 'last word — they take it or leave'
+                  : undefined
               }
               tone="default"
               disabled={counter <= neg.currentOffer}
