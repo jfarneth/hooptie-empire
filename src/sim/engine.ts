@@ -53,7 +53,7 @@ import {
   overCapacityFactor,
   repoCarryingValue,
 } from './notes';
-import { prestigeEdge } from './prestige';
+import { ownsProperty, prestigeEdge } from './prestige';
 import { baseTrim, rarityAskMult } from './rarity';
 import {
   expirePromotions,
@@ -101,7 +101,7 @@ import type {
   WeekLines,
 } from './types';
 
-export const SAVE_VERSION = 21;
+export const SAVE_VERSION = 22;
 
 export function createInitialState(seed: number, wallNow: number): GameState {
   const state = blankState(seed, wallNow);
@@ -214,7 +214,8 @@ function blankState(seed: number, wallNow: number): GameState {
     weekLines: emptyWeekLines(),
     weekProfitAt: 0,
     events: [],
-    prestige: { count: 0, points: 0, history: [] },
+    prestige: { count: 0, points: 0, propertyStages: [], history: [] },
+    properties: [],
     loan: null,
     // The first bill lands a week in, not on the opening tick: a new game should
     // not owe rent before it has seen a car.
@@ -424,7 +425,9 @@ export interface WeeklyExpenses {
  */
 export function weeklyExpenses(s: GameState): WeeklyExpenses {
   const stage = getStage(s.stage);
-  const rent = stage.rentPerWeek;
+  // Owning the land under the store retires the rent line for good — that is
+  // most of what a property IS, the prestige aside. See `buyProperty`.
+  const rent = ownsProperty(s, s.stage) ? 0 : stage.rentPerWeek;
 
   let payroll = 0;
   for (const def of UPGRADES) payroll += level(s, def.id) * weeklyWage(def, s.stage);
@@ -1446,7 +1449,12 @@ export function cloneState(s: GameState): GameState {
     promotions: (s.promotions ?? []).map((p) => ({ ...p })),
     // The history is an array of records and the loan is written by the tick,
     // so both need real copies or mutations leak backwards through history.
-    prestige: { ...s.prestige, history: s.prestige.history.map((r) => ({ ...r })) },
+    prestige: {
+      ...s.prestige,
+      propertyStages: [...s.prestige.propertyStages],
+      history: s.prestige.history.map((r) => ({ ...r })),
+    },
+    properties: s.properties.map((p) => ({ ...p })),
     loan: s.loan ? { ...s.loan } : null,
     tuning: { ...s.tuning },
     stats: { ...s.stats },

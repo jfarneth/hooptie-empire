@@ -27,7 +27,7 @@ import {
   hireCost,
   hireTech,
 } from './shop';
-import { loanBalance, retirementPreview, sharkOffer } from './prestige';
+import { loanBalance, ownsProperty, propertyPreview, retirementPreview, sharkOffer } from './prestige';
 import { getStage, nextStage, stageRank, typicalCarPrice, type StageDef } from './stages';
 import { applyTuning, coerceTunable, defaultValue, getTunable, pruneTuning } from './tuning';
 import { range } from './rng';
@@ -805,16 +805,71 @@ export function payOffLoan(state: GameState): GameState {
   });
 }
 
-// ------------------------------------------------------------- retirement
+// ------------------------------------------------------- property & retirement
+
+/**
+ * Buy the land under the store you are standing on.
+ *
+ * THE ENDGAME SINK, and the only mint prestige points have. Three rules carry
+ * it, each load-bearing:
+ *
+ *  - **You must be standing here.** The deed for a store you are not running is
+ *    not for sale, which is what makes walking back down the ladder a real play
+ *    — the curbstone house is priced past any curbstone bankroll, so you climb,
+ *    bank, and come back for it.
+ *  - **Points mint once per stage, EVER.** `prestige.propertyStages` records
+ *    which stages have minted across every career; a property sold in a
+ *    retirement and bought again next run mints nothing. Without that,
+ *    retire-and-rebuy would be a points pump priced at a resale haircut.
+ *  - **No mid-career sale.** A deed converts back to cash only through
+ *    retirement, at what was paid. Sellable property would be a savings account
+ *    with a prestige rebate; unsellable property is a commitment.
+ *
+ * THE PURCHASE IS AN ASSET SWAP, NOT AN EXPENSE. Cash leaves and a deed of the
+ * same value arrives, so nothing goes through `bookProfit` or `bookRevenue` —
+ * the week's books do not care, `lifetimeProfit` does not move, and the
+ * continuous invariant in engine.test.ts (profit = cash moved + assets at
+ * cost) counts the deed at its recorded price. What the business feels is the
+ * rent line dying (see `weeklyExpenses`) and every future ask getting cheaper
+ * (the edge reads live points and is applied after the RNG draw, so it kicks
+ * in mid-run without moving a single stream).
+ */
+export function buyProperty(state: GameState): GameState {
+  return act(state, (s) => {
+    const stage = getStage(s.stage);
+    if (ownsProperty(s, s.stage)) return false;
+    if (s.cash < stage.propertyCost) return false;
+
+    s.cash -= stage.propertyCost;
+    s.properties.push({ stage: s.stage, price: stage.propertyCost, boughtAt: s.t });
+
+    const minted = s.prestige.propertyStages.includes(s.stage);
+    if (!minted) {
+      s.prestige.points += stage.propertyPoints;
+      s.prestige.propertyStages.push(s.stage);
+    }
+
+    logEvent(s, {
+      t: s.t,
+      kind: 'property',
+      label: minted
+        ? `Bought the ${stage.name.toLowerCase()} property — the rent stops`
+        : `Bought the ${stage.name.toLowerCase()} property — the rent stops, +${stage.propertyPoints} prestige`,
+      amount: -stage.propertyCost,
+    });
+    return true;
+  });
+}
 
 /**
  * Sell the whole operation and start over.
  *
  * Allowed from any store, at any moment, in any financial condition — this is
  * the game's ultimate escape hatch, and a hatch with preconditions is not one.
- * The buyers pay cash for the business (`retirementPreview` is the contract),
- * the shark is settled off the top, and whatever is left is logged on the
- * scoreboard and converted to points.
+ * The buyers pay cash for the business and the deeds (`retirementPreview` is
+ * the contract), the shark is settled off the top, and the net is logged on
+ * the scoreboard. It mints NO points — points come from buying property, and a
+ * number earned by quitting is a number that argues against playing.
  *
  * What the next run inherits is deliberately short: skills (the work taught
  * you), tuning overrides (the admin console is meta), house rules (settings,
@@ -837,7 +892,11 @@ export function retire(state: GameState): GameState {
   fresh.tuning = { ...state.tuning };
   fresh.prestige = {
     count: state.prestige.count + 1,
-    points: state.prestige.points + sale.points,
+    // Retirement mints NOTHING — points come from buying property, and the
+    // stages that have already minted carry so a rebuy next career cannot
+    // mint again. The sale still hits the scoreboard; it just stopped paying.
+    points: state.prestige.points,
+    propertyStages: [...state.prestige.propertyStages],
     history: [
       ...state.prestige.history.map((r) => ({ ...r })),
       {

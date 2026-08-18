@@ -1179,26 +1179,50 @@ Rules that carry the mechanic, each with a test named for it in `desk.test.ts`:
   never had. Desks on existing saves start charging from migration forward —
   terms change on a bought upgrade, deliberately; nothing held is destroyed.
 
-## Retirement, the shark, and the one bill that goes below zero
+## Property, retirement, and the shark
 
-**Retirement is the prestige layer and the ultimate escape hatch, and it is one
-mechanic serving both jobs on purpose.** `retire()` in `actions.ts` sells the
-whole operation — cash, the lot at `forcedSaleRate`, the book to a note buyer at
-`notesSaleRate` of principal — settles the shark off the top, logs the net on
-the scoreboard, and starts a genuinely new game via `createInitialState`. What
-the next run inherits is deliberately short: skills, house rules, tuning
-overrides, and the prestige block. `retirementPreview` in `src/sim/prestige.ts`
-is the one place the sale is priced; the confirmation renders it and the action
-pays it, same rule as `stageMovePreview`.
+**THE PROPERTY IS THE ENDGAME SINK, AND THE ONLY MINT PRESTIGE HAS.**
+`STAGES[].propertyCost` is the land under each store — 500k / 1.2M / 4M / 12M /
+50M / 400M — bought through `buyProperty` ONLY while standing at that store,
+which is what makes walking back down the ladder a real play for the first
+time: the curbstone house cannot come out of a curbstone bankroll, so you
+climb, bank, and drive back for the deed. The guard in `stages.test.ts` states
+the design in one line — every deed costs more than the NEXT store's keys — so
+at every rung "own this land" is a bigger decision than "move up". Owning ends
+that store's rent line for good (`weeklyExpenses` reads the deed), mints the
+stage's `propertyPoints`, and is sold ONLY by retirement: a sellable deed would
+be a savings account with a prestige rebate.
 
-**Points are linear in the money retired — one per `pointDollars` of net — and
-that linearity is the anti-farm design.** Value grows ~10x per rung while time
-grows ~3x, so deep runs earn and an early bail earns ~nothing: the reset IS the
-reward for a dead run, which is why retirement needs no gate and has none. The
-counter still increments on a $0 bail — the board remembers everything,
-including the failures. Points buy a capped buy-side edge (`prestigeEdge`),
-applied where listings are priced so it hits auction and invoice alike, AFTER
-the RNG draw so the stream is identical with or without it.
+Four rules carry it, each mutation-tested:
+
+- **The purchase is an ASSET SWAP, not an expense.** Cash down, deed up,
+  nothing through `bookProfit`/`bookRevenue` — the week's books do not blink
+  and `lifetimeProfit` does not move. The continuous invariant in
+  `engine.test.ts` now reads profit = cash moved + stock at cost + DEEDS at the
+  price paid (`OwnedProperty.price` is stamped for exactly this — the admin
+  console can move `propertyCost` under a held deed).
+- **Points mint ONCE PER STAGE, EVER, across careers.**
+  `prestige.propertyStages` is the record; a deed sold in a retirement and
+  bought again next career mints nothing. Without it, retire-and-rebuy is a
+  points pump priced at a resale haircut.
+- **The edge is live the moment the deed signs.** `prestigeEdge` reads points,
+  and points move mid-run now — applied where listings are priced, AFTER the
+  RNG draw, so streams never move. The six `propertyPoints` sum to exactly
+  `edgeCap / edgePerPoint` (75), so the full collection IS a maxed edge, and
+  that identity is asserted in `stages.test.ts` rather than approximated.
+- **`propertyPreview` is the one place a deed is priced** — the StageCard
+  confirmation renders it and `buyProperty` pays it, same rule as
+  `stageMovePreview` and `retirementPreview`.
+
+**Retirement is the escape hatch, and it stopped being the reward.** `retire()`
+still sells the whole operation — cash, the lot at `forcedSaleRate`, the book
+at `notesSaleRate`, the deeds at what was paid — settles the shark, logs the
+net on the scoreboard, and starts a genuinely new game. But it mints NO points
+now: `pointDollars` is deleted, not deprecated, because a number you earn by
+quitting argues against playing. What the next run inherits is unchanged in
+spirit and one item longer in letter: skills, house rules, tuning overrides,
+and the prestige block — points, the once-ever mint record, and the history.
+The scoreboard keeps recording every sale and every bail.
 
 **The shark is the other half of the system.** One loan at a time, sized in
 cars (`BALANCE.loan.carsOffered`) but never presented that way — the UI shows
@@ -1211,8 +1235,16 @@ the board. There is no missed-payment state — the schedule simply runs and the
 hole deepens until the player recovers or quits.
 
 **The harness never retires and never borrows**, so both mechanics are
-unmeasured by `npm run sim` — the same caveat the house rules carry. A fresh
-run's edge is zero, so every baseline number is untouched by construction.
+unmeasured by `npm run sim` — the same caveat the house rules carry. The bot
+DOES buy one deed: the top store's, once it is standing there with the price
+plus two floats in hand, because the endgame sink had to be exercised or it
+would have shipped unmeasured (the retainer-reserve lesson). The report prints
+`deeds held` so a run says on its face what it bought. Everything below the
+premium deed — and the whole walk-down loop the pricing exists to create — is
+hand-play territory the bot's monotonic brain cannot represent. Note the edge
+is no longer zero by construction in a baseline: the bot's own deed mints 28
+points (~5.6% off every ask), so end-state numbers after the premium milestone
+include the collection working as designed.
 
 ## Running costs, and the spiral they nearly caused
 
@@ -2273,7 +2305,7 @@ Most have a guarding test; check before "simplifying" the code around them.
   internally consistent and simply described a different game. `shopLossRatio`
   is the measured outcome and `expectedLossRatio()` is the only place to get it.
 - **Bump `SAVE_VERSION` and add a migration whenever `GameState` changes shape.**
-  Currently **v21**. Saves are long-lived and local to the device; "we wiped
+  Currently **v22**. Saves are long-lived and local to the device; "we wiped
   saves" is the thing that ends an idle game. `src/state/persistence.ts` also
   carries legacy storage-key fallback for the same reason.
 - **A new limit never retroactively destroys what a save already holds.** A v4
@@ -2443,11 +2475,29 @@ should happen before any listing copy gets written.
   proved time-to-top cannot be lengthened at realistic entry prices without
   margin-starving rungs into the flatline failure mode, so premium at ~80h is
   deliberate: every store is worth standing in, the dollars read like a real
-  business, and the LONG clock is the property sink's job (the planned next
-  phase — points-bearing property purchases priced in multiples of a store's
-  annual profit). Until that lands, the end of a run is ~270h of compounding
-  at the top with nothing to buy, and end cash near $1B is the standing
-  evidence for why the sink is next.
+  business, and the LONG clock is the property collection's job — the $400M
+  Valmont deed is roughly a hundred hours of top-store compounding on its own.
+- **THE TOP DEED PAYS FOR ITSELF SEVERAL TIMES OVER, and that is the first
+  thing to decide about the property system.** Measured at 350h over 8 seeds:
+  milestones identical to the deflation build to the minute (the deed only
+  bites after arrival), the bot buys the $400M Valmont deed — and its 28
+  points mint a 5.6% edge on every invoice at a store whose margins run 3-5%,
+  which roughly DOUBLES top-store metal margin (last-week net 10.6% against
+  2.6-5.4% before). End cash lands at **$1.6B against $1.06B without the
+  property system**: the sink drained $400M and the edge printed ~$950M over
+  the remaining ~270h. As shipped, the deed is not a sink at the top, it is
+  the best investment in the game. Two one-line dials if the owner wants it
+  cooler: defer the edge to the NEXT career (mint points now, edge reads
+  points banked at career start — the old prestige semantics with the new
+  mint), or shrink `edgePerPoint` so the full collection caps nearer 5% than
+  15%. Both preserve the collection; neither has been chosen.
+- **Nobody has played the walk-down loop the deeds were priced for.** Every
+  property costs more than the next store's keys precisely so that "drive back
+  down and buy the house" is the way to collect the cheap deeds — and the bot
+  cannot represent it, so the measured build only ever exercises the top deed.
+  Whether the loop FEELS worth it (down is free, but the return trip pays the
+  entry again until the empire phase lands its keep-the-store mechanic) is a
+  playtest question, and the next phase changes its economics anyway.
 - **Nothing measures a player who declines market reach.** The harness bot buys
   it as soon as it can afford it, so every number in the shipped column assumes
   it. A player who stays local keeps the full margin on every car and runs a

@@ -1,4 +1,5 @@
-import { moveToStage, purchaseUpgrade, sellToWholesaler, setDealPolicy } from './actions';
+import { buyProperty, moveToStage, purchaseUpgrade, sellToWholesaler, setDealPolicy } from './actions';
+import { propertyHolding } from './prestige';
 import { BALANCE, MS_PER_GAME_WEEK } from './balance';
 import { TICK_MS } from './balance';
 import { generateCar } from './cars';
@@ -194,17 +195,27 @@ describe('advance() tick-size invariance', () => {
  * health of the economy.
  */
 describe('the books balance', () => {
-  it('keeps profit equal to cash moved plus stock at cost, across repossessions', () => {
+  it('keeps profit equal to cash moved plus assets at cost, across repossessions and a deed', () => {
     let s = createInitialState(31, 0);
     s.stage = 'smallUsed';
-    s.cash = 200_000;
+    // Enough to buy the store's land mid-run: the deed is the third asset class
+    // the invariant covers, and a run that never holds one tests two of three.
+    s.cash = 2_000_000;
     s.upgrades = { autoBuy: 1, autoList: 1, autoRecon: 1, salesDesk: 1, collections: 3 };
     s.dealPolicy = 'finance';
     s.listings = [];
 
     const startCash = s.cash;
     const startProfit = s.stats.lifetimeProfit;
-    s = advance(s, 3 * 60 * 60 * 1000);
+    s = advance(s, 60 * 60 * 1000);
+
+    // Sign the deed partway through, so the run continues over a held property.
+    // An asset swap: cash down, deed up, profit untouched — if buyProperty ever
+    // books a line, this whole test goes out by exactly the property price.
+    s = buyProperty(s);
+    expect(s.properties).toHaveLength(1);
+
+    s = advance(s, 2 * 60 * 60 * 1000);
 
     // The fixture has to have actually repossessed things, or this is an
     // invariant about a run where nothing interesting happened.
@@ -216,7 +227,7 @@ describe('the books balance', () => {
     // To the dollar rather than exactly: weekly payments carry cents, so a run
     // this long accumulates a few tenths of float. The bug this guards was
     // $200,678 out, so a dollar of slack costs the test nothing.
-    expect(Math.abs(profit - (cash + stockAtCost))).toBeLessThan(1);
+    expect(Math.abs(profit - (cash + stockAtCost + propertyHolding(s)))).toBeLessThan(1);
   });
 
   it('brings a repossessed car back at what is left in it, not at what it cost', () => {

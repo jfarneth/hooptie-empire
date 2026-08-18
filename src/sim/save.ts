@@ -578,6 +578,24 @@ const MIGRATIONS: Record<number, (state: any) => any> = {
     weeks: (s.weeks ?? []).map((w: any) => ({ ...w, lines: w.lines ?? null })),
     weekLines: emptyWeekLines(),
   }),
+
+  /**
+   * v21 -> v22: property, and prestige rewired onto it.
+   *
+   * Old careers own no land — there was none to buy — and their prestige
+   * points, earned under the retirement mint, are left exactly as they stand:
+   * re-deriving them would change an edge somebody is already trading with,
+   * which is the v9 skills lesson in a different suit. `propertyStages` opens
+   * empty, so a migrated veteran can still mint every stage's points once.
+   */
+  21: (s) => ({
+    ...s,
+    properties: s.properties ?? [],
+    prestige: {
+      ...s.prestige,
+      propertyStages: s.prestige?.propertyStages ?? [],
+    },
+  }),
 };
 
 export function migrate(raw: any, fromVersion: number): GameState {
