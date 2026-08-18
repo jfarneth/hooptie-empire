@@ -201,9 +201,36 @@ export function DealSheet({
 
         {canCounter ? (
           <View style={styles.counterBlock}>
+            {/*
+              The number that tracks the drag is PROFIT AT THIS PRICE, not the
+              distance from their offer. Distance-from-offer was the machine's
+              view of the slider — how hard you are pushing — and it answered a
+              question nobody at a car deal is asking. What you want to know
+              mid-drag is what the deal is worth at this number, and whether it
+              is worth anything at all: green over your cost, red under it, the
+              same convention the cash card's Profit line already uses. This is
+              the player's own arithmetic (their cost, their counter), not a
+              read of the buyer — the offer colours stay ask-relative for the
+              reason readOffer documents.
+            */}
             <Row style={{ justifyContent: 'space-between' }}>
               <Text style={styles.counterTitle}>Counter</Text>
-              <Text style={styles.counterValue}>{money(counter)}</Text>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={styles.counterValue}>{money(counter)}</Text>
+                <Text
+                  style={[
+                    styles.counterProfit,
+                    {
+                      color:
+                        counter - costBasis >= 0 ? theme.colors.money : theme.colors.danger,
+                    },
+                  ]}
+                >
+                  {counter - costBasis >= 0
+                    ? `${money(counter - costBasis)} profit`
+                    : `${money(costBasis - counter)} loss`}
+                </Text>
+              </View>
             </Row>
 
             <PriceSlider
@@ -227,7 +254,9 @@ export function DealSheet({
                   ? undefined
                   : countersLeft === 1
                     ? 'last word — they take it or leave'
-                    : `+${money(counter - neg.currentOffer)}`
+                    : counter - costBasis >= 0
+                      ? `clears ${money(counter - costBasis)}`
+                      : `still ${money(costBasis - counter)} under your cost`
               }
               tone="default"
               disabled={counter <= neg.currentOffer}
@@ -385,6 +414,11 @@ const styles = StyleSheet.create({
     color: theme.colors.accent,
     fontSize: 17,
     fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  counterProfit: {
+    fontSize: 12,
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
   read: { color: theme.colors.textDim, fontSize: 12, lineHeight: 16, marginTop: 2 },
