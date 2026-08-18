@@ -311,6 +311,26 @@ export const TUNABLES: readonly TunableDef[] = [
         help: 'Multiplies what the collections desk carries at this store. The desk ladder is what the player buys; this is what the premises are worth.',
       });
     }
+    rows.push({
+      path: `stages.${stage.id}.haggleDepth`,
+      label: `${stage.name} — haggle depth`,
+      group: 'Negotiation',
+      kind: 'ratio',
+      min: 0.05,
+      max: 2,
+      help: 'How far below the ask this store’s buyers open, as a share of the global depth. Under ~0.3 counters stop losing buyers at all.',
+    });
+    if (stage.shop) {
+      rows.push({
+        path: `stages.${stage.id}.shop.jobScale`,
+        label: `${stage.name} — repair order size ×`,
+        group: 'The shop',
+        kind: 'ratio',
+        min: 0.25,
+        max: 8,
+        help: 'Multiplies labour hours per repair order. The dial for a bigger shop — arrivals cap at one a second, so demand cannot feed six benches but bigger tickets can.',
+      });
+    }
     // The ask band is per stage because a franchise buys at invoice and a used
     // lot buys at auction. It is still the sharpest knob in the game.
     rows.push({

@@ -102,6 +102,36 @@ function makeNote(over: Partial<Note> = {}): Note {
   };
 }
 
+// ------------------------------------------------------------- the haggle depth
+
+/**
+ * The stage's `haggleDepth` must actually reach the buyers — a term that lived
+ * on the table and never got threaded through `generateProspect` would leave
+ * the franchises fighting the used-lot fight with every test on the table
+ * still green. Measured over enough walk-ups that the gap dwarfs the noise:
+ * mean opening discount scales with depth, so premium buyers (0.6) open about
+ * two and a half points closer to the ask than curbstone ones (1).
+ */
+describe('the haggle depth reaches the lot', () => {
+  it('opens franchise buyers nearer the ask than used-lot ones', () => {
+    const mean = (stageId: 'curbstone' | 'premiumFranchise') => {
+      const s = cloneState(createInitialState(99, 0));
+      s.stage = stageId;
+      const car = generateCar(s, s.rng, getModel('civet'), s.t);
+      s.cars.push(car);
+      listCar(s, car);
+      let sum = 0;
+      const n = 2_000;
+      for (let i = 0; i < n; i++) {
+        const p = generateProspect(s, s.rng, car, 0, haggleSkillFor(s), s.t);
+        sum += p.negotiation.openingOffer / p.negotiation.anchor;
+      }
+      return sum / n;
+    };
+    expect(mean('premiumFranchise') - mean('curbstone')).toBeGreaterThan(0.015);
+  });
+});
+
 // ---------------------------------------------------------------- the book cap
 
 describe('the book limit is a limit', () => {
