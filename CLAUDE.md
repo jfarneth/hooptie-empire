@@ -960,7 +960,13 @@ first time.
   beside a book at 99.7%, and the owner's read of it ("my loans make all the
   money and my cash deals lose money") was accurate and un-actionable. Split by
   deal, the same store reads metal 24% and book 24% at a small lot — two
-  departments a person can actually compare. Three costs of the change worth
+  departments a person can actually compare. Measured at 350h over 8 seeds
+  (milestones and end state identical to the old-split run to the minute and
+  the dollar, which is the byte-identical claim made good), a Valmont store
+  reads metal **$43.4M kept $736k, 1.7%** beside the book **$3.1M kept $632k,
+  20.3%** — the thin-cash-fat-paper fact of the top of the ladder, stated in
+  two lines a player can act on instead of an accounting artefact they have to
+  see through. Three costs of the change worth
   knowing: **filed weeks on old saves keep old-split history** (a net cannot be
   un-netted — the v19→v20 argument — so no migration touches them); **every
   lines figure this file quotes from before the change reads under the old
@@ -1485,7 +1491,8 @@ true A/B rather than a cross-build read:
   what got the split re-cut.** Under the asset-class split, more contracts meant
   more cost basis landing on metal at signing against a down payment. The split
   is by deal type now (see the books section), so both figures are old-scheme
-  readings and the artefact itself no longer exists.
+  readings and the artefact itself no longer exists: the identical run re-split
+  reads metal +$736k (1.7%) and the book +$632k (20.3%).
 
 The service bay is unchanged at −24.5% and is still a live bug; see the open
 questions.
