@@ -97,6 +97,41 @@ describe('the stage table', () => {
     expect(getStage('premiumFranchise').collectionsCapacityMult).toBeGreaterThan(1);
   });
 
+  /**
+   * The haggle's one per-stage term. 1 on the used stages — the fight IS the
+   * game down there — and falling through the franchises, because a new-car
+   * buyer opens near the sticker. The floor matters as much as the shape:
+   * measured, depths below ~0.3 stop counters losing buyers at all, which
+   * retires the gamble countering is meant to be.
+   */
+  it('keeps the used-lot fight and softens the franchise one, never past the floor', () => {
+    for (const def of STAGES) {
+      expect(def.haggleDepth).toBeLessThanOrEqual(1);
+      expect(def.haggleDepth).toBeGreaterThan(0.3);
+    }
+    for (const def of STAGES.slice(0, 3)) expect(def.haggleDepth).toBe(1);
+    for (let i = 1; i < STAGES.length; i++) {
+      expect(STAGES[i].haggleDepth).toBeLessThanOrEqual(STAGES[i - 1].haggleDepth);
+    }
+    expect(getStage('premiumFranchise').haggleDepth).toBeLessThan(1);
+  });
+
+  /**
+   * Repair orders grow up the ladder, and the first shop is the anchor.
+   * Halvorsen at exactly 1 is what makes zeroing nothing reproduce the
+   * pre-jobScale build on an identical stream; the top store's scale is what
+   * lets six certified benches out-bill their own wages — see shop.test.ts,
+   * which measures that claim through the real engine.
+   */
+  it('writes bigger repair orders at bigger stores, anchored at the first shop', () => {
+    const shops = STAGES.filter((s) => s.shop);
+    expect(shops[0].shop!.jobScale).toBe(1);
+    for (let i = 1; i < shops.length; i++) {
+      expect(shops[i].shop!.jobScale).toBeGreaterThanOrEqual(shops[i - 1].shop!.jobScale);
+    }
+    expect(shops[shops.length - 1].shop!.jobScale).toBeGreaterThan(1);
+  });
+
   it('sources from a market or a manufacturer, never both and never neither', () => {
     for (const def of STAGES) {
       const { tiers, makeId } = def.sourcing;

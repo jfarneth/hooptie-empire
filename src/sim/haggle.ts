@@ -88,11 +88,22 @@ export function humanizePrice(rng: RngState, price: number, increment: number): 
  * lowball, which reinforces the same pricing pressure that `prospectRate`
  * already applies to how much traffic an overpriced car gets.
  */
+/**
+ * `depth` scales how far below the ask this store's buyers open — the one
+ * per-stage term negotiation has. 1 is the used-lot fight; the franchises run
+ * under it, because a new-car buyer opens near the sticker where a Tuesday
+ * auction buyer opens at a number meant to insult you. It multiplies the
+ * opening discount and nothing else: the overpricing lowball still bites at
+ * full strength (a greedy sticker draws red buyers at any store), the room and
+ * aggression draws are untouched so the RNG stream is identical at any value,
+ * and 1 reproduces the build before the term existed.
+ */
 export function openNegotiation(
   rng: RngState,
   anchor: number,
   overpricing: number,
   skill: HaggleSkill,
+  depth = 1,
 ): Negotiation {
   // Some shoppers simply pay the asking price. This is an explicit roll rather
   // than a tail of the discount curve: left to the curve, reaching full price
@@ -106,7 +117,7 @@ export function openNegotiation(
   const room = normalish(rng, skill.roomMean, CFG.roomSpread, 0, 1);
 
   const push = clamp((overpricing - 1) * CFG.overpricingLowballFactor, 0, CFG.maxOverpricingPush);
-  const discount = CFG.maxOpeningDiscount * aggression * (1 + push);
+  const discount = CFG.maxOpeningDiscount * depth * aggression * (1 + push);
 
   const increment = roundingIncrement(anchor);
   const raw = anchor * (1 - discount);

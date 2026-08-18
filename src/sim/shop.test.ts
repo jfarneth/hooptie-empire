@@ -157,15 +157,24 @@ describe('wages', () => {
   });
 
   it('are actually charged, and hurt a shop with no work', () => {
-    // Four techs, no customers (the rate is at the top and the bays are idle by
-    // construction in this fixture) — payroll should simply drain the till.
-    let s = shopAt('premiumFranchise', 4, [4, 4, 4, 4]);
-    s.cash = 200_000;
-    s.nextBillAt = MS_PER_GAME_WEEK;
-    const before = s.cash;
+    // Four techs and literally no customers — demand zeroed through the same
+    // knob the A/B uses, because "the top rate starves the bays" stopped being
+    // true the day Valmont's repair orders got big enough to out-bill the
+    // payroll at any rate. Payroll should simply drain the till.
+    const shopKnobs = BALANCE.shop as { demandScale: number };
+    const prev = shopKnobs.demandScale;
+    shopKnobs.demandScale = 0;
+    try {
+      let s = shopAt('premiumFranchise', 4, [4, 4, 4, 4]);
+      s.cash = 200_000;
+      s.nextBillAt = MS_PER_GAME_WEEK;
+      const before = s.cash;
 
-    s = advance(s, MS_PER_GAME_WEEK + 1_000);
-    expect(s.cash).toBeLessThan(before);
+      s = advance(s, MS_PER_GAME_WEEK + 1_000);
+      expect(s.cash).toBeLessThan(before);
+    } finally {
+      shopKnobs.demandScale = prev;
+    }
   });
 });
 
@@ -265,6 +274,41 @@ describe('comebacks', () => {
     const certified = reworkRate(TOP_GRADE, 77);
     expect(certified.jobs).toBeGreaterThan(entry.jobs);
     expect(certified.rate).toBeLessThan(entry.rate);
+  });
+});
+
+/**
+ * THE DESIGN TARGET THE TOP STORE'S JOB SCALE WAS SIZED FROM, measured through
+ * the real engine rather than asserted off the closed form: a Valmont shop with
+ * every bay staffed at max cert has to make money, comfortably, at the going
+ * rate. This is the owner's requirement stated as a test, and it is the guard
+ * that goes red if the arrival ceiling, the wage derivation, the grade table or
+ * the job scale ever drift back into the configuration that ran the shipped
+ * build's service bay at −24.5%.
+ *
+ * The other half is just as load-bearing: the SAME roster at an Okabe store
+ * must lose money. That flip — entry hands mid-ladder, certified hands at the
+ * top — is what makes the roster a decision that changes over the life of a
+ * store instead of a spreadsheet with one right answer.
+ */
+describe('a full bench of certified hands', () => {
+  function certShopWeeks(stage: GameState['stage'], weeks: number): { billed: number; wages: number } {
+    let s = shopAt(stage, 6, [4, 4, 4, 4, 4, 4], 21);
+    s.cash = 10_000_000;
+    const wages = shopPayroll(s) * weeks;
+    const before = s.stats.shopRevenue;
+    s = advance(s, weeks * MS_PER_GAME_WEEK);
+    return { billed: s.stats.shopRevenue - before, wages };
+  }
+
+  it('pays for itself at the top store, with room to spare', () => {
+    const { billed, wages } = certShopWeeks('premiumFranchise', 6);
+    expect(billed).toBeGreaterThan(wages * 1.25);
+  });
+
+  it('is the wrong roster one rung down, which is the flip the ladder wants', () => {
+    const { billed, wages } = certShopWeeks('midsizeFranchise', 6);
+    expect(billed).toBeLessThan(wages);
   });
 });
 

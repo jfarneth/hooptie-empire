@@ -57,7 +57,7 @@ export function generateProspect(
   // Overpricing is measured against cash retail, so asking over market makes
   // cash buyers open harder — the same pressure that thins out foot traffic.
   const overpricing = retail > 0 ? car.askPrice / retail : 1;
-  const negotiation = openNegotiation(rng, cashCeiling, overpricing, haggle);
+  const negotiation = openNegotiation(rng, cashCeiling, overpricing, haggle, stage.haggleDepth);
 
   const price = bhphPrice(car, stage.bhphMultiplier);
   const weeks = BALANCE.termWeeks[intRange(rng, 0, BALANCE.termWeeks.length - 1)];

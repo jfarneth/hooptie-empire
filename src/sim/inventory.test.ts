@@ -185,7 +185,7 @@ describe('the report', () => {
   });
 
   it('puts the oldest car on top by default', () => {
-    const s = tradingFor(5);
+    const s = tradingFor(8);
     const lines = inventoryReport(s);
     expect(lines.length).toBeGreaterThan(2);
     for (let i = 1; i < lines.length; i++) {
@@ -221,7 +221,7 @@ describe('the report', () => {
   });
 
   it('holds the same cars whichever way it is sorted', () => {
-    const s = tradingFor(5);
+    const s = tradingFor(8);
     const ids = (sort: InventorySort) =>
       inventoryReport(s, sort)
         .map((l) => l.car.id)
@@ -262,7 +262,7 @@ describe('the report', () => {
   });
 
   it('totals every column the lines carry', () => {
-    const s = tradingFor(5);
+    const s = tradingFor(8);
     const lines = inventoryReport(s);
     const t = inventoryTotals(lines);
 

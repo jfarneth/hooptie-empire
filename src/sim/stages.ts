@@ -219,6 +219,30 @@ export interface StageDef {
    */
   collectionsCapacityMult: number;
   /**
+   * How far below the ask this store's buyers open, as a multiplier on
+   * `BALANCE.negotiation.maxOpeningDiscount`. THE HAGGLE'S ONE PER-STAGE TERM.
+   *
+   * It exists because listing margin thins 18.7% → 7.0% up the ladder while
+   * the haggle used to take a flat ~6% off the ask at every rung, which left a
+   * Valmont cash deal keeping 0.9% of retail — under water once floorplan and
+   * the desk's cut land. A new-car buyer genuinely opens near the sticker
+   * where a Tuesday auction buyer opens at a number meant to insult you, so
+   * the term is per stage and falls as the store moves upmarket.
+   *
+   * 1 on the used stages — the fight IS the game down there and nothing about
+   * it moved. Measured through the real desk play (open, one counter, take
+   * what comes back), the franchise ladder lands per-deal cash keep at ~6.6% /
+   * 4.6% / 3.1% against 5.4% / 2.8% / 1.0% at a flat 1. Walk rates barely
+   * move above 0.6; push it toward 0.3 and counters stop losing buyers at
+   * all, which retires the gamble countering is meant to be — that is the
+   * floor to respect if this is ever retuned.
+   *
+   * Scales the depth of a draw the negotiation already makes, so it consumes
+   * no RNG and 1 everywhere reproduces the previous build on an identical
+   * stream.
+   */
+  haggleDepth: number;
+  /**
    * Who runs the sales side when you are not standing there, and what they
    * charge for it.
    *
@@ -287,8 +311,34 @@ export interface StageShop {
    * which is what makes the rate slider a decision rather than a dial. A small
    * shop should charge more and turn nobody away; a maxed one can cut the rate
    * and fill six benches.
+   *
+   * KNOW THE CEILING BEFORE TOUCHING IT: arrivals are one Bernoulli draw per
+   * 1s tick, so the realised rate is `1 − e^−demand` and saturates at one job
+   * a second whatever this is set to. Valmont's 1/sec really delivers 0.63 —
+   * about 88 jobs a game week — and no value here can push past 140. Demand
+   * above ~1 buys almost nothing; the dial for a bigger shop is `jobScale`.
    */
   demandPerSec: number;
+  /**
+   * How big this store's repair orders are, as a multiplier on the global
+   * `jobHoursMin`/`jobHoursSpan` draw.
+   *
+   * THE JOB IS THE UNIT THAT SCALES UP THE LADDER, NOT THE QUEUE — see the
+   * arrival ceiling above; more demand cannot feed a big shop, bigger tickets
+   * can. It is also the honest shape: a premium car's repair order genuinely
+   * is a bigger invoice, not more visits.
+   *
+   * Sized from the design requirement that THE TOP STORE PROFITABLY STAFFS
+   * EVERY BAY AT MAX CERT. At 3.0 a Valmont order averages ~7.3 labour-hours
+   * and six Certified IIIs bill ~$103k a week against ~$50k of wages — and
+   * both the sixth bench and the certification are genuinely optimal (five
+   * certs or six entries each net less). Okabe at 1.4 stays an entry-tech
+   * shop — a full cert bench LOSES money there, which is the flip over the
+   * life of a store the roster design wants. Halvorsen at 1 anchors the A/B:
+   * scales a draw the shop already makes, no RNG consumed, 1 everywhere
+   * reproduces the previous build on an identical stream.
+   */
+  jobScale: number;
 }
 
 /**
@@ -363,6 +413,7 @@ export const STAGES: readonly StageDef[] = [
     bhphMultiplier: 1,
     creditShift: 0,
     collectionsCapacityMult: 1,
+    haggleDepth: 1,
     desk: { title: 'Business partner', commission: 0.5, salaried: false },
     // Average deal 19%, and the band reaches 55% on a rare trim bought cheap.
     // Level 1 is break-even because a curbstone ask band genuinely straddles it:
@@ -388,6 +439,7 @@ export const STAGES: readonly StageDef[] = [
     bhphMultiplier: 1.5,
     creditShift: 0,
     collectionsCapacityMult: 1,
+    haggleDepth: 1,
     desk: { title: 'Sales manager', commission: 0.25, salaried: true },
     // Cash averages 19% here as well; paper averages 33%, because the window
     // markup is at its highest at the store that sells approval for a living.
@@ -416,6 +468,7 @@ export const STAGES: readonly StageDef[] = [
     bhphMultiplier: 1.42,
     creditShift: 0.4,
     collectionsCapacityMult: 1,
+    haggleDepth: 1,
     desk: { title: 'Sales manager', commission: 0.2, salaried: true },
     // The band no longer reaches a loss (worst case 4%), so the bottom stop
     // stops being break-even and starts being a thin deal. This is also the
@@ -452,6 +505,7 @@ export const STAGES: readonly StageDef[] = [
     bhphMultiplier: 1.3,
     creditShift: 0.9,
     collectionsCapacityMult: 1,
+    haggleDepth: 0.8,
     desk: { title: 'Sales manager', commission: 0.12, salaried: true },
     // An invoice is nearly flat, so the whole ladder lives inside thirteen
     // points. This is the store where a percentage-based rule set at a used lot
@@ -461,7 +515,7 @@ export const STAGES: readonly StageDef[] = [
     // The first store with bays behind the showroom. Rates are a real
     // franchise's: under a hundred an hour, and the volume comes from being the
     // only Halvorsen dealer in town.
-    shop: { hourlyRates: [45, 58, 72, 90, 115], demandPerSec: 0.5 },
+    shop: { hourlyRates: [45, 58, 72, 90, 115], demandPerSec: 0.5, jobScale: 1 },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.16, askMax: 1.24, makeId: 'halvorsen' },
   },
   {
@@ -480,10 +534,11 @@ export const STAGES: readonly StageDef[] = [
     trafficPerCar: 0.5,
     bhphMultiplier: 1.22,
     creditShift: 1.6,
-    collectionsCapacityMult: 1.5,
+    collectionsCapacityMult: 75 / 43, // a maxed desk carries 75 contracts here
+    haggleDepth: 0.7,
     desk: { title: 'Sales manager', commission: 0.1, salaried: true },
     serviceContracts: true,
-    shop: { hourlyRates: [55, 72, 92, 118, 150], demandPerSec: 0.65 },
+    shop: { hourlyRates: [55, 72, 92, 118, 150], demandPerSec: 0.65, jobScale: 1.4 },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.2, askMax: 1.27, makeId: 'okabe' },
   },
   {
@@ -502,7 +557,8 @@ export const STAGES: readonly StageDef[] = [
     trafficPerCar: 0.5,
     bhphMultiplier: 1.15,
     creditShift: 2.6,
-    collectionsCapacityMult: 1.5,
+    collectionsCapacityMult: 100 / 43, // a maxed desk carries 100 contracts here
+    haggleDepth: 0.6,
     desk: { title: 'Sales manager', commission: 0.08, salaried: true },
     // The two ladders finally converge, which is `bhphMultiplier` telling the
     // truth: at 1.15 the window markup no longer covers what collections eat,
@@ -513,7 +569,7 @@ export const STAGES: readonly StageDef[] = [
     // where the shop matters most, and not because it is biggest: unit margin
     // here is 6.8% against the big lot's 18.6%, so a dollar of labour is worth
     // nearly three times as much of a car as it is further down.
-    shop: { hourlyRates: [95, 125, 160, 205, 265], demandPerSec: 1 },
+    shop: { hourlyRates: [95, 125, 160, 205, 265], demandPerSec: 1, jobScale: 3 },
     sourcing: { ...FROM_THE_MANUFACTURER, askMin: 1.23, askMax: 1.29, makeId: 'valmont' },
   },
 ];

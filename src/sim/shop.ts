@@ -331,8 +331,11 @@ function bookJob(s: GameState, stage: StageDef, rate: number): ServiceJob {
   const { jobHoursMin, jobHoursSpan } = BALANCE.shop;
   // Squared, so most repair orders are an hour or two and the long ones are
   // genuinely rare. Same shape argument as a service claim, one power gentler.
+  // `jobScale` is the store's ticket size — the same draw at every store,
+  // scaled after it, so the stream is identical whatever the store bills.
   const u = range(s.rng, 0, 1);
-  const hours = Math.round((jobHoursMin + jobHoursSpan * u * u) * 10) / 10;
+  const scale = stage.shop?.jobScale ?? 1;
+  const hours = Math.round((jobHoursMin + jobHoursSpan * u * u) * scale * 10) / 10;
 
   // A franchise shop mostly sees its own marque, which costs nothing to say and
   // is the difference between a queue that reads as a dealership and one that

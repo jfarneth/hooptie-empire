@@ -856,31 +856,42 @@ export const BALANCE = {
    */
   skills: {
     /**
-     * Fifty levels, not ten.
+     * A hundred levels, and the last of them is a career.
      *
      * THE CAP AND THE XP CURVE ARE ONE SETTING AND MUST MOVE TOGETHER. At the
      * old growth of 1.55 the fiftieth level costs on the order of 10^11 XP —
      * raising the cap alone would not lengthen the ladder, it would saw the top
      * forty rungs off it and leave every effect curve stretched over levels
-     * nobody can reach. So the growth came down with it.
+     * nobody can reach. The move to fifty brought the growth down to 1.12 for
+     * exactly that reason.
      *
-     * What the retune preserves is the total: `effect()` still interpolates
-     * `at1` → `atMax` across the whole range, so a maxed skill is worth exactly
-     * what it was worth before. What changes is the shape of getting there —
-     * many small levels instead of ten large ones, spread across a career
-     * rather than an afternoon. A 4h run used to finish maxed; it now lands
-     * somewhere in the high twenties, which is the runway this exists to buy.
+     * The move from fifty to A HUNDRED deliberately leaves the growth where it
+     * is, and this time that is the correct half of the rule rather than a
+     * violation of it: at 1.12 the ladder keeps its shape all the way up. XP
+     * to max goes ~128k → ~37M — about 290x — which is the "much longer" that
+     * was asked for, and at the measured award rates it lands the cap at the
+     * very end of a full 350h career instead of partway up the ladder. The
+     * first fifty levels cost exactly what they did (no migration needed — the
+     * XP behind a level buys the same level), so the early cadence of the v10
+     * retune is untouched.
+     *
+     * What DOES change for an existing save is the effect: `effect()` still
+     * interpolates `at1` → `atMax` across the whole range, so level 50 of 100
+     * is worth about half what level 50 of 50 was. Same trade the v9 → v10
+     * retune made and the same defence: every minute of play is intact, and
+     * the ceiling is a place you now spend the whole game climbing toward.
      */
-    maxLevel: 50,
+    maxLevel: 100,
     /**
      * XP to go from level 1 to 2; each level costs `xpGrowth` times the last.
      *
      * 60 × 1.12^(n-1). Cumulative: ~290 to level 5, ~890 to level 10, ~12.9k to
-     * level 30, ~128k to level 50. Against the old curve (100 × 1.55^(n-1),
-     * ~9.2k to level 10) the first ten levels are an order of magnitude cheaper
-     * and the last twenty are where the time goes — which is the point. The
-     * early game should be handing out level-ups, and the cap should be a thing
-     * you approach over the whole ladder.
+     * level 30, ~128k to level 50, ~4.2M to level 80, ~37M to level 100.
+     * Against the old curve (100 × 1.55^(n-1), ~9.2k to level 10) the first
+     * ten levels are an order of magnitude cheaper and the last twenty are
+     * where the time goes — which is the point. The early game should be
+     * handing out level-ups, and the cap should be a thing a whole career
+     * approaches.
      */
     xpBase: 60,
     xpGrowth: 1.12,

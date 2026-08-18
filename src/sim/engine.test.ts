@@ -226,17 +226,37 @@ describe('the books balance', () => {
     s.upgrades = { autoBuy: 1, autoList: 1, autoRecon: 1, salesDesk: 1, collections: 3 };
     s.dealPolicy = 'finance';
     s.listings = [];
-    s = advance(s, 3 * 60 * 60 * 1000);
 
-    const recovered = s.cars.filter((c) => c.repoCount > 0);
+    // Sampled every half hour rather than read once at the end: a recovered
+    // car is relisted and resold within days, so a single three-hour snapshot
+    // can land on a lot that has already cleared every repo it took — which is
+    // exactly how this fixture went empty when the skill-cap stretch shifted
+    // the trajectory under it.
+    const recovered: GameState['cars'] = [];
+    const seen = new Set<string>();
+    for (let i = 0; i < 6; i++) {
+      s = advance(s, 30 * 60 * 1000);
+      for (const car of s.cars) {
+        if (car.repoCount > 0 && !seen.has(car.id)) {
+          seen.add(car.id);
+          recovered.push(car);
+        }
+      }
+    }
     expect(recovered.length).toBeGreaterThan(0);
     for (const car of recovered) {
       // Never negative — a car that paid for itself sits at zero, and a negative
       // basis would pay the player floorplan interest.
       expect(car.costBasis).toBeGreaterThanOrEqual(0);
-      // And genuinely written down: these cost thousands to buy, and every one
-      // of them has had a down payment and some weeks of payments against it.
-      expect(car.costBasis).toBeLessThan(4_000);
+      // And genuinely written down: every note collected at least a down
+      // payment, so the basis has to sit strictly below every dollar that went
+      // into the unit. Stated against the car's own ledger rather than a
+      // fixture-tuned dollar figure — "< $4,000" was true of one trajectory's
+      // cars and nothing else.
+      expect(car.returned).toBeGreaterThan(0);
+      expect(car.costBasis).toBeLessThan(
+        car.purchasePrice + car.freightPaid + car.reconSpend + car.recoveryCost,
+      );
     }
   });
 });

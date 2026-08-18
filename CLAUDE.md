@@ -310,8 +310,12 @@ Valmont store".
 **THE BOOK IS A PROPERTY OF THE STORE NOW, NOT JUST OF THE DESK.**
 `collectionsCapacity` is two terms: the `collections` upgrade ladder, which is
 how much desk the player has BOUGHT, times `STAGES[].collectionsCapacityMult`,
-which is how much desk the premises are worth. The top two rungs run at 1.5 and
-everything below at 1.
+which is how much desk the premises are worth. The top two rungs run at 75/43
+and 100/43 — a maxed desk carries 75 contracts at an Okabe store and 100 at a
+Valmont — and everything below at 1. The multipliers are written as fractions
+of the maxed desk deliberately: the owner's spec was the book SIZE, and a
+rounder multiplier would land beside it. (The first cut was 1.5 at both — a
+65-contract book — and every measured table below reads under it.)
 
 It is there because the game asserted "the loan book is the game" and then
 rationed the loan book. Measured on the shipped build at 350h over 8 seeds, the
@@ -346,14 +350,20 @@ Two things worth knowing before touching it:
   what the player buys with money; this is what the address is worth. Same line
   the rest of the table draws.
 
-It does **not** fix the other half of what that measurement found, and this file
-should not pretend otherwise: **a cash deal at the top of the ladder keeps almost
-nothing**, because listing margin thins 18.7% → 7.0% up the rungs while the
-haggle takes a flat ~6% off the ask at every store. Measured per deal at level-1
-Closing: 12.6% of retail kept at a curbstone against **0.9% at a Valmont store**,
-which floorplan and the desk's cut finish off — that is the −0.6% metal margin,
-and it is real rather than an artefact of the metal/paper split. A per-stage
-haggle term is the obvious lever and is unmeasured; see the open questions.
+The other half of what that measurement found — **a cash deal at the top kept
+almost nothing** — is now fixed by `STAGES[].haggleDepth`, the haggle's one
+per-stage term. Listing margin thins 18.7% → 7.0% up the rungs while the haggle
+used to take a flat ~6% off the ask everywhere, leaving a Valmont cash deal
+0.9% of retail before floorplan and the desk's cut took it under water. The
+depth is 1 on the used stages (the fight IS the game down there — nothing below
+the franchises moved) and 0.8 / 0.7 / 0.6 up the franchise ladder, which lands
+per-deal cash keep at ~6.6% / 4.6% / 3.1% measured through the real desk play.
+Two facts worth knowing before retuning it: it multiplies the OPENING DISCOUNT
+only, so the overpricing lowball still bites at full strength and no RNG stream
+moves; and there is a measured floor — below a depth of ~0.3 counters stop
+losing buyers at all, which retires the gamble countering is meant to be. The
+guard on both is in `stages.test.ts`, and the threading through
+`generateProspect` is mutation-tested in `business.test.ts`.
 
 ## Trim grades
 
@@ -530,6 +540,21 @@ a service department" is one question with one answer.
   customers, it lets you serve the ones being turned away. Demand scaling with
   bays would make paving print money — the same mistake the lot's traffic model
   exists to avoid.
+- **ARRIVALS SATURATE AT ONE JOB A SECOND, and that ceiling is why the shipped
+  service bay lost money for two builds.** Arrivals are one Bernoulli draw per
+  1s tick, so `demandPerSec: 1` really delivers `1 − e^−1` ≈ 0.63 jobs a
+  second — ~88 a game week — and NO value of demand can push past ~140. At the
+  old flat job size that capped a Valmont shop's revenue at ~$34.4k a week
+  against $50.4k of full-cert wages, which is the measured −24.5% bay line to
+  within a dollar: not the over-staffing trap this file blamed, a building too
+  big for its own arrivals. **The dial for a bigger shop is `jobScale`** —
+  repair orders grow up the ladder (1 / 1.4 / 3, so a Valmont order averages
+  ~7.3 labour-hours) because a premium car is a bigger invoice, not more
+  visits. Sized from the owner's requirement, which is now a measured test in
+  `shop.test.ts`: **the top store profitably staffs every bay at max cert**
+  (six Certified IIIs bill ~$103k a week against ~$50k of wages), while the
+  SAME roster loses money one rung down — the entry-hands-to-certified-hands
+  flip over the life of a store, preserved on purpose.
 - **The rate is the dial and capacity is what makes it a decision.** Underprice a
   small shop and the queue overflows; overprice a big one and six technicians sit
   on full wages. The right rate is a function of how much bench you have, so it
@@ -1392,9 +1417,12 @@ and the desk do not, so treat the deltas as cross-build:
 | Midsize franchise | 44h13m | 49h46m | ~39h18m |
 | Premium franchise | 264h29m, then dead | 320h34m | ~212h18m, **still trading** |
 
-That shipped column has since moved on the top rung only — the bigger book at the
-top two stores takes the premium franchise to **~164h**. See the A/B table below;
-the four rungs under it are untouched to the minute.
+That shipped column has since moved twice: the bigger book at the top two
+stores took the premium franchise to **~164h** (see the A/B table below; the
+four rungs under it untouched to the minute), and the four-knob retune that
+followed — books to 75/100, the per-stage haggle depth, the shop's job scale
+and the skill cap at 100 — takes it to **~104h** with the whole ladder
+re-priced. See the retune table below.
 
 The reach column is a true A/B — `balance.market.supplyScale=0` leaves only
 local stock and reproduces the middle column on an identical RNG stream, because
@@ -1496,6 +1524,46 @@ true A/B rather than a cross-build read:
 
 The service bay is unchanged at −24.5% and is still a live bug; see the open
 questions.
+
+**THE FOUR-KNOB RETUNE, measured at `--hours=350 --seeds=8` against the build
+above.** Books to 75/100 at the top two stores, `haggleDepth` 0.8/0.7/0.6 on
+the franchises, `jobScale` 1/1.4/3 on the shops, and the skill cap at 100 on
+the unchanged 1.12 curve — four owner directives landed together, so this
+column is their COMBINED effect and deliberately not an A/B of any one of them.
+Every knob has an inert setting that reproduces the left column on an identical
+stream (multipliers to 1, caps back), so any of the four can still be isolated
+later if a number needs attributing:
+
+| | before | the retune |
+|---|---|---|
+| Small used dealership | 2h32m | 2h29m |
+| Large used dealership | 6h44m | 6h39m |
+| Low-cost franchise | 10h33m | 10h49m |
+| Midsize franchise | 42h41m | **38h25m** |
+| Premium franchise | 163h59m | **104h19m** |
+| end cash | $275.1M | **$1.364B** |
+| lifetime profit | $435.6M | **$1.525B** |
+| book / limit | 65 / 65 | **100 / 100** |
+| finance deals | 20,033 | 28,690 |
+| Metal (last 12 wks) | $736k kept, 1.7% | **$1.57M kept, 3.5%** |
+| The book | $632k kept, 20.3% | $1.08M kept, 23.4% |
+| Service bay | **−$102k, −24.5%** | **+$612k, +50.3%** |
+
+- **The service bay is FIXED, and by the diagnosis rather than the bot.** The
+  bot's policy did not change; the building's economics did (`jobScale` — see
+  the shop section for the arrival-ceiling arithmetic). `turned away` reads 3%
+  at the top store, which is a maxed building at its limit, on theme.
+- **The used rungs moved only by the skills stretch** (a few minutes each way —
+  the 64-seed table above prices it), because every other knob is inert below
+  the franchises by construction.
+- **THE TOP OF THE LADDER IS NOW HOT, and nobody has chosen that on purpose.**
+  Midsize → premium is a 2.7x step against a ~3x ladder norm — the first time
+  the top step has been SHALLOWER than the ladder — and end cash quintupled to
+  $1.36B, with the last-week net margin at 5.1% against 2.7%. Each directive
+  was individually sound; their sum makes the premium store a compounding
+  machine. If the late game wants slowing back down, `entryCost` and
+  `upgradeCostMultiplier` remain the honest levers, and the open questions say
+  so.
 
 `npm run sim` prints both features now:
 
@@ -1621,22 +1689,31 @@ compare against for everything below the franchise:
 
 | | |
 |---|---|
-| stage 2 reached | ~2h26m (64/64) |
-| first note written | ~2h28m |
-| first repossession | ~2h59m |
-| first note paid off | ~3h20m |
-| $100k cash | ~2h19m |
-| $50k portfolio | ~2h35m |
-| walk-away rate | ~60.5% |
-| bad-buy rate (true loss: `price > retailValue`) | ~1.2% |
-| appraisal error | ~7.1% |
+| stage 2 reached | ~2h32m (64/64) |
+| first note written | ~2h34m |
+| first repossession | ~3h00m (62/64) |
+| first note paid off | ~3h26m (61/64) |
+| $100k cash | ~2h25m |
+| $50k portfolio | ~2h38m |
+| walk-away rate | ~64.5% |
+| bad-buy rate (true loss: `price > retailValue`) | ~1.5% |
+| appraisal error | ~8.8% |
 | Buying / Closing / Wrenching to level 5 | 38m / 31m / 33m |
-| end cash at 4h | ~$39k |
-| end portfolio at 4h | ~$278k |
-| lifetime profit at 4h | ~$590k |
-| cars sold at 4h | ~318 |
-| days on the lot (curbstone / small lot) | 6.1d / 7.3d |
+| end cash at 4h | ~$35k |
+| end portfolio at 4h | ~$238k |
+| lifetime profit at 4h | ~$502k |
+| cars sold at 4h | ~283 |
+| days on the lot (curbstone / small lot) | 6.5d / 8.0d |
 | lot at capacity | ~79% of the run |
+
+**This table was re-measured after the skill cap went 50 → 100**, and the shape
+of the change is the fingerprint of that stretch: the level-5 milestones are
+IDENTICAL to the minute (the XP curve did not move), while everything the
+effect curves touch is 10-15% smaller, because a 4h skill level now carries
+half the effect it did. The used stages run on those effects — Buying's σ,
+Closing's walk odds, Wrenching's speed — so this is the dilution being priced,
+not a regression: the previous row of this table (stage 2 ~2h26m, profit
+~$590k, sold ~318, error ~7.1%) reads under the 50-cap and is not comparable.
 
 **`lifetime profit` IS NOT COMPARABLE TO ANY FIGURE THIS FILE QUOTED BEFORE THE
 REPOSSESSION FIX**, and that is a change to the definition rather than to the
@@ -1702,29 +1779,36 @@ Hard-won during the skills work. Every one of these cost a wrong turn.
   and shifting position up by 0.06 took end cash from $1.52M to $282k; another
   0.06 took it to $28k. Results track the bot's buyable pass rate almost
   exactly. Do not widen or move it without a 64-seed run.
-- **The skill cap and the XP curve are ONE setting.** `maxLevel` is 50 and
-  `xpGrowth` is 1.12, and they moved together for a reason that is easy to miss:
-  at the old growth of 1.55 the fiftieth level costs on the order of 10^11 XP,
-  so raising the cap alone does not lengthen the ladder — it saws the top forty
-  rungs off and leaves every effect curve stretched across levels nobody can
-  reach. `effect()` still interpolates `at1` → `atMax` over the whole range, so
-  a maxed skill is worth exactly what it always was; what changed is that you
-  arrive there over a career instead of an afternoon. Measured at 64 seeds over
-  4h, the retune left pacing flat (stage 2 3h54m → 3h52m, end cash −0.2%,
-  lifetime profit +0.7% — all inside the noise band) while level 5 arrives about
-  three times sooner (Buying 2h46m → 52m). The visible cost is that a 4h run now
-  finishes in the high twenties rather than maxed, so Buying's σ stays wider for
-  longer: appraisal error 7.8% → 9.6% and bad-buy rate 21.5% → 25.1% — both
-  quoted under the old over-wholesale definition of a bad buy, which was
-  retired with the buyer's retail gate.
+- **The skill cap and the XP curve are ONE setting.** `maxLevel` is 100 and
+  `xpGrowth` is 1.12. The first move (10 → 50) had to bring the growth down
+  with it — at the old 1.55 the fiftieth level costs on the order of 10^11 XP,
+  so raising the cap alone saws the top rungs off and stretches every effect
+  curve across levels nobody can reach. The second move (50 → 100) deliberately
+  left the growth alone, and that is the rule correctly applied rather than
+  broken: at 1.12 the ladder keeps its shape all the way up, the first fifty
+  levels cost exactly what they did (no migration — the XP behind a level buys
+  the same level), and XP to max goes ~128k → ~37M, about 290x, which lands
+  the cap at the very end of a full 350h career instead of partway up the
+  ladder. What DOES move for an existing save is the effect: `effect()` still
+  interpolates `at1` → `atMax` over the whole range, so level 50 of 100 is
+  worth about half what level 50 of 50 was — every minute of play intact, the
+  ceiling now a career away. Measured at 64 seeds over 4h: the level-5
+  milestones are unchanged to the minute (38m / 31m / 33m — same curve), and
+  the dilution prices the early economy about 10-15% down (stage 2 2h26m →
+  2h32m, lifetime profit $590k → $502k, cars sold 318 → 283, appraisal error
+  7.1% → 8.8%) because a 4h skill level now carries half the effect. That is
+  the cost of "the cap takes much longer", paid where it shows.
   **A level number is not comparable across a change to either constant** — see
   the v9 → v10 migration, which re-derives the level from the XP behind it
-  rather than carrying the number across.
+  rather than carrying the number across. A cap change at the SAME curve needs
+  no migration, which is why v21 did not bump.
 - **A milestone level is set by XP, not by proportion.** `extraCounterAt` is 15
-  of 50, not 30. It was 6 of 10 and cost ~1,445 XP; level 15 costs ~1,940, so
-  Closing's third counter still arrives at roughly the point in a run it always
-  did. Holding the *fraction* would have put it at ~10k XP and quietly deferred
-  the best thing Closing does by hours.
+  of 100, not 30 of 100. It was 6 of 10 and cost ~1,445 XP; level 15 costs
+  ~1,940, so Closing's third counter still arrives at roughly the point in a
+  run it always did — and it survived the 50 → 100 stretch untouched for the
+  same reason, because the XP curve did not move. Holding the *fraction* would
+  have put it at ~10k XP and quietly deferred the best thing Closing does by
+  hours.
 - **Throughput compounds; judgement doesn't.** Anything that adds cars per hour
   is worth far more than it looks: shortening the listing interval measured +15%
   end cash, one extra feed slot +21%. This is why Buying grants *no* throughput
@@ -2277,27 +2361,12 @@ should happen before any listing copy gets written.
   franchise want a term too is unargued — the measurement that justified the top
   two was that finance was rationed to 4% of deals there, and nobody has taken
   the same reading at the stores where cash is still genuinely profitable.
-- **THE HAGGLE NEVER LEARNED ABOUT THE LADDER, and it is why a cash deal at the
-  top keeps nothing.** Listing margin thins 18.7% → 7.0% from the curbstone to a
-  Valmont store, but the buyer still takes ~6% off the ask at every rung, because
-  `BALANCE.negotiation` has no per-stage term. Measured per closed deal at
-  level-1 Closing: 12.6% of retail kept at a curbstone, 5.3% at a Halvorsen,
-  **0.9% at a Valmont** — and floorplan (~0.4%/week against a ~7-day dwell) plus
-  the desk's cut take that under water. The harness read it as a **−0.6% metal
-  margin on $45.8M of turnover** under the old asset-class split; the deal-type
-  split shows the same fact undiluted, since metal is now cash deals only. A
-  per-stage room multiplier is the obvious fix
-  and is on theme (a new-car buyer at a franchise genuinely haggles less than
-  somebody at a Tuesday auction lot), but this file's own warning applies —
-  franchise margin is a cliff, not a dial, and the last attempt to move it took
-  the midsize rung from 49h to 76h. Nobody has measured it.
-- **The service bay is losing money again on the shipped build.** The 350h ladder
-  reads `Service bay took $412,112, kept $-93,648 (-22.7%)`. That is the same
-  over-staffing trap the harness bot was fixed for once already and which this
-  file records costing 66 hours on the premium franchise. It is not diagnosed —
-  the bot staffs against queued work now, so this is either the rate slider
-  sitting wrong at the default or the promotion policy putting expensive hands on
-  benches that do not need them.
+- **The haggle depth's franchise values are one measured guess.** 0.8 / 0.7 /
+  0.6 was picked to land "a little higher" on per-deal cash keep (see the stage
+  ladder section) and the ladder re-measured fine, but nobody has FELT a
+  franchise where four buyers in five open amber-or-better. If the top reads as
+  too easy, the floor to respect is ~0.3 — below it counters stop losing buyers
+  and the countering gamble dies.
 - **`npm run sim` does NOT print the business-line split per store**, whatever
   the books section above says. It prints one pooled figure over the last 12
   filed weeks, which in a 350h run means "at whatever store the business ended
@@ -2311,14 +2380,14 @@ should happen before any listing copy gets written.
   the back half of the game. If that reads badly in play, the honest fix is to
   give Buying a franchise-side effect (allocation throughput, say) rather than to
   put fake uncertainty back on a new car.
-- **The top rung is MOSTLY re-gated now, and nobody chose the number.** The step
-  from midsize to premium was 6.5x, then 5.4x once reach let the top stores
-  trade, and is **3.8x** (42h41m to 163h59m) since the top two got a bigger
-  book — against roughly 3x for the rest of the ladder. That is close enough to
-  call it fixed, but it was fixed as a side effect of relieving the finance
-  rationing rather than by anybody picking a pace: 1.5 was chosen because the
-  premises are worth about half as much desk again, not because it landed the
-  ladder. If the step wants deliberate tuning, `entryCost` and
+- **The top rung has swung from under-gated to HOT, and nobody has chosen its
+  pace on purpose at any point.** The midsize → premium step was 6.5x, then
+  5.4x (reach), then 3.8x (the bigger book), and is **2.7x** since the
+  four-knob retune (38h25m to 104h19m) — the first time the top step has been
+  SHALLOWER than the ~3x ladder norm — while end cash quintupled to $1.36B and
+  the last-week net margin doubled to 5.1%. Every move was a directive with its
+  own justification; the pace of the top rung has only ever been their side
+  effect. If a deliberate number is wanted, `entryCost` and
   `upgradeCostMultiplier` are still the honest levers and the note below on the
   upgrade table still stands.
 - **Nothing measures a player who declines market reach.** The harness bot buys
@@ -2333,14 +2402,15 @@ should happen before any listing copy gets written.
   tutorial is a lot to ask before the game changes shape. If that needs
   shortening, `lotPurchaseCost` is the honest lever — it targets stage 1
   without undoing the negotiation change. Needs a human playing it.
-- **Fifty levels is a shape nobody has felt yet.** The retune keeps a maxed
-  skill worth exactly what it was and hands out level-ups roughly three times as
-  often early, which is the trade it was chosen for — but the harness can only
-  say that pacing did not move. What it cannot say is whether a 4h run finishing
-  in the high twenties reads as "still climbing" or as "will never get there",
-  and whether the shallower per-level step still feels like a reward. Needs a
-  human playing it. `maxLevel` and `xpGrowth` are both in Office → Admin, which
-  is the fastest way to try a different length.
+- **A hundred levels is a shape nobody has felt yet**, and it is a sharper
+  version of the question fifty raised. The cap is now a whole-career grind
+  (~37M XP, roughly the very end of a 350h run) and a 4h run finishes in the
+  high twenties OF A HUNDRED with each level worth half what it was — the
+  harness prices that at 10-15% off the early economy, but only a human can say
+  whether "level 28/100" reads as a career worth having or a wall. `maxLevel`
+  and `xpGrowth` are both in Office → Admin, which is the fastest way to try a
+  different length; remember they are ONE setting, and that the cap moving
+  alone was only correct because the growth was already 1.12.
 - **The payment push is the least-measured thing in the game.** The harness bot
   runs it at "their number", so every shipped figure is the un-pushed economy;
   what a player gets from pushing is bounded only by the unit test that says a
